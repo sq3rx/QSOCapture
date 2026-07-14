@@ -103,10 +103,10 @@ def on_contact(contact: N1MMContact) -> None:
     from n1mm_listener import schedule_qso_slice
 
     logger.info("Scheduling slice for %s", contact.call)
-    # Year-prefix the contest so the same contest repeated in different
-    # years (e.g. CQWW 2025 vs 2026) is stored in a separate folder/record.
-    year = time.strftime("%Y", time.localtime(contact.timestamp))
-    contact.contest = f"{year}_{contact.contest}" if contact.contest else f"{year}_GENERAL"
+    # NOTE: do NOT year-prefix contact.contest here. The audio backend's
+    # slice_qso() already prefixes the contest with the year (e.g.
+    # "2026_CQWWCW") when building the directory and DB record. Prefixing
+    # here too produced a doubled prefix like "2026_2026_CQWWCW".
     # The QSO slice (and its DB record) is created by the audio backend once
     # the post-roll delay elapses, so we only schedule the slice here.
     schedule_qso_slice(contact, audio_source, cfg, None)

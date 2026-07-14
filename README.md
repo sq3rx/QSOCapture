@@ -1,5 +1,7 @@
 # QSOCapture by SQ3RX
 
+**Version:** 1.1.0
+
 **QSOCapture** is a lightweight contest audio recorder and log player for
 amateur radio operators. It captures audio from your receiver (via the
 **TCI** protocol from ExpertSDR or a regular **soundcard** input), slices out
@@ -78,6 +80,35 @@ pip install -r requirements.txt
 
 4. Log a contact in N1MM Logger+ and watch it appear in the **QSOCapture**
    dashboard with its audio slice ready to play.
+
+---
+
+## Desktop EXE (built-in browser)
+
+The app can also be shipped as a single standalone ``QSOCapture.exe`` that
+launches the web server and opens the dashboard in an **embedded browser**
+(Edge WebView2 on Windows) — no external browser or Python install required.
+
+Build it yourself (Windows):
+
+```bash
+pip install -r requirements.txt
+pyinstaller build.spec
+```
+
+The result is ``dist/QSOCapture.exe``. Double-click it and the dashboard opens
+in its own window. ``config.cfg``, ``recordings/`` and ``qsos.db`` are stored
+next to the executable. If the embedded WebView2 engine is missing, the app
+automatically falls back to opening your default system browser.
+
+To run the desktop wrapper directly (without building):
+
+```bash
+python launcher.py
+```
+
+> Note: the WebView2 runtime ships with modern Windows 10/11. On older systems
+> install it from Microsoft, otherwise the system-browser fallback is used.
 
 ---
 
@@ -172,12 +203,14 @@ confirmation prompt).
 
 ```
 QSOCapture/
-├── main.py            # FastAPI app, web dashboard, orchestration
+├── main.py            # FastAPI app, web dashboard, orchestration (python main.py)
+├── launcher.py        # Desktop EXE entry point (embedded WebView2 browser)
 ├── config.py          # Config loading/saving + schema (with help text)
 ├── db.py              # SQLite storage of QSO records
 ├── audio_manager.py   # Audio capture (TCI / soundcard) + circular buffer
 ├── n1mm_listener.py   # N1MM Logger+ UDP listener
 ├── index.html         # Tailwind dashboard (served by main.py)
+├── build.spec         # PyInstaller spec for building the standalone EXE
 ├── config.cfg         # Your settings (created/updated automatically)
 ├── qsos.db            # SQLite database (created on first run)
 ├── recordings/        # Recorded audio (created on first run)
@@ -200,6 +233,25 @@ QSOCapture/
 | GET | `/audio/{contest}/{file}` | Stream a recorded audio file. |
 
 ---
+
+## Troubleshooting
+
+ - **No audio recorded / buffer stays empty** — check the source in
+   **⚙ Settings**: for `tci` mode verify `tci_host`/`tci_port` match ExpertSDR's
+   TCI server (default `127.0.0.1:50001`, enabled in ExpertSDR options); for
+   `soundcard` mode pick the correct `soundcard_device` substring and confirm
+   the OS is routing receiver audio to that input.
+ - **WebView2 window doesn't open** — modern Windows 10/11 ships WebView2. If
+   the embedded browser fails to initialise, QSOCapture automatically falls
+   back to opening your default system browser at the dashboard URL.
+ - **N1MM contacts not appearing** — ensure N1MM Logger+ broadcasts on the same
+   UDP port configured in `n1mm_udp_port` (default `12060`) and that the
+   machine's firewall allows the bind on `n1mm_bind_ip` (default `0.0.0.0`).
+ - **Broken / unplayable continuous chunks** — if you stop the app while a
+   continuous chunk is open it is finalised automatically; empty chunks (no
+   audio received) are discarded so the continuous view never shows dead rows.
+ - **Rebuilding the EXE** — after changing source, delete `build/` and `dist/`
+   and run `pyinstaller build.spec` again to avoid stale artifacts.
 
 ## License
 

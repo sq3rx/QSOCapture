@@ -164,8 +164,11 @@ def query_contacts(
         sql += " AND (file_path IS NULL OR file_path NOT LIKE ?)"
         args.append("_continuous/%")
     if contest:
-        sql += " AND contest=?"
-        args.append(contest)
+        # Partial / fragmentary match (substring) so the dashboard contest
+        # filter accepts e.g. "CQWW" or "2026_CQ" in addition to the
+        # exact directory name. Case-insensitive via lower().
+        sql += " AND lower(contest) LIKE lower(?)"
+        args.append(f"%{contest}%")
     if band:
         # Substring match so "20M", "20m" and "20" all match a stored "20M".
         sql += " AND band LIKE ?"

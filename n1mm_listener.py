@@ -51,6 +51,7 @@ class N1MMContact:
     exchange: str = ""        # exchange / RST (exch1)
     exchange2: str = ""       # exch2
     exchange3: str = ""       # exch3
+    rcvnr: str = ""          # received serial number (<rcvnr>)
     operator: str = ""        # logging operator (our side)
     station: str = ""         # station name (our side)
     contest_nr: str = ""      # contest number
@@ -123,6 +124,10 @@ class N1MMListener:
             # Ignore radio packets / other message types for now.
             return
 
+        # Log the full received N1MM packet so we can inspect exactly which
+        # fields (e.g. RcvdExchange, exch1, rcvnr) carry the data we want.
+        logger.info("N1MM raw packet:\n%s", text)
+
         try:
             root = ET.fromstring(text)
         except ET.ParseError:
@@ -141,6 +146,41 @@ class N1MMListener:
         freq = (self._find_text(root, "txfreq") or self._find_text(root, "rxfreq")
                 or self._find_text(root, "freq") or "").strip()
 
+        # The dashboard 'Exch' column is driven by ``exchange``. N1MM puts
+        # the *received* exchange in different places depending on the contest:
+        #   * <RcvdExchange>  - full received exchange (e.g. "599 40")
+        #   * <exch1>/<exchange> - exchange component(s); N1MM sometimes
+        #                         yields a literal "0" here for zone contests
+        #   * <rcv> + <rcvnr>  - received RST + received serial/zone
+        # We prefer the full received exchange, then the exchange component
+        # (skipping a bare "0"), then fall back to the RST/serial combo. This
+        # keeps the real received value (e.g. the CQWW zone) instead of "0".
+        rcvd = (self._find_text(root, "RcvdExchange") or "").strip()
+        exch1 = (self._find_text(root, "exch1") or self._find_text(root, "exchange") or "").strip()
+        rcvnr = (self._find_text(root, "rcvnr") or "").strip()
+        # Zone contests (e.g. CQWW) report the received zone in <zone>;
+        # <rcvnr> is "0" there. The <RcvdExchange>/<rcv> fields also carry
+        # the RST (e.g. "599 25"), but for the Exch column we only want the
+        # received exchange component (zone/serial), never the RST.
+        zone = (self._find_text(root, "zone") or "").strip()
+
+        def _strip_rst(s: str) -> str:
+            # Drop a leading RST token like "599" / "59" from a full exchange.
+            parts = s.split()
+            kept = [p for p in parts if not (p.isdigit() and p[0] == "5" and 2 <= len(p) <= 3)]
+            return " ".join(kept).strip() or s
+
+        if zone:
+            exchange = zone
+        elif rcvnr and rcvnr != "0":
+            exchange = rcvnr
+        elif rcvd:
+            exchange = _strip_rst(rcvd)
+        elif exch1 and exch1 != "0":
+            exchange = exch1
+        else:
+            exchange = ""
+
         contact = N1MMContact(
             call=call.strip().upper(),
             band=self._normalize_band(band),
@@ -153,9 +193,10 @@ class N1MMListener:
             qth=(self._find_text(root, "qth") or "").strip(),
             grid=(self._find_text(root, "grid") or "").strip(),
             comment=(self._find_text(root, "comment") or "").strip(),
-            exchange=(self._find_text(root, "exch1") or self._find_text(root, "exchange1") or "").strip(),
+            exchange=exchange.strip(),
             exchange2=(self._find_text(root, "exch2") or "").strip(),
             exchange3=(self._find_text(root, "exch3") or "").strip(),
+            rcvnr=rcvnr.strip(),
             operator=(self._find_text(root, "operator") or "").strip(),
             station=(self._find_text(root, "stationname") or "").strip(),
             contest_nr=(self._find_text(root, "contestnr") or "").strip(),
@@ -213,9 +254,25 @@ def schedule_qso_slice(contact: N1MMContact, source, cfg,
             timestamp=contact.timestamp,
             pre_roll=cfg.pre_roll,
             post_roll=cfg.post_roll,
+            # Forward the rich N1MM metadata so it is persisted to the DB
+            # and shown in the dashboard (freq, exchange, name, QTH, ...).
+            freq=contact.freq,
+            name=contact.name,
+            qth=contact.qth,
+            grid=contact.grid,
+            comment=contact.comment,
+            exchange=contact.exchange,
+            exchange2=contact.exchange2,
+            exchange3=contact.exchange3,
+            operator=contact.operator,
+            station=contact.station,
+            contest_nr=contact.contest_nr,
+            points=contact.points,
+            multiplier=contact.multiplier,
+            raw_ts=contact.raw_ts,
         )
         try:
-            source.slice_qso(req, contact=contact)
+            source.slice_qso(req)
         except Exception as e:
             logger.error("QSO slice failed: %s", e)
 

@@ -1,0 +1,74 @@
+# -*- mode: python ; coding: utf-8 -*-
+"""PyInstaller spec for building a standalone QSOCapture desktop EXE.
+
+Build with:
+    pyinstaller build.spec
+
+The result is ``dist/QSOCapture.exe`` -- a single file that launches the
+FastAPI server and opens the dashboard in an embedded WebView2 browser.
+"""
+
+import os
+
+block_cipher = None
+
+# The dashboard HTML must be bundled so the launcher can copy it next to the
+# executable on first run.
+datas = [("index.html", ".")]
+
+a = Analysis(
+    ["launcher.py"],
+    pathex=[os.getcwd()],
+    binaries=[],
+    datas=datas,
+    hiddenimports=[
+        "main",
+        "config",
+        "db",
+        "audio_manager",
+        "n1mm_listener",
+        "uvicorn.logging",
+        "uvicorn.loops",
+        "uvicorn.loops.auto",
+        "uvicorn.protocols",
+        "uvicorn.protocols.http",
+        "uvicorn.protocols.http.auto",
+        "uvicorn.protocols.websockets",
+        "uvicorn.protocols.websockets.auto",
+        "uvicorn.lifespan",
+        "uvicorn.lifespan.on",
+        "webview",
+    ],
+    hookspath=[],
+    hooksconfig={},
+    runtime_hooks=[],
+    excludes=[],
+    win_no_prefer_redirects=False,
+    win_private_assemblies=False,
+    cipher=block_cipher,
+    noarchive=False,
+)
+
+pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+
+exe = EXE(
+    pyz,
+    a.scripts,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    [],
+    name="QSOCapture",
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    runtime_tmpdir=None,
+    console=False,            # no console window for a desktop app
+    disable_windowed_traceback=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+    icon=None,
+)

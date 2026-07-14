@@ -6,6 +6,13 @@ __pycache__/
 venv/
 env/
 
+# PyInstaller build artifacts
+build/
+dist/
+*.spec.bak
+*.manifest
+version_info.txt
+
 # Local data — not committed (user specific)
 qsos.db
 config.cfg

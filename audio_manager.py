@@ -98,6 +98,22 @@ class QSORequest:
     timestamp: float
     pre_roll: float
     post_roll: float
+    # Rich metadata forwarded from N1MM (persisted to the DB so the
+    # dashboard can show frequency / exchange / name / QTH etc.).
+    freq: str = ""
+    name: str = ""
+    qth: str = ""
+    grid: str = ""
+    comment: str = ""
+    exchange: str = ""
+    exchange2: str = ""
+    exchange3: str = ""
+    operator: str = ""
+    station: str = ""
+    contest_nr: str = ""
+    points: str = ""
+    multiplier: str = ""
+    raw_ts: str = ""
 
 
 def _write_pcm(path: str, frames: np.ndarray, sample_rate: int, channels: int,
@@ -194,11 +210,19 @@ class AudioSource(ABC):
                 stream.abort()
             except Exception:
                 pass
-        # For TCI, stop the asyncio event loop so run_until_complete returns.
+        # For TCI, cancel the running asyncio task(s) so the websocket
+        # connection (and its internal keepalive task) is closed gracefully
+        # via the `async with` context manager instead of being left pending
+        # when the loop is closed. Calling loop.stop() here left the
+        # keepalive() task pending and produced
+        # "Task was destroyed but it is pending!" / "Event loop is closed".
         loop = getattr(self, "_loop", None)
-        if loop is not None:
+        if loop is not None and not loop.is_closed():
+            def _cancel_tasks() -> None:
+                for task in asyncio.all_tasks(loop):
+                    task.cancel()
             try:
-                loop.call_soon_threadsafe(loop.stop)
+                loop.call_soon_threadsafe(_cancel_tasks)
             except Exception:
                 pass
         if self._thread:
@@ -280,12 +304,20 @@ class AudioSource(ABC):
             logger.info("[%s] saved QSO slice -> %s (%d frames)", rx_label, out_path, frames.shape[0])
             saved.append((rx_label, out_path))
             # Persist a DB record so the dashboard can list/filter QSOs.
+            # Forward the rich N1MM metadata (freq, exchange, name, ...) so
+            # the dashboard can display it.
             try:
                 import db as qso_db
                 qso_db.insert_qso(
                     contest=f"{year}_{req.contest}" if req.contest else f"{year}_GENERAL",
                     call=req.call, band=req.band, mode=req.mode,
-                    timestamp=req.timestamp,
+                    freq=req.freq, name=req.name, qth=req.qth, grid=req.grid,
+                    comment=req.comment, exchange=req.exchange,
+                    exchange2=req.exchange2, exchange3=req.exchange3,
+                    operator=req.operator, station=req.station,
+                    contest_nr=req.contest_nr, points=req.points,
+                    multiplier=req.multiplier, timestamp=req.timestamp,
+                    raw_ts=req.raw_ts,
                     file_path=f"{contest_dir}/{fname}",
                 )
             except Exception as e:
@@ -605,9 +637,24 @@ class TCIAudioSource(AudioSource):
         asyncio.set_event_loop(self._loop)
         try:
             self._loop.run_until_complete(self._ws_client())
+        except asyncio.CancelledError:
+            # Normal path on stop(): the task(s) are cancelled so the loop
+            # returns cleanly instead of leaving pending tasks behind.
+            logger.debug("[%s] TCI client cancelled", self.label)
         except Exception as e:
             logger.error("[%s] TCI client error: %s", self.label, e)
         finally:
+            # Drain any tasks that refused to cancel gracefully so the loop
+            # can be closed without "Task was destroyed but it is pending!".
+            try:
+                if not self._loop.is_closed():
+                    for task in asyncio.all_tasks(self._loop):
+                        task.cancel()
+                    self._loop.run_until_complete(
+                        asyncio.gather(*asyncio.all_tasks(self._loop),
+                                       return_exceptions=True))
+            except Exception:
+                pass
             self._loop.close()
             self._running = False
 
@@ -626,43 +673,79 @@ class TCIAudioSource(AudioSource):
                     self._connected = True
                     rx = self.cfg.tci_receiver
 
+                    # The server broadcasts initialization commands and ends
+                    # with "READY;" (case-insensitive per the TCI spec). We
+                    # must detect that before requesting the audio stream,
+                    # otherwise AUDIO_START is never sent and nothing records.
                     ready = False
-                    while not ready and self._running:
+                    got_any = False
+                    deadline = time.monotonic() + 6.0
+                    while self._running and time.monotonic() < deadline:
                         try:
-                            banner = await asyncio.wait_for(ws.recv(), timeout=5.0)
+                            banner = await asyncio.wait_for(
+                                ws.recv(), timeout=max(0.5, deadline - time.monotonic()))
                         except asyncio.TimeoutError:
                             break
-                        if isinstance(banner, str) and banner.strip().rstrip(";") == "ready":
-                            ready = True
-                        elif isinstance(banner, str):
-                            logger.debug("[%s] TCI banner: %s", self.label, banner.strip())
-                    if not ready:
-                        logger.warning("[%s] TCI: no 'ready;' received, retrying", self.label)
+                        if isinstance(banner, str):
+                            got_any = True
+                            logger.debug("[%s] TCI init: %s", self.label, banner.strip())
+                            if banner.strip().upper().rstrip(";") == "READY":
+                                ready = True
+                                break
+                    if not ready and not got_any:
+                        logger.warning("[%s] TCI: no init banner received, retrying",
+                                       self.label)
                         continue
+                    if not ready:
+                        logger.warning("[%s] TCI: 'READY' not seen, proceeding anyway "
+                                       "(some servers omit it)", self.label)
 
-                    await ws.send("set_client_name:QSOCapture;")
-                    await ws.send("audio_stream_sample_type:float32;")
-                    await ws.send(f"audio_stream_channels:{self.cfg.channels};")
-                    await ws.send("mute:false;")
-                    await ws.send("mon_enable:true;")
+                    # Commands are sent exactly as named in the TCI spec
+                    # (case-sensitive on many ExpertSDR builds). The audio
+                    # stream requires: SAMPLE_TYPE, CHANNELS, SAMPLE_RATE and
+                    # SAMPLES, in that order, before AUDIO_START. Sample rates
+                    # allowed by the spec are 8/12/24/48 kHz.
+                    await ws.send("SET_CLIENT_NAME:QSOCapture;")
+                    await ws.send("AUDIO_STREAM_SAMPLE_TYPE:int16;")
+                    await ws.send(f"AUDIO_STREAM_CHANNELS:{self.cfg.channels};")
+                    # Clamp to a rate the TCI server accepts for the audio stream.
+                    audio_sr = min(max(int(self.cfg.sample_rate), 8000), 48000)
+                    await ws.send(f"AUDIO_SAMPLERATE:{audio_sr};")
+                    await ws.send("AUDIO_STREAM_SAMPLES:1024;")
+                    await ws.send("MUTE:false;")
+                    await ws.send("MON_ENABLE:true;")
                     if self.cfg.channels >= 2:
                         # SO2R: capture receiver 0 (RX1) and receiver 1 (RX2).
-                        await ws.send("audio_start:0;")
-                        await ws.send("audio_start:1;")
-                        logger.info("[%s] TCI audio requested (SO2R rx=0,1)", self.label)
+                        await ws.send("AUDIO_START:0;")
+                        await ws.send("AUDIO_START:1;")
+                        logger.info("[%s] TCI audio requested (SO2R rx=0,1, sr=%d)",
+                                    self.label, audio_sr)
                     else:
-                        await ws.send(f"audio_start:{rx};")
-                        logger.info("[%s] TCI audio requested (rx=%d)", self.label, rx)
+                        await ws.send(f"AUDIO_START:{rx};")
+                        logger.info("[%s] TCI audio requested (rx=%d, sr=%d)",
+                                    self.label, rx, audio_sr)
 
+                    # Diagnostics: count every binary frame actually received
+                    # so the dashboard/log shows whether the server is sending
+                    # audio at all.
+                    self._frames_received = 0
                     async for message in ws:
                         if not self._running:
                             break
                         self._handle_tci_message(message)
+            except asyncio.CancelledError:
+                # stop() cancelled the task: exit the reconnect loop cleanly.
+                break
             except Exception as e:
                 self._connected = False
                 logger.warning("[%s] TCI connection error, reconnect in 3s: %s",
                                self.label, e)
-                await asyncio.sleep(3.0)
+                # Guard the reconnect sleep: if the loop is being torn down
+                # (CancelledError) don't attempt to sleep on a closed loop.
+                try:
+                    await asyncio.sleep(3.0)
+                except asyncio.CancelledError:
+                    break
             finally:
                 self._connected = False
 
@@ -687,8 +770,12 @@ class TCIAudioSource(AudioSource):
         if len(raw) < HEADER + 4:
             return None
         hdr = np.frombuffer(raw[:HEADER], dtype=np.uint32)
+        # TCI Stream header layout (all uint32, little-endian):
+        #   [0] receiver   [1] sample_rate   [2] format   [3] codec
+        #   [4] crc        [5] length        [6] type     [7] channels
+        # The receiver number lives in hdr[0]; hdr[3] is the (unused) codec.
+        rx_index = int(hdr[0])
         fmt = int(hdr[2])
-        rx_index = int(hdr[3])        # TCI receiver index (0 = RX1, 1 = RX2, ...)
         stype = int(hdr[6])
         nchan = int(hdr[7])
         if stype not in (1, 4):

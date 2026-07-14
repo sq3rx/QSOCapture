@@ -37,9 +37,9 @@
     <section class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
       <div>
         <label class="block text-xs uppercase tracking-wide text-slate-400 mb-1">Contest</label>
-        <select id="contest" class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm">
-          <option value="">All contests</option>
-        </select>
+        <input id="contest" list="contestList" type="text" placeholder="e.g. CQWW or 2026_CQ"
+               class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm" />
+        <datalist id="contestList"></datalist>
       </div>
       <div>
         <label class="block text-xs uppercase tracking-wide text-slate-400 mb-1">Call / Prefix</label>
@@ -299,10 +299,10 @@
       try {
         const r = await fetch('/api/contests');
         const d = await r.json();
-        const sel = $('contest');
+        const sel = $('contestList');
         d.contests.forEach(c => {
           const o = document.createElement('option');
-          o.value = c; o.textContent = c;
+          o.value = c;
           sel.appendChild(o);
         });
       } catch (e) {}
@@ -358,6 +358,41 @@
       const cls = isRx2 ? 'bg-orange-500/10 text-orange-300 border-orange-500/20'
                         : 'bg-brand/10 text-brand border-brand/20';
       return `<span class="px-2 py-0.5 rounded border text-xs font-medium ${cls}">${l || '—'}</span>`;
+    }
+    const BAND_COLORS = {
+      '160M': 'bg-red-500/10 text-red-300 border-red-500/20',
+      '80M':  'bg-orange-500/10 text-orange-300 border-orange-500/20',
+      '40M':  'bg-amber-500/10 text-amber-300 border-amber-500/20',
+      '30M':  'bg-yellow-500/10 text-yellow-300 border-yellow-500/20',
+      '20M':  'bg-lime-500/10 text-lime-300 border-lime-500/20',
+      '17M':  'bg-green-500/10 text-green-300 border-green-500/20',
+      '15M':  'bg-emerald-500/10 text-emerald-300 border-emerald-500/20',
+      '12M':  'bg-teal-500/10 text-teal-300 border-teal-500/20',
+      '10M':  'bg-cyan-500/10 text-cyan-300 border-cyan-500/20',
+      '6M':   'bg-sky-500/10 text-sky-300 border-sky-500/20',
+      '2M':   'bg-blue-500/10 text-blue-300 border-blue-500/20',
+    };
+    // Map raw band values (MHz or mixed forms) to standard labels, e.g.
+    // "7" / "7.0" / "7MHz" -> "40M", "14" -> "20M", "14mhz" -> "20M".
+    function normalizeBand(band) {
+      const raw = (band || '').toLowerCase().replace(/mhz$/, '').replace(/m$/, '').trim();
+      const mhz = parseFloat(raw);
+      if (!isNaN(mhz)) {
+        const map = {
+          1.8: '160M', 3.5: '80M', 7: '40M', 10: '30M',
+          14: '20M', 18: '17M', 21: '15M', 24: '12M',
+          28: '10M', 50: '6M', 144: '2M',
+        };
+        if (map[mhz]) return map[mhz];
+      }
+      const b = (band || '').toUpperCase();
+      if (BAND_COLORS[b]) return b;
+      return b || '—';
+    }
+    function bandBadge(band) {
+      const b = normalizeBand(band);
+      const cls = BAND_COLORS[b] || 'bg-slate-500/10 text-slate-300 border-slate-500/20';
+      return `<span class="px-2 py-0.5 rounded border text-xs font-medium ${cls}">${b}</span>`;
     }
 
     function fmtDuration(sec) {
@@ -424,7 +459,7 @@
         tr.innerHTML = `
           <td class="px-4 py-2 whitespace-nowrap text-slate-400">${q.timestamp}</td>
           <td class="px-4 py-2 font-semibold text-brand">${q.call}</td>
-          <td class="px-4 py-2"><span class="px-2 py-0.5 rounded bg-sky-500/10 text-sky-300 border border-sky-500/20 text-xs font-medium">${q.band}</span></td>
+          <td class="px-4 py-2">${bandBadge(q.band)}</td>
           <td class="px-4 py-2">${modeBadge(q.mode)}</td>
           <td class="px-4 py-2 text-slate-400 font-mono">${q.freq || '—'}</td>
           <td class="px-4 py-2 text-slate-300">${q.exchange || '—'}</td>
