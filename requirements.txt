@@ -1,0 +1,6 @@
+fastapi>=0.110
+uvicorn[standard]>=0.27
+numpy>=1.24
+sounddevice>=0.4.6
+websockets>=12.0
+lameenc>=1.3

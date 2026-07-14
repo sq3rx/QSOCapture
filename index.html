@@ -1,0 +1,770 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>QSOCapture by SQ3RX &middot; Contest Log Player</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: { extend: { colors: { brand: '#22c55e' } } }
+    }
+  </script>
+  <style>
+    input[type=range] { accent-color: #22c55e; }
+    ::-webkit-scrollbar { width: 10px; height: 10px; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 6px; }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen antialiased">
+  <div class="max-w-6xl mx-auto px-4 py-6">
+    <header class="flex flex-wrap items-center justify-between gap-4 mb-6">
+      <div>
+        <h1 class="text-2xl font-bold tracking-tight">
+          QSOCapture <span class="text-brand">by SQ3RX</span>
+        </h1>
+        <p class="text-sm text-slate-400">Contest Log Player & Audio Recorder</p>
+      </div>
+      <div class="flex flex-wrap items-center gap-2 text-xs">
+        <span id="status" class="px-3 py-1 rounded-full bg-slate-800 border border-slate-700 text-slate-300">loading&hellip;</span>
+        <span id="tciBadge" class="px-3 py-1 rounded-full bg-slate-800 border border-slate-700 text-slate-300">TCI &hellip;</span>
+        <span id="n1mmBadge" class="px-3 py-1 rounded-full bg-slate-800 border border-slate-700 text-slate-300">N1MM &hellip;</span>
+        <span id="bufContainer" class="flex items-center gap-2 text-xs"></span>
+      </div>
+    </header>
+
+    <section class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
+      <div>
+        <label class="block text-xs uppercase tracking-wide text-slate-400 mb-1">Contest</label>
+        <select id="contest" class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm">
+          <option value="">All contests</option>
+        </select>
+      </div>
+      <div>
+        <label class="block text-xs uppercase tracking-wide text-slate-400 mb-1">Call / Prefix</label>
+        <input id="call" type="text" placeholder="e.g. SQ3RX or ^SQ or regex"
+               class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm" />
+      </div>
+      <div>
+        <label class="block text-xs uppercase tracking-wide text-slate-400 mb-1">Band</label>
+        <input id="band" type="text" placeholder="e.g. 20M"
+               class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm" />
+      </div>
+      <div>
+        <label class="block text-xs uppercase tracking-wide text-slate-400 mb-1">Mode</label>
+        <select id="mode" class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm">
+          <option value="">All modes</option>
+          <option value="CW">CW</option>
+          <option value="SSB">SSB</option>
+          <option value="RTTY">RTTY</option>
+          <option value="FT8">FT8</option>
+          <option value="PSK">PSK</option>
+          <option value="DIGI">DIGI</option>
+        </select>
+      </div>
+      <div>
+        <label class="block text-xs uppercase tracking-wide text-slate-400 mb-1">RX</label>
+        <select id="rx" class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm">
+          <option value="">All RX</option>
+          <option value="RX1">RX1</option>
+          <option value="RX2">RX2</option>
+        </select>
+      </div>
+      <div>
+        <label class="block text-xs uppercase tracking-wide text-slate-400 mb-1">Date/time from</label>
+        <input id="date_from" type="datetime-local"
+               class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm" />
+      </div>
+      <div>
+        <label class="block text-xs uppercase tracking-wide text-slate-400 mb-1">Date/time to</label>
+        <input id="date_to" type="datetime-local"
+               class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm" />
+      </div>
+      <div>
+        <label class="block text-xs uppercase tracking-wide text-slate-400 mb-1">Type</label>
+        <select id="continuous" class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm">
+          <option value="false">N1MM QSOs</option>
+          <option value="true">Continuous</option>
+        </select>
+      </div>
+    </section>
+
+    <div class="flex items-center justify-between mb-3">
+      <span id="count" class="text-sm text-slate-400"></span>
+      <div class="flex gap-2">
+        <button id="openLog"
+                class="text-xs px-3 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-700">
+          &#128220; Log
+        </button>
+        <button id="openCfg"
+                class="text-xs px-3 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-700">
+          &#9881; Settings
+        </button>
+        <button id="refresh"
+                class="text-xs px-3 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-700">
+          &#x21bb; Refresh
+        </button>
+        <button id="toggleRec"
+                class="text-xs px-3 py-1.5 rounded-md bg-brand/10 hover:bg-brand/20 border border-brand/40 text-brand font-medium">
+          &#9209; Stop recording
+        </button>
+      </div>
+    </div>
+
+    <div id="qsoView" class="overflow-x-auto rounded-lg border border-slate-800">
+      <table class="w-full text-sm">
+        <thead class="bg-slate-900 text-slate-400 text-left">
+          <tr>
+            <th class="px-4 py-3 font-medium">Timestamp</th>
+            <th class="px-4 py-3 font-medium">Call</th>
+            <th class="px-4 py-3 font-medium">Band</th>
+            <th class="px-4 py-3 font-medium">Mode</th>
+            <th class="px-4 py-3 font-medium">Freq</th>
+            <th class="px-4 py-3 font-medium">Exch</th>
+            <th class="px-4 py-3 font-medium">RX</th>
+            <th class="px-4 py-3 font-medium">Contest</th>
+            <th class="px-4 py-3 font-medium w-[340px]">Player</th>
+          </tr>
+        </thead>
+        <tbody id="rows" class="divide-y divide-slate-800"></tbody>
+      </table>
+    </div>
+
+    <div id="contView" class="overflow-x-auto rounded-lg border border-slate-800 hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-slate-900 text-slate-400 text-left">
+          <tr>
+            <th class="px-4 py-3 font-medium">Start</th>
+            <th class="px-4 py-3 font-medium">Stop</th>
+            <th class="px-4 py-3 font-medium">Duration</th>
+            <th class="px-4 py-3 font-medium">RX</th>
+            <th class="px-4 py-3 font-medium w-[340px]">Player</th>
+          </tr>
+        </thead>
+        <tbody id="contRows" class="divide-y divide-slate-800"></tbody>
+      </table>
+    </div>
+
+    <p id="empty" class="text-center text-slate-500 py-10 hidden">
+      No QSOs recorded yet. Start your contest and log a contact in N1MM.
+    </p>
+  </div>
+
+  <div id="cfgModal" class="fixed inset-0 bg-black/70 hidden items-center justify-center z-50 p-4">
+    <div class="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-3xl max-h-[85vh] overflow-y-auto">
+      <div class="flex items-center justify-between px-5 py-3 border-b border-slate-700 sticky top-0 bg-slate-900">
+        <h2 class="text-lg font-semibold">&#9881; Configuration</h2>
+        <button id="closeCfg" class="text-slate-400 hover:text-white text-xl leading-none">&times;</button>
+      </div>
+      <div id="cfgForm" class="p-5 grid grid-cols-1 md:grid-cols-2 gap-6"></div>
+      <div class="px-5 py-3 border-t border-slate-700 flex items-center justify-between sticky bottom-0 bg-slate-900">
+        <button id="factoryReset"
+                class="text-sm px-4 py-2 rounded-md bg-red-600 text-white font-semibold hover:bg-red-700">
+          &#9888; Factory Reset
+        </button>
+        <div class="flex items-center gap-3">
+          <span id="cfgMsg" class="text-xs text-slate-400"></span>
+          <button id="saveCfg"
+                  class="text-sm px-4 py-2 rounded-md bg-brand text-slate-950 font-semibold hover:opacity-90">
+            Save & Apply
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="detailModal" class="fixed inset-0 bg-black/70 hidden items-center justify-center z-50 p-4">
+    <div class="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-lg max-h-[85vh] overflow-y-auto">
+      <div class="flex items-center justify-between px-5 py-3 border-b border-slate-700 sticky top-0 bg-slate-900">
+        <h2 class="text-lg font-semibold">&#128203; QSO Details</h2>
+        <button id="closeDetail" class="text-slate-400 hover:text-white text-xl leading-none">&times;</button>
+      </div>
+      <div id="detailBody" class="p-5 text-sm space-y-1"></div>
+    </div>
+  </div>
+
+  <div id="logModal" class="fixed inset-0 bg-black/70 hidden items-center justify-center z-50 p-4">
+    <div class="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-4xl max-h-[85vh] overflow-hidden flex flex-col">
+      <div class="flex items-center justify-between px-5 py-3 border-b border-slate-700">
+        <h2 class="text-lg font-semibold">&#128220; Live Log</h2>
+        <div class="flex items-center gap-3">
+          <label class="flex items-center gap-1 text-xs text-slate-400">
+            <input id="logAuto" type="checkbox" checked class="accent-brand" /> auto-refresh
+          </label>
+          <button id="refreshLog" class="text-xs px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700">&#x21bb;</button>
+          <button id="closeLog" class="text-slate-400 hover:text-white text-xl leading-none">&times;</button>
+        </div>
+      </div>
+      <pre id="logBody" class="p-4 text-xs text-slate-300 overflow-y-auto flex-1 whitespace-pre-wrap font-mono"></pre>
+    </div>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const rows = $('rows');
+    let recPaused = false;
+
+    function showModal() {
+      const m = $('cfgModal');
+      m.className = 'fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4';
+    }
+    function hideModal() {
+      const m = $('cfgModal');
+      m.className = 'fixed inset-0 bg-black/70 hidden items-center justify-center z-50 p-4';
+    }
+    function showLog() {
+      const m = $('logModal');
+      m.className = 'fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4';
+      loadLog();
+    }
+    function hideLog() {
+      const m = $('logModal');
+      m.className = 'fixed inset-0 bg-black/70 hidden items-center justify-center z-50 p-4';
+    }
+
+    function statusBadge(el, active, label) {
+      el.innerHTML = `<span class="inline-block w-2 h-2 rounded-full ${active ? 'bg-brand' : 'bg-slate-500'} mr-1.5 align-middle"></span>${label}`;
+      el.className = 'text-xs px-3 py-1 rounded-full border flex items-center ' +
+        (active ? 'bg-brand/10 border-brand/40 text-brand'
+                : 'bg-slate-800/60 border-slate-700 text-slate-400');
+    }
+    async function loadStatus() {
+      try {
+        const r = await fetch('/api/status');
+        const s = await r.json();
+        const st = $('status');
+        st.innerHTML = `<span class="font-medium text-slate-200">${s.station}</span> ` +
+          `<span class="text-slate-500">·</span> ${s.mode.toUpperCase()} ` +
+          `<span class="text-slate-500">·</span> ${s.sample_rate/1000}kHz ` +
+          `<span class="text-slate-500">·</span> ${s.channels===2?'SO2R':'SO1R'} ` +
+          `<span class="text-slate-500">·</span> ` +
+          `<span class="${s.running ? 'text-brand' : 'text-slate-500'}">${s.running ? '● live' : '○ off'}</span>`;
+        st.className = 'text-xs px-3 py-1 rounded-full border ' +
+          (s.running ? 'bg-brand/10 border-brand/40 text-brand' : 'bg-slate-800/60 border-slate-700 text-slate-400');
+
+        const tci = $('tciBadge');
+        if (s.mode === 'soundcard') {
+          // TCI is irrelevant in soundcard mode — hide the badge entirely.
+          tci.className = 'hidden';
+        } else {
+          const connected = s.audio && s.audio.connected;
+          statusBadge(tci, connected, `TCI ${connected ? 'connected' : 'off'}`);
+        }
+
+        const n1mm = $('n1mmBadge');
+        const nr = s.n1mm && s.n1mm.running;
+        statusBadge(n1mm, nr, `N1MM ${nr ? 'listening' : 'off'}`);
+
+        const bufContainer = $('bufContainer');
+        bufContainer.innerHTML = '';
+        const buffers = (s.audio && Array.isArray(s.audio.buffers)) ? s.audio.buffers : [];
+        if (buffers.length === 0) {
+          const b = document.createElement('span');
+          b.className = 'px-3 py-1 rounded-full bg-slate-800/60 border border-slate-700 text-slate-400';
+          b.textContent = 'Buffer —';
+          bufContainer.appendChild(b);
+        } else {
+          buffers.forEach(rx => {
+            const secs = Math.round(rx.filled_sec || 0);
+            const low = secs < 5;
+            const b = document.createElement('span');
+            b.className = 'px-3 py-1 rounded-full border flex items-center ' +
+              (secs > 0 ? (low ? 'bg-amber-500/10 border-amber-500/30 text-amber-300'
+                               : 'bg-brand/10 border-brand/40 text-brand')
+                         : 'bg-slate-800/60 border-slate-700 text-slate-400');
+            b.innerHTML = `<span class="inline-block w-2 h-2 rounded-full ${secs > 0 ? (low ? 'bg-amber-400' : 'bg-brand') : 'bg-slate-500'} mr-1.5 align-middle"></span>${rx.label} ${secs}s`;
+            bufContainer.appendChild(b);
+          });
+        }
+
+        // Sync continuous recording toggle button with server state. The
+        // continuous feature is always available; the button reflects whether
+        // recording is currently paused (off) or running.
+        const recBtn = $('toggleRec');
+        recPaused = !!(s.audio && s.audio.continuous_paused);
+        updateRecButton();
+      } catch (e) {
+        const st = $('status');
+        st.textContent = 'offline';
+        st.className = 'text-xs px-3 py-1 rounded-full bg-red-500/10 border border-red-500/30 text-red-300';
+        statusBadge($('tciBadge'), false, 'TCI ?');
+        statusBadge($('n1mmBadge'), false, 'N1MM ?');
+        const buf = $('bufContainer');
+        buf.innerHTML = '<span class="px-3 py-1 rounded-full bg-slate-800/60 border border-slate-700 text-slate-400">Buffer ?</span>';
+      }
+    }
+
+    async function loadContests() {
+      try {
+        const r = await fetch('/api/contests');
+        const d = await r.json();
+        const sel = $('contest');
+        d.contests.forEach(c => {
+          const o = document.createElement('option');
+          o.value = c; o.textContent = c;
+          sel.appendChild(o);
+        });
+      } catch (e) {}
+    }
+
+    function buildPlayer(url) {
+      if (!url) {
+        const wrap = document.createElement('div');
+        wrap.className = 'px-4 py-2 text-xs text-slate-500';
+        wrap.textContent = 'no audio';
+        return wrap;
+      }
+      const wrap = document.createElement('div');
+      wrap.className = 'flex items-center gap-2 px-4 py-2';
+      const audio = document.createElement('audio');
+      audio.controls = true;
+      audio.preload = 'none';
+      audio.src = url;
+      audio.className = 'w-full';
+
+      const speed = document.createElement('select');
+      speed.className = 'bg-slate-800 border border-slate-700 rounded text-xs px-1 py-1';
+      [0.8, 1.0, 1.2, 1.5].forEach(v => {
+        const o = document.createElement('option');
+        o.value = v; o.textContent = v + 'x';
+        if (v === 1.0) o.selected = true;
+        speed.appendChild(o);
+      });
+      speed.addEventListener('change', () => { audio.playbackRate = parseFloat(speed.value); });
+      audio.playbackRate = 1.0;
+
+      wrap.appendChild(audio);
+      wrap.appendChild(speed);
+      return wrap;
+    }
+
+    const MODE_COLORS = {
+      CW:   'bg-sky-500/10 text-sky-300 border-sky-500/20',
+      SSB:  'bg-emerald-500/10 text-emerald-300 border-emerald-500/20',
+      RTTY: 'bg-amber-500/10 text-amber-300 border-amber-500/20',
+      FT8:  'bg-violet-500/10 text-violet-300 border-violet-500/20',
+      PSK:  'bg-rose-500/10 text-rose-300 border-rose-500/20',
+      DIGI: 'bg-fuchsia-500/10 text-fuchsia-300 border-fuchsia-500/20',
+    };
+    function modeBadge(mode) {
+      const m = (mode || '').toUpperCase();
+      const cls = MODE_COLORS[m] || 'bg-slate-500/10 text-slate-300 border-slate-500/20';
+      return `<span class="px-2 py-0.5 rounded border text-xs font-medium ${cls}">${m || '—'}</span>`;
+    }
+    function rxBadge(label) {
+      const l = (label || '').toUpperCase();
+      const isRx2 = l.includes('RX2');
+      const cls = isRx2 ? 'bg-orange-500/10 text-orange-300 border-orange-500/20'
+                        : 'bg-brand/10 text-brand border-brand/20';
+      return `<span class="px-2 py-0.5 rounded border text-xs font-medium ${cls}">${l || '—'}</span>`;
+    }
+
+    function fmtDuration(sec) {
+      sec = Math.round(sec || 0);
+      const h = Math.floor(sec / 3600);
+      const m = Math.floor((sec % 3600) / 60);
+      const s = sec % 60;
+      const pad = (n) => String(n).padStart(2, '0');
+      return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
+    }
+
+    async function loadQsos() {
+      const params = new URLSearchParams();
+      const c = $('contest').value, call = $('call').value,
+            band = $('band').value,
+            mode = $('mode').value, cont = $('continuous').value,
+            rxSel = $('rx').value,
+            df = $('date_from').value, dt = $('date_to').value;
+      if (c) params.set('contest', c);
+      if (call) params.set('call', call);
+      if (band) params.set('band', band);
+      if (mode) params.set('mode', mode);
+      if (cont) params.set('continuous', cont);
+      if (rxSel) params.set('rx', rxSel);
+      if (df) params.set('date_from', toEpoch(df, false));
+      if (dt) params.set('date_to', toEpoch(dt, true));
+
+      const r = await fetch('/api/qsos?' + params.toString());
+      const d = await r.json();
+      rows.innerHTML = '';
+      $('contRows').innerHTML = '';
+      $('count').textContent = d.count + (cont === 'true' ? ' recording(s)' : ' QSO(s)');
+      const empty = $('empty');
+      if (d.count > 0) empty.className = 'text-center text-slate-500 py-10 hidden';
+      else empty.className = 'text-center text-slate-500 py-10';
+
+      const isCont = cont === 'true';
+      $('qsoView').className = 'overflow-x-auto rounded-lg border border-slate-800' + (isCont ? ' hidden' : '');
+      $('contView').className = 'overflow-x-auto rounded-lg border border-slate-800' + (isCont ? '' : ' hidden');
+
+      if (isCont) {
+        d.qsos.forEach(q => {
+          const start = q.timestamp;
+          const stop = q.duration ? _fmtStop(q.timestamp, q.duration) : '—';
+          const tr = document.createElement('tr');
+          tr.className = 'hover:bg-slate-900/50';
+          tr.innerHTML = `
+            <td class="px-4 py-2 whitespace-nowrap text-slate-300">${start}</td>
+            <td class="px-4 py-2 whitespace-nowrap text-slate-400">${stop}</td>
+            <td class="px-4 py-2 text-slate-400 font-mono">${fmtDuration(q.duration)}</td>
+            <td class="px-4 py-2">${rxBadge(q.label)}</td>`;
+          const td = document.createElement('td');
+          td.className = 'px-0 py-0';
+          td.appendChild(buildPlayer(q.url));
+          tr.appendChild(td);
+          $('contRows').appendChild(tr);
+        });
+        return;
+      }
+
+      d.qsos.forEach(q => {
+        const tr = document.createElement('tr');
+        tr.className = 'hover:bg-slate-900/50 cursor-pointer';
+        tr.innerHTML = `
+          <td class="px-4 py-2 whitespace-nowrap text-slate-400">${q.timestamp}</td>
+          <td class="px-4 py-2 font-semibold text-brand">${q.call}</td>
+          <td class="px-4 py-2"><span class="px-2 py-0.5 rounded bg-sky-500/10 text-sky-300 border border-sky-500/20 text-xs font-medium">${q.band}</span></td>
+          <td class="px-4 py-2">${modeBadge(q.mode)}</td>
+          <td class="px-4 py-2 text-slate-400 font-mono">${q.freq || '—'}</td>
+          <td class="px-4 py-2 text-slate-300">${q.exchange || '—'}</td>
+          <td class="px-4 py-2">${rxBadge(q.label)}</td>
+          <td class="px-4 py-2 text-slate-500">${q.contest}</td>`;
+        const td = document.createElement('td');
+        td.className = 'px-0 py-0';
+        td.appendChild(buildPlayer(q.url));
+        tr.appendChild(td);
+        tr.addEventListener('click', (e) => {
+          if (e.target.tagName === 'AUDIO' || e.target.tagName === 'SELECT') return;
+          showDetail(q);
+        });
+        rows.appendChild(tr);
+      });
+    }
+
+    function _fmtStop(tsStr, dur) {
+      // tsStr is "YYYY-MM-DD HH:MM"; add duration seconds.
+      const m = tsStr.match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})$/);
+      if (!m) return '—';
+      const dt = new Date(+m[1], +m[2]-1, +m[3], +m[4], +m[5]);
+      dt.setSeconds(dt.getSeconds() + Math.round(dur || 0));
+      const p = (n) => String(n).padStart(2, '0');
+      return `${dt.getFullYear()}-${p(dt.getMonth()+1)}-${p(dt.getDate())} ` +
+             `${p(dt.getHours())}:${p(dt.getMinutes())}`;
+    }
+
+    function showDetail(q) {
+      const lines = [
+        ['Call', q.call], ['Band', q.band], ['Mode', q.mode],
+        ['Frequency', q.freq], ['Name', q.name], ['QTH', q.qth],
+        ['Grid', q.grid], ['Exchange', q.exchange], ['Exch2', q.exchange2],
+        ['Exch3', q.exchange3], ['Comment', q.comment],
+        ['Operator', q.operator], ['Station', q.station],
+        ['Contest', q.contest], ['Contest Nr', q.contest_nr],
+        ['Points', q.points], ['Multiplier', q.multiplier],
+        ['Timestamp', q.timestamp], ['RX', q.label], ['File', q.file],
+      ];
+      const body = $('detailBody');
+      body.innerHTML = '';
+      lines.forEach(([k, v]) => {
+        if (!v) return;
+        const row = document.createElement('div');
+        row.className = 'flex justify-between gap-4 border-b border-slate-800 py-1.5';
+        row.innerHTML = `<span class="text-slate-400">${k}</span><span class="text-slate-100 font-medium text-right">${v}</span>`;
+        body.appendChild(row);
+      });
+      const m = $('detailModal');
+      m.className = 'fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4';
+    }
+    function hideDetail() {
+      const m = $('detailModal');
+      m.className = 'fixed inset-0 bg-black/70 hidden items-center justify-center z-50 p-4';
+    }
+
+    function esc(s) {
+      return String(s).replace(/[&<>"']/g, c => ({
+        '&': '&', '<': '<', '>': '>', '"': '"', "'": '&#39;'
+      }[c]));
+    }
+    const LOG_COLORS = {
+      ERROR: 'text-red-400', WARNING: 'text-amber-400',
+      INFO: 'text-slate-300', DEBUG: 'text-slate-500',
+    };
+    const LOG_BG = {
+      ERROR: 'bg-red-500/5', WARNING: 'bg-amber-500/5',
+    };
+    const LOG_BORDER = {
+      ERROR: 'border-l-red-500', WARNING: 'border-l-amber-500',
+      INFO: 'border-l-slate-600', DEBUG: 'border-l-slate-700',
+    };
+    async function loadLog() {
+      try {
+        const r = await fetch('/api/log?n=300');
+        const d = await r.json();
+        const body = $('logBody');
+        body.innerHTML = '';
+        d.lines.forEach(line => {
+          const m = line.match(/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d+)\s+\[(\w+)\]\s+(\S+):\s*(.*)$/);
+          const div = document.createElement('div');
+          div.className = 'px-2 pl-3 leading-relaxed border-b border-slate-800/50 border-l-2 ' +
+            (LOG_BG[m ? m[2] : 'INFO'] || '') + ' ' +
+            (LOG_BORDER[m ? m[2] : 'INFO'] || 'border-l-slate-700');
+          if (m) {
+            const lvl = m[2];
+            const color = LOG_COLORS[lvl] || 'text-slate-300';
+            div.innerHTML =
+              `<span class="text-slate-500">${esc(m[1])}</span> ` +
+              `<span class="font-semibold ${color}">[${esc(lvl)}]</span> ` +
+              `<span class="text-slate-400">${esc(m[3])}</span>` +
+              `<span class="${color}">: ${esc(m[4])}</span>`;
+          } else {
+            div.textContent = line;
+          }
+          body.appendChild(div);
+        });
+        body.scrollTop = body.scrollHeight;
+      } catch (e) {
+        $('logBody').textContent = 'Failed to load log.';
+      }
+    }
+
+    function toEpoch(val, endOfDay) {
+      if (!val) return null;
+      const s = val.includes('T')
+        ? val
+        : val + (endOfDay ? 'T23:59:59' : 'T00:00:00');
+      const t = new Date(s).getTime();
+      return isNaN(t) ? null : String(t / 1000);
+    }
+
+    let t;
+    ['contest','call','band','mode','rx','date_from','date_to','continuous'].forEach(id => {
+      $(id).addEventListener('input', () => { clearTimeout(t); t = setTimeout(loadQsos, 200); });
+      $(id).addEventListener('change', loadQsos);
+    });
+    $('refresh').addEventListener('click', loadQsos);
+
+    $('openLog').addEventListener('click', showLog);
+    $('closeLog').addEventListener('click', hideLog);
+    $('refreshLog').addEventListener('click', loadLog);
+    $('closeDetail').addEventListener('click', hideDetail);
+
+    function textInput(id, val, ph='') {
+      return `<input id="${id}" type="text" value="${val ?? ''}" placeholder="${ph}"
+                      class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-sm">`;
+    }
+    function numberInput(id, val, step='1') {
+      return `<input id="${id}" type="number" step="${step}" value="${val}"
+                      class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-sm">`;
+    }
+    function boolInput(id, val) {
+      return `<input type="checkbox" id="${id}" ${val ? 'checked' : ''} class="w-4 h-4 accent-brand">`;
+    }
+    function selectInput(id, val, choices) {
+      const opts = (choices || []).map(c => {
+        const sel = String(c) === String(val) ? 'selected' : '';
+        return `<option value="${c}" ${sel}>${c}</option>`;
+      }).join('');
+      return `<select id="${id}" class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-sm">${opts}</select>`;
+    }
+    function fieldBlock(label, inputHtml, help) {
+      const tip = help
+        ? `<span class="ml-1 inline-flex items-center justify-center w-4 h-4 rounded-full bg-slate-700 text-slate-200 text-[10px] cursor-help align-middle" title="${esc(help)}">?</span>`
+        : '';
+      return `<div class="flex flex-col gap-1">
+                <label class="text-xs uppercase tracking-wide text-slate-400">${label}${tip}</label>
+                ${inputHtml}
+              </div>`;
+    }
+    function group(title, html) {
+      return `<div class="md:col-span-2 border border-slate-800 rounded-lg p-4">
+                <h3 class="text-sm font-semibold text-brand mb-3">${title}</h3>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">${html}</div>
+              </div>`;
+    }
+
+    function modeWidget(val) {
+      return selectInput('cfg__mode', val, ['tci', 'soundcard']);
+    }
+    function tciAddrWidget(val) {
+      const v = val || '127.0.0.1:40001';
+      return textInput('cfg__tci_addr', v, '127.0.0.1:40001');
+    }
+    function webAddrWidget(val) {
+      const v = val || '0.0.0.0:8000';
+      return textInput('cfg__web_addr', v, '0.0.0.0:8000');
+    }
+    function n1mmAddrWidget(val) {
+      const v = val || '0.0.0.0:12060';
+      return textInput('cfg__n1mm_addr', v, '0.0.0.0:12060');
+    }
+    let audioDevices = [];
+    function soundcardWidget(val) {
+      let opts = `<option value="">— type manually —</option>`;
+      audioDevices.forEach(d => {
+        const sel = d.name === val ? 'selected' : '';
+        opts += `<option value="${d.name}" ${sel}>${d.name}</option>`;
+      });
+      return `<select id="cfg_soundcard_device" class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-sm">${opts}</select>
+              ${textInput('cfg__soundcard_text', val, 'or type device substring')}`;
+    }
+
+    async function openConfig() {
+      try {
+        const [cr, dr, pr] = await Promise.all([
+          fetch('/api/config').then(r => r.json()),
+          fetch('/api/audio_devices').then(r => r.json()).catch(() => ({devices: []})),
+          fetch('/api/paths').then(r => r.json()).catch(() => ({}))
+        ]);
+        audioDevices = dr.devices || [];
+        const v = cr.values;
+        const helpMap = {};
+        (cr.schema || []).forEach(it => { helpMap[it.field] = it.help; });
+        const form = $('cfgForm');
+        form.innerHTML = '';
+
+        let general = fieldBlock('Station name', textInput('cfg_station_name', v.station_name), helpMap.station_name)
+          + fieldBlock('Recordings directory', textInput('cfg_recordings_dir', v.recordings_dir), helpMap.recordings_dir)
+          + fieldBlock('Saved to', `<div class="text-xs text-slate-400 break-all px-2 py-1.5 bg-slate-950 border border-slate-800 rounded">${pr.recordings_abs || ''}</div>`)
+          + fieldBlock('Default contest', textInput('cfg_default_contest', v.default_contest), helpMap.default_contest)
+          + fieldBlock('Continuous recording autostart', boolInput('cfg_continuous_autostart', v.continuous_autostart), helpMap.continuous_autostart)
+          + fieldBlock('Continuous chunk (min)', numberInput('cfg_continuous_chunk_minutes', v.continuous_chunk_minutes), helpMap.continuous_chunk_minutes)
+          + fieldBlock('Web address (host:port)', webAddrWidget(`${v.web_host}:${v.web_port}`), helpMap.web_host)
+          + fieldBlock('N1MM address (bind_ip:udp_port)', n1mmAddrWidget(`${v.n1mm_bind_ip}:${v.n1mm_udp_port}`), helpMap.n1mm_bind_ip);
+        form.innerHTML += group('General', general);
+
+        let audio = fieldBlock('Audio mode', modeWidget(v.audio_mode), helpMap.audio_mode)
+          + fieldBlock('Audio format', selectInput('cfg_audio_format', v.audio_format, ['wav', 'mp3']), helpMap.audio_format)
+          + fieldBlock('Sample rate (Hz)', numberInput('cfg_sample_rate', v.sample_rate), helpMap.sample_rate)
+          + fieldBlock('Channels (1=SO1R,2=SO2R)', numberInput('cfg_channels', v.channels), helpMap.channels)
+          + fieldBlock('Pre-roll (s)', numberInput('cfg_pre_roll', v.pre_roll, 'any'), helpMap.pre_roll)
+          + fieldBlock('Post-roll (s)', numberInput('cfg_post_roll', v.post_roll, 'any'), helpMap.post_roll)
+          + fieldBlock('Sample width (bytes)', selectInput('cfg_sample_width', v.sample_width, [1,2,4]), helpMap.sample_width);
+        form.innerHTML += group('Audio', audio);
+
+        let tci = fieldBlock('TCI address (host:port)', tciAddrWidget(`${v.tci_host}:${v.tci_port}`), helpMap.tci_host)
+          + fieldBlock('TCI version', selectInput('cfg_tci_version', v.tci_version, [1,2]), helpMap.tci_version)
+          + fieldBlock('TCI receiver idx', selectInput('cfg_tci_receiver', v.tci_receiver, [0,1,2,3]), helpMap.tci_receiver);
+        form.innerHTML += group('TCI (ExpertSDR)', tci);
+
+        let sc = fieldBlock('Soundcard device', soundcardWidget(v.soundcard_device), helpMap.soundcard_device);
+        form.innerHTML += group('Soundcard', sc);
+
+        showModal();
+        $('cfgMsg').textContent = '';
+      } catch (e) {
+        $('cfgMsg').textContent = 'Failed to load configuration';
+      }
+    }
+
+    async function collectConfig() {
+      const cr = await fetch('/api/config').then(r => r.json());
+      const payload = {};
+      cr.schema.forEach(item => {
+        const f = item.field;
+        if (f === 'audio_mode') {
+          payload[f] = $('cfg__mode').value;
+        } else if (f === 'tci_host') {
+          const parts = $('cfg__tci_addr').value.split(':');
+          payload['tci_host'] = parts[0];
+          payload['tci_port'] = parseInt(parts[1], 10) || 0;
+        } else if (f === 'web_host') {
+          const parts = $('cfg__web_addr').value.split(':');
+          payload['web_host'] = parts[0];
+          payload['web_port'] = parseInt(parts[1], 10) || 0;
+        } else if (f === 'n1mm_bind_ip') {
+          const parts = $('cfg__n1mm_addr').value.split(':');
+          payload['n1mm_bind_ip'] = parts[0];
+          payload['n1mm_udp_port'] = parseInt(parts[1], 10) || 0;
+        } else if (f === 'soundcard_device') {
+          payload[f] = $('cfg_soundcard_device').value || $('cfg__soundcard_text').value;
+        } else {
+          const el = $('cfg_' + f);
+          if (!el) return;
+          if (item.type === 'bool') payload[f] = el.checked;
+          else payload[f] = el.value;
+        }
+      });
+      return payload;
+    }
+
+    async function saveConfig() {
+      const payload = await collectConfig();
+      $('cfgMsg').textContent = 'Applying…';
+      try {
+        const r = await fetch('/api/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        $('cfgMsg').textContent = '✓ Saved & services restarted';
+        loadStatus();
+      } catch (e) {
+        $('cfgMsg').textContent = 'Error: ' + e.message;
+      }
+    }
+
+    async function factoryReset() {
+      if (!confirm('Factory reset will erase the ENTIRE QSO log, all recorded audio and restore default settings. Continue?')) return;
+      $('cfgMsg').textContent = 'Resetting…';
+      try {
+        const r = await fetch('/api/factory_reset', { method: 'POST' });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        $('cfgMsg').textContent = '✓ Factory reset completed';
+        loadStatus();
+        loadContests().then(loadQsos);
+      } catch (e) {
+        $('cfgMsg').textContent = 'Error: ' + e.message;
+      }
+    }
+
+    $('openCfg').addEventListener('click', openConfig);
+    $('closeCfg').addEventListener('click', hideModal);
+    $('saveCfg').addEventListener('click', saveConfig);
+    $('factoryReset').addEventListener('click', factoryReset);
+
+    // --- Continuous recording start/stop toggle ---------------------------
+    function updateRecButton() {
+      const btn = $('toggleRec');
+      if (!recPaused) {
+        // Recording is active -> clicking stops it (red).
+        btn.innerHTML = '&#9209; Stop recording';
+        btn.className = 'text-xs px-3 py-1.5 rounded-md bg-red-600/10 hover:bg-red-600/20 border border-red-500/40 text-red-300 font-medium';
+      } else {
+        // Paused -> clicking starts recording again (green).
+        btn.innerHTML = '&#9654; Start recording';
+        btn.className = 'text-xs px-3 py-1.5 rounded-md bg-brand/10 hover:bg-brand/20 border border-brand/40 text-brand font-medium';
+      }
+    }
+    async function toggleRecording() {
+      const btn = $('toggleRec');
+      btn.disabled = true;
+      try {
+        const endpoint = recPaused ? '/api/continuous/resume'
+                                   : '/api/continuous/pause';
+        const r = await fetch(endpoint, { method: 'POST' });
+        if (r.ok) {
+          const d = await r.json();
+          recPaused = !!d.paused;
+          updateRecButton();
+        } else {
+          loadStatus();
+        }
+      } catch (e) {
+        // ignore network errors
+      } finally {
+        btn.disabled = false;
+      }
+    }
+    $('toggleRec').addEventListener('click', toggleRecording);
+
+    loadStatus();
+    loadContests().then(loadQsos);
+    setInterval(loadStatus, 10000);
+    setInterval(() => {
+      if ($('logModal').className.includes('flex') && $('logAuto').checked) loadLog();
+    }, 3000);
+  </script>
+</body>
+</html>
