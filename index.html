@@ -11,10 +11,104 @@
       theme: { extend: { colors: { brand: '#22c55e' } } }
     }
   </script>
+  <!--
+    Offline-safe fallback styles. The CDN Tailwind script above only works
+    when the machine has internet access. In the standalone EXE (WebView2,
+    no network) these rules keep the dashboard perfectly usable (dark theme,
+    layout, colours). They intentionally mirror the small subset of Tailwind
+    utilities actually used by the markup below.
+  -->
   <style>
+    :root { --brand: #22c55e; }
+    * { box-sizing: border-box; }
+    body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
     input[type=range] { accent-color: #22c55e; }
     ::-webkit-scrollbar { width: 10px; height: 10px; }
     ::-webkit-scrollbar-thumb { background: #334155; border-radius: 6px; }
+    .bg-slate-950 { background:#020617; } .bg-slate-900 { background:#0f172a; }
+    .bg-slate-800 { background:#1e293b; } .bg-slate-800\/60 { background:rgba(30,41,59,.6); }
+    .bg-red-500\/10 { background:rgba(239,68,68,.1); } .bg-red-600 { background:#dc2626; }
+    .bg-red-600\/10 { background:rgba(220,38,38,.1); }
+    .bg-brand\/10 { background:rgba(34,197,94,.1); } .bg-brand\/20 { background:rgba(34,197,94,.2); }
+    .bg-amber-500\/10 { background:rgba(245,158,11,.1); }
+    .bg-sky-500\/10 { background:rgba(14,165,233,.1); }
+    .bg-emerald-500\/10 { background:rgba(16,185,129,.1); }
+    .bg-rose-500\/10 { background:rgba(244,63,94,.1); }
+    .bg-violet-500\/10 { background:rgba(139,92,246,.1); }
+    .bg-fuchsia-500\/10 { background:rgba(217,70,239,.1); }
+    .bg-orange-500\/10 { background:rgba(249,115,22,.1); }
+    .bg-red-500\/5 { background:rgba(239,68,68,.05); }
+    .bg-amber-500\/5 { background:rgba(245,158,11,.05); }
+    .text-slate-100 { color:#f1f5f9; } .text-slate-200 { color:#e2e8f0; }
+    .text-slate-300 { color:#cbd5e1; } .text-slate-400 { color:#94a3b8; }
+    .text-slate-500 { color:#64748b; } .text-slate-950 { color:#020617; }
+    .text-brand { color:#22c55e; } .text-red-300 { color:#fca5a5; }
+    .text-red-400 { color:#f87171; } .text-amber-300 { color:#fcd34d; }
+    .text-amber-400 { color:#fbbf24; } .text-sky-300 { color:#7dd3fc; }
+    .text-emerald-300 { color:#6ee7b7; } .text-rose-300 { color:#fda4af; }
+    .text-violet-300 { color:#c4b5fd; } .text-fuchsia-300 { color:#f0abfc; }
+    .text-orange-300 { color:#fdba74; }
+    .border-slate-700 { border-color:#334155; } .border-slate-800 { border-color:#1e293b; }
+    .border-slate-600 { border-color:#475569; } .border-brand\/20 { border-color:rgba(34,197,94,.2); }
+    .border-brand\/40 { border-color:rgba(34,197,94,.4); }
+    .border-red-500\/30 { border-color:rgba(239,68,68,.3); }
+    .border-red-500\/40 { border-color:rgba(239,68,68,.4); }
+    .border-amber-500\/20 { border-color:rgba(245,158,11,.2); }
+    .border-amber-500\/30 { border-color:rgba(245,158,11,.3); }
+    .border-sky-500\/20 { border-color:rgba(14,165,233,.2); }
+    .border-emerald-500\/20 { border-color:rgba(16,185,129,.2); }
+    .border-rose-500\/20 { border-color:rgba(244,63,94,.2); }
+    .border-violet-500\/20 { border-color:rgba(139,92,246,.2); }
+    .border-fuchsia-500\/20 { border-color:rgba(217,70,239,.2); }
+    .border-orange-500\/20 { border-color:rgba(249,115,22,.2); }
+    .border-l-red-500 { border-left-color:#ef4444; }
+    .border-l-amber-500 { border-left-color:#f59e0b; }
+    .border-l-slate-600 { border-left-color:#475569; }
+    .border-l-slate-700 { border-left-color:#334155; }
+    .max-w-6xl { max-width:72rem; } .mx-auto { margin-left:auto; margin-right:auto; }
+    .px-4 { padding-left:1rem; padding-right:1rem; } .py-6 { padding-top:1.5rem; padding-bottom:1.5rem; }
+    .px-3 { padding-left:.75rem; padding-right:.75rem; } .py-1 { padding-top:.25rem; padding-bottom:.25rem; }
+    .px-2 { padding-left:.5rem; padding-right:.5rem; } .py-1\.5 { padding-top:.375rem; padding-bottom:.375rem; }
+    .px-5 { padding-left:1.25rem; padding-right:1.25rem; } .py-3 { padding-top:.75rem; padding-bottom:.75rem; }
+    .p-4 { padding:1rem; } .p-5 { padding:1.25rem; } .gap-2 { gap:.5rem; } .gap-3 { gap:.75rem; }
+    .gap-4 { gap:1rem; } .gap-6 { gap:1.5rem; } .mb-3 { margin-bottom:.75rem; } .mb-6 { margin-bottom:1.5rem; }
+    .text-2xl { font-size:1.5rem; line-height:2rem; } .text-sm { font-size:.875rem; line-height:1.25rem; }
+    .text-xs { font-size:.75rem; line-height:1rem; } .text-lg { font-size:1.125rem; line-height:1.75rem; }
+    .font-bold { font-weight:700; } .font-semibold { font-weight:600; } .font-medium { font-weight:500; }
+    .tracking-tight { letter-spacing:-.025em; } .uppercase { text-transform:uppercase; }
+    .tracking-wide { letter-spacing:.025em; } .text-right { text-align:right; }
+    .rounded-md { border-radius:.375rem; } .rounded-lg { border-radius:.5rem; }
+    .rounded-xl { border-radius:.75rem; } .rounded-full { border-radius:9999px; }
+    .border { border-width:1px; border-style:solid; } .divide-y > * + * { border-top-width:1px; }
+    .divide-slate-800 > * + * { border-top-color:#1e293b; }
+    .flex { display:flex; } .inline-flex { display:inline-flex; }
+    .grid { display:grid; } .hidden { display:none; } .items-center { align-items:center; }
+    .justify-between { justify-content:space-between; } .justify-end { justify-content:flex-end; }
+    .flex-wrap { flex-wrap:wrap; } .flex-col { flex-direction:column; }
+    .grid-cols-1 { grid-template-columns:repeat(1,minmax(0,1fr)); }
+    @media (min-width:768px){ .md\:grid-cols-2 { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+    @media (min-width:1024px){ .lg\:grid-cols-6 { grid-template-columns:repeat(6,minmax(0,1fr)); } }
+    .w-full { width:100%; } .min-h-screen { min-height:100vh; } .max-h-\[85vh\] { max-height:85vh; }
+    .overflow-y-auto { overflow-y:auto; } .overflow-x-auto { overflow-x:auto; }
+    .whitespace-nowrap { white-space:nowrap; } .whitespace-pre-wrap { white-space:pre-wrap; }
+    .break-all { word-break:break-all; } .leading-relaxed { line-height:1.625; }
+    .sticky { position:sticky; } .top-0 { top:0; } .bottom-0 { bottom:0; }
+    .cursor-pointer { cursor:pointer; } .cursor-help { cursor:help; }
+    .antialiased { -webkit-font-smoothing:antialiased; }
+    .fixed { position:fixed; } .inset-0 { top:0; right:0; bottom:0; left:0; }
+    .bg-black\/70 { background:rgba(0,0,0,.7); } .z-50 { z-index:50; }
+    .items-center.justify-center { align-items:center; justify-content:center; }
+    .hover\:bg-slate-700:hover { background:#334155; }
+    .hover\:bg-brand\/20:hover { background:rgba(34,197,94,.2); }
+    .hover\:bg-red-700:hover { background:#b91c1c; }
+    .hover\:opacity-90:hover { opacity:.9; }
+    .align-middle { vertical-align:middle; } .inline-block { display:inline-block; }
+    .w-2 { width:.5rem; } .h-2 { height:.5rem; } .rounded-full { border-radius:9999px; }
+    .ml-1 { margin-left:.25rem; } .mr-1\.5 { margin-right:.375rem; }
+    .w-4 { width:1rem; } .h-4 { height:1rem; } .text-\[10px\] { font-size:10px; }
+    table { border-collapse:collapse; } th,td { padding:.75rem 1rem; }
+    .text-center { text-align:center; } .py-10 { padding-top:2.5rem; padding-bottom:2.5rem; }
+    .font-mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
   </style>
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen antialiased">
@@ -122,6 +216,7 @@
             <th class="px-4 py-3 font-medium">Mode</th>
             <th class="px-4 py-3 font-medium">Freq</th>
             <th class="px-4 py-3 font-medium">Exch</th>
+            <th class="px-4 py-3 font-medium">DXCC</th>
             <th class="px-4 py-3 font-medium">RX</th>
             <th class="px-4 py-3 font-medium">Contest</th>
             <th class="px-4 py-3 font-medium w-[340px]">Player</th>
@@ -129,6 +224,13 @@
         </thead>
         <tbody id="rows" class="divide-y divide-slate-800"></tbody>
       </table>
+    </div>
+
+    <div id="loadMoreWrap" class="flex justify-center mt-4 hidden">
+      <button id="loadMore"
+              class="text-xs px-4 py-2 rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-700">
+        Load more…
+      </button>
     </div>
 
     <div id="contView" class="overflow-x-auto rounded-lg border border-slate-800 hidden">
@@ -204,6 +306,18 @@
     const $ = (id) => document.getElementById(id);
     const rows = $('rows');
     let recPaused = false;
+
+    // Pagination state for the QSO dashboard. Only a slice of the matching
+    // rows is loaded at once so the UI stays responsive even with tens of
+    // thousands of records in the database.
+    const PAGE_SIZE = 200;
+    let qsoOffset = 0;
+    let qsoTotal = 0;
+    let qsoLoading = false;
+    // Monotonic id for the current query. Out-of-order responses (e.g. a
+    // slow "wider" filter returning after a "narrower" one) are discarded so
+    // the displayed rows always match the latest count shown in the header.
+    let qsoReqId = 0;
 
     function showModal() {
       const m = $('cfgModal');
@@ -404,13 +518,24 @@
       return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
     }
 
-    async function loadQsos() {
-      const params = new URLSearchParams();
+    async function loadQsos(append = false) {
+      if (qsoLoading) return;
+      if (!append) {
+        qsoOffset = 0;
+        rows.innerHTML = '';
+        $('contRows').innerHTML = '';
+      }
+      // Tag this request so we can ignore stale responses that arrive after a
+      // newer filter change (otherwise an older, wider result could paint
+      // over the newer, narrower count — making the header say e.g. 13 but
+      // showing many more rows).
+      const reqId = ++qsoReqId;
       const c = $('contest').value, call = $('call').value,
             band = $('band').value,
             mode = $('mode').value, cont = $('continuous').value,
             rxSel = $('rx').value,
             df = $('date_from').value, dt = $('date_to').value;
+      const params = new URLSearchParams();
       if (c) params.set('contest', c);
       if (call) params.set('call', call);
       if (band) params.set('band', band);
@@ -419,62 +544,78 @@
       if (rxSel) params.set('rx', rxSel);
       if (df) params.set('date_from', toEpoch(df, false));
       if (dt) params.set('date_to', toEpoch(dt, true));
+      params.set('offset', qsoOffset);
+      params.set('limit', PAGE_SIZE);
 
-      const r = await fetch('/api/qsos?' + params.toString());
-      const d = await r.json();
-      rows.innerHTML = '';
-      $('contRows').innerHTML = '';
-      $('count').textContent = d.count + (cont === 'true' ? ' recording(s)' : ' QSO(s)');
-      const empty = $('empty');
-      if (d.count > 0) empty.className = 'text-center text-slate-500 py-10 hidden';
-      else empty.className = 'text-center text-slate-500 py-10';
+      qsoLoading = true;
+      try {
+        const r = await fetch('/api/qsos?' + params.toString());
+        const d = await r.json();
+        // A newer query was started while we were awaiting — discard this
+        // response so the UI only ever reflects the latest request.
+        if (reqId !== qsoReqId) return;
+        qsoTotal = d.count;
+        $('count').textContent = d.count + (cont === 'true' ? ' recording(s)' : ' QSO(s)');
+        const empty = $('empty');
+        if (d.count > 0) empty.className = 'text-center text-slate-500 py-10 hidden';
+        else empty.className = 'text-center text-slate-500 py-10';
 
-      const isCont = cont === 'true';
-      $('qsoView').className = 'overflow-x-auto rounded-lg border border-slate-800' + (isCont ? ' hidden' : '');
-      $('contView').className = 'overflow-x-auto rounded-lg border border-slate-800' + (isCont ? '' : ' hidden');
+        const isCont = cont === 'true';
+        $('qsoView').className = 'overflow-x-auto rounded-lg border border-slate-800' + (isCont ? ' hidden' : '');
+        $('contView').className = 'overflow-x-auto rounded-lg border border-slate-800' + (isCont ? '' : ' hidden');
 
-      if (isCont) {
+        if (isCont) {
+          d.qsos.forEach(q => {
+            const start = q.timestamp;
+            const stop = q.duration ? _fmtStop(q.timestamp, q.duration) : '—';
+            const tr = document.createElement('tr');
+            tr.className = 'hover:bg-slate-900/50';
+            tr.innerHTML = `
+              <td class="px-4 py-2 whitespace-nowrap text-slate-300">${start}</td>
+              <td class="px-4 py-2 whitespace-nowrap text-slate-400">${stop}</td>
+              <td class="px-4 py-2 text-slate-400 font-mono">${fmtDuration(q.duration)}</td>
+              <td class="px-4 py-2">${rxBadge(q.label)}</td>`;
+            const td = document.createElement('td');
+            td.className = 'px-0 py-0';
+            td.appendChild(buildPlayer(q.url));
+            tr.appendChild(td);
+            $('contRows').appendChild(tr);
+          });
+          return;
+        }
+
         d.qsos.forEach(q => {
-          const start = q.timestamp;
-          const stop = q.duration ? _fmtStop(q.timestamp, q.duration) : '—';
           const tr = document.createElement('tr');
-          tr.className = 'hover:bg-slate-900/50';
+          tr.className = 'hover:bg-slate-900/50 cursor-pointer';
           tr.innerHTML = `
-            <td class="px-4 py-2 whitespace-nowrap text-slate-300">${start}</td>
-            <td class="px-4 py-2 whitespace-nowrap text-slate-400">${stop}</td>
-            <td class="px-4 py-2 text-slate-400 font-mono">${fmtDuration(q.duration)}</td>
-            <td class="px-4 py-2">${rxBadge(q.label)}</td>`;
+            <td class="px-4 py-2 whitespace-nowrap text-slate-400">${q.timestamp}</td>
+            <td class="px-4 py-2 font-semibold text-brand">${q.call}</td>
+            <td class="px-4 py-2">${bandBadge(q.band)}</td>
+            <td class="px-4 py-2">${modeBadge(q.mode)}</td>
+            <td class="px-4 py-2 text-slate-400 font-mono">${q.freq || '—'}</td>
+            <td class="px-4 py-2 text-slate-300">${q.exchange || '—'}</td>
+            <td class="px-4 py-2 text-slate-400">${q.countryprefix || (q.wpxprefix ? q.wpxprefix : '—')}</td>
+            <td class="px-4 py-2">${rxBadge(q.label)}</td>
+            <td class="px-4 py-2 text-slate-500">${q.contest}</td>`;
           const td = document.createElement('td');
           td.className = 'px-0 py-0';
           td.appendChild(buildPlayer(q.url));
           tr.appendChild(td);
-          $('contRows').appendChild(tr);
+          tr.addEventListener('click', (e) => {
+            if (e.target.tagName === 'AUDIO' || e.target.tagName === 'SELECT') return;
+            showDetail(q);
+          });
+          rows.appendChild(tr);
         });
-        return;
-      }
 
-      d.qsos.forEach(q => {
-        const tr = document.createElement('tr');
-        tr.className = 'hover:bg-slate-900/50 cursor-pointer';
-        tr.innerHTML = `
-          <td class="px-4 py-2 whitespace-nowrap text-slate-400">${q.timestamp}</td>
-          <td class="px-4 py-2 font-semibold text-brand">${q.call}</td>
-          <td class="px-4 py-2">${bandBadge(q.band)}</td>
-          <td class="px-4 py-2">${modeBadge(q.mode)}</td>
-          <td class="px-4 py-2 text-slate-400 font-mono">${q.freq || '—'}</td>
-          <td class="px-4 py-2 text-slate-300">${q.exchange || '—'}</td>
-          <td class="px-4 py-2">${rxBadge(q.label)}</td>
-          <td class="px-4 py-2 text-slate-500">${q.contest}</td>`;
-        const td = document.createElement('td');
-        td.className = 'px-0 py-0';
-        td.appendChild(buildPlayer(q.url));
-        tr.appendChild(td);
-        tr.addEventListener('click', (e) => {
-          if (e.target.tagName === 'AUDIO' || e.target.tagName === 'SELECT') return;
-          showDetail(q);
-        });
-        rows.appendChild(tr);
-      });
+        qsoOffset += d.qsos.length;
+      } finally {
+        qsoLoading = false;
+      }
+      // Show "Load more" only when there are still matching rows to fetch.
+      const wrap = $('loadMoreWrap');
+      if (qsoOffset < qsoTotal) wrap.className = 'flex justify-center mt-4';
+      else wrap.className = 'flex justify-center mt-4 hidden';
     }
 
     function _fmtStop(tsStr, dur) {
@@ -493,10 +634,18 @@
         ['Call', q.call], ['Band', q.band], ['Mode', q.mode],
         ['Frequency', q.freq], ['Name', q.name], ['QTH', q.qth],
         ['Grid', q.grid], ['Exchange', q.exchange], ['Exch2', q.exchange2],
-        ['Exch3', q.exchange3], ['Comment', q.comment],
+        ['Exch3', q.exchange3], ['Sent Exchange', q.sent_exchange],
+        ['RST', (q.rcv || q.snt) ? `${q.rcv || '—'} / ${q.snt || '—'}` : ''],
+        ['Serial', (q.rcvnr || q.sntnr) ? `${q.rcvnr || '—'} / ${q.sntnr || '—'}` : ''],
+        ['Section', q.section], ['Country', q.countryprefix],
+        ['WPX', q.wpxprefix], ['Continent', q.continent],
+        ['My Call', q.mycall], ['Comment', q.comment],
         ['Operator', q.operator], ['Station', q.station],
         ['Contest', q.contest], ['Contest Nr', q.contest_nr],
         ['Points', q.points], ['Multiplier', q.multiplier],
+        ['Mult2', q.multiplier2], ['Mult3', q.multiplier3],
+        ['Prec', q.prec], ['CK', q.ck], ['Power', q.power],
+        ['Claimed', q.is_claimed], ['N1MM ID', q.n1mm_id],
         ['Timestamp', q.timestamp], ['RX', q.label], ['File', q.file],
       ];
       const body = $('detailBody');
@@ -517,9 +666,13 @@
     }
 
     function esc(s) {
-      return String(s).replace(/[&<>"']/g, c => ({
-        '&': '&', '<': '<', '>': '>', '"': '"', "'": '&#39;'
-      }[c]));
+      const A = String.fromCharCode(38), L = String.fromCharCode(60),
+            G = String.fromCharCode(62), Q = String.fromCharCode(34),
+            ap = String.fromCharCode(39);
+      const re = new RegExp('[' + A + L + G + Q + ap + ']', 'g');
+      const map = {'&': A+'amp;', '<': A+'lt;', '>': A+'gt;',
+                   '"': A+'quot;', "'": A+'#39;'};
+      return String(s).replace(re, c => map[c]);
     }
     const LOG_COLORS = {
       ERROR: 'text-red-400', WARNING: 'text-amber-400',
@@ -578,6 +731,7 @@
       $(id).addEventListener('change', loadQsos);
     });
     $('refresh').addEventListener('click', loadQsos);
+    $('loadMore').addEventListener('click', () => loadQsos(true));
 
     $('openLog').addEventListener('click', showLog);
     $('closeLog').addEventListener('click', hideLog);

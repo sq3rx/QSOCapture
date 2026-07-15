@@ -25,6 +25,7 @@ class AppConfig:
     continuous_recording: bool = True
     continuous_autostart: bool = False  # begin continuous recording automatically on startup
     continuous_chunk_minutes: int = 60
+    max_recordings_gb: float = 0.0  # max disk usage for recordings (0 = unlimited)
 
     # audio
     audio_mode: str = "soundcard"          # "tci" | "soundcard"
@@ -49,7 +50,7 @@ class AppConfig:
     n1mm_bind_ip: str = "0.0.0.0"
 
     # web
-    web_host: str = "0.0.0.0"
+    web_host: str = "127.0.0.1"
     web_port: int = 8000
     dashboard_file: str = "index.html"
 
@@ -142,6 +143,8 @@ CONFIG_SCHEMA = [
      "When ON, continuous recording starts automatically on app startup. When OFF, you can still start it anytime from the dashboard (Stop/Start recording button)."),
     ("general", "continuous_chunk_minutes", "Continuous chunk (min)", "int", None,
      "Length of each continuous recording chunk in minutes. Larger values = fewer, bigger files."),
+    ("general", "max_recordings_gb", "Max recordings (GB)", "float", None,
+     "Hard cap on total disk usage of the recordings folder. When exceeded, the oldest continuous chunks are deleted automatically (0 = unlimited)."),
     ("audio", "audio_mode", "Audio mode", "text", ["tci", "soundcard"],
      "Source of audio: 'tci' streams from ExpertSDR via the TCI protocol, 'soundcard' captures a system input device."),
     ("audio", "sample_rate", "Sample rate (Hz)", "int", [8000, 16000, 22050, 44100, 48000, 96000],
@@ -171,7 +174,7 @@ CONFIG_SCHEMA = [
     ("n1mm", "n1mm_bind_ip", "N1MM bind IP", "text", None,
      "Network interface to listen on for N1MM packets (0.0.0.0 = all interfaces)."),
     ("web", "web_host", "Web host", "text", None,
-     "Network interface the web dashboard binds to (0.0.0.0 = accessible from other devices)."),
+     "Network interface the web dashboard binds to (127.0.0.1 = local only, safer default; 0.0.0.0 = accessible from other devices on the network)."),
     ("web", "web_port", "Web port", "int", None,
      "TCP port for the web dashboard (open http://localhost:PORT in your browser)."),
 ]

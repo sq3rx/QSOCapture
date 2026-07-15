@@ -23,9 +23,36 @@ DB_PATH = "qsos.db"
 _lock = threading.Lock()
 
 
+def _connect() -> sqlite3.Connection:
+    """Open a connection with WAL mode and a REGEXP helper.
+
+    WAL improves read/write concurrency (the web API can read while the audio
+    thread inserts). The REGEXP function lets :func:`query_contacts` push the
+    ``call`` filter down into SQL instead of fetching thousands of rows and
+    filtering them in Python.
+    """
+    con = sqlite3.connect(DB_PATH)
+    try:
+        con.execute("PRAGMA journal_mode=WAL")
+    except sqlite3.DatabaseError:
+        pass
+
+    def _regexp(pattern: str, value: Optional[str]) -> bool:
+        if value is None:
+            return False
+        try:
+            return re.search(pattern, value, re.IGNORECASE) is not None
+        except re.error:
+            # Fall back to a literal case-insensitive substring match.
+            return pattern.lower() in value.lower()
+
+    con.create_function("REGEXP", 2, _regexp)
+    return con
+
+
 def init_db() -> None:
     """Create the ``qsos`` table if it does not yet exist."""
-    with _lock, sqlite3.connect(DB_PATH) as con:
+    with _lock, _connect() as con:
         con.execute(
             """
             CREATE TABLE IF NOT EXISTS qsos (
@@ -42,11 +69,28 @@ def init_db() -> None:
                 exchange  TEXT,
                 exchange2 TEXT,
                 exchange3 TEXT,
+                rcv       TEXT,
+                snt       TEXT,
+                rcvnr     TEXT,
+                sntnr     TEXT,
+                section   TEXT,
+                mycall    TEXT,
+                countryprefix TEXT,
+                wpxprefix TEXT,
+                continent TEXT,
                 operator  TEXT,
                 station   TEXT,
                 contest_nr TEXT,
                 points    TEXT,
                 multiplier TEXT,
+                multiplier2 TEXT,
+                multiplier3 TEXT,
+                prec      TEXT,
+                ck        TEXT,
+                power     TEXT,
+                n1mm_id   TEXT,
+                is_claimed TEXT,
+                sent_exchange TEXT,
                 timestamp REAL,
                 raw_ts    TEXT,
                 duration  REAL,
@@ -55,10 +99,52 @@ def init_db() -> None:
             )
             """
         )
-        # Migrate older databases that lack the duration column.
+        # Migrate older databases that lack the newer columns BEFORE creating
+        # any index that references them.
         cols = [r[1] for r in con.execute("PRAGMA table_info(qsos)")]
-        if "duration" not in cols:
-            con.execute("ALTER TABLE qsos ADD COLUMN duration REAL")
+        for col, ctype in _MIGRATE_COLUMNS:
+            if col not in cols:
+                con.execute(f"ALTER TABLE qsos ADD COLUMN {col} {ctype}")
+        # Index for fast lookup by N1MM GUID (used by replace/delete packets).
+        con.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_qsos_n1mm_id ON qsos(n1mm_id)"
+        )
+        # Additional indexes to speed up the dashboard filter / sort.
+        con.execute(
+            "CREATE INDEX IF NOT EXISTS idx_qsos_timestamp ON qsos(timestamp DESC)"
+        )
+        con.execute(
+            "CREATE INDEX IF NOT EXISTS idx_qsos_call ON qsos(call)"
+        )
+        con.execute(
+            "CREATE INDEX IF NOT EXISTS idx_qsos_band ON qsos(band)"
+        )
+        con.execute(
+            "CREATE INDEX IF NOT EXISTS idx_qsos_mode ON qsos(mode)"
+        )
+
+
+# Columns added after the initial schema, with their SQL types, for migration.
+_MIGRATE_COLUMNS = [
+    ("rcv", "TEXT"),
+    ("snt", "TEXT"),
+    ("rcvnr", "TEXT"),
+    ("sntnr", "TEXT"),
+    ("section", "TEXT"),
+    ("mycall", "TEXT"),
+    ("countryprefix", "TEXT"),
+    ("wpxprefix", "TEXT"),
+    ("continent", "TEXT"),
+    ("multiplier2", "TEXT"),
+    ("multiplier3", "TEXT"),
+    ("prec", "TEXT"),
+    ("ck", "TEXT"),
+    ("power", "TEXT"),
+    ("n1mm_id", "TEXT"),
+    ("is_claimed", "TEXT"),
+    ("sent_exchange", "TEXT"),
+    ("duration", "REAL"),
+]
 
 
 def insert_qso(
@@ -74,36 +160,114 @@ def insert_qso(
     exchange: str = "",
     exchange2: str = "",
     exchange3: str = "",
+    rcv: str = "",
+    snt: str = "",
+    rcvnr: str = "",
+    sntnr: str = "",
+    section: str = "",
+    mycall: str = "",
+    countryprefix: str = "",
+    wpxprefix: str = "",
+    continent: str = "",
     operator: str = "",
     station: str = "",
     contest_nr: str = "",
     points: str = "",
     multiplier: str = "",
+    multiplier2: str = "",
+    multiplier3: str = "",
+    prec: str = "",
+    ck: str = "",
+    power: str = "",
+    n1mm_id: str = "",
+    is_claimed: str = "",
+    sent_exchange: str = "",
     timestamp: float = 0.0,
     raw_ts: str = "",
     duration: float = 0.0,
     file_path: Optional[str] = None,
-) -> None:
-    """Insert (or ignore if file_path already present) a QSO record."""
+) -> Optional[str]:
+    """Insert a QSO record, upserting by N1MM GUID when one is supplied.
+
+    Behaviour:
+      * No ``n1mm_id``  -> plain ``INSERT OR IGNORE`` (continuous chunks,
+        migrated files, or contacts without a GUID).
+      * ``n1mm_id`` present and the same ``file_path`` already stored
+        (e.g. N1MM re-sent the contact with an identical timestamp) -> the
+        row's metadata (call, exchange, band, ...) is **updated** so an edit
+        in N1MM is reflected on the dashboard. The previous early-``return``
+        here silently discarded such edits.
+      * ``n1mm_id`` present with a *different* ``file_path`` (N1MM edited the
+        timestamp, producing a new slice filename) -> the stale row is deleted
+        and a fresh one inserted. The superseded file path is returned so the
+        caller can remove the now-orphaned audio file from disk.
+
+    Returns the previous ``file_path`` when an existing row was replaced by a
+    new file path, otherwise ``None``.
+    """
+    superseded: Optional[str] = None
     with _lock, sqlite3.connect(DB_PATH) as con:
+        if n1mm_id:
+            existing = con.execute(
+                "SELECT file_path FROM qsos WHERE n1mm_id=?", (n1mm_id,)
+            ).fetchone()
+            if existing is not None:
+                old_fp = existing[0]
+                if old_fp == file_path:
+                    # Same audio file but metadata may have changed in N1MM:
+                    # refresh every editable column instead of returning early.
+                    con.execute(
+                        """
+                        UPDATE qsos SET
+                            contest=?, call=?, band=?, mode=?, freq=?, name=?,
+                            qth=?, grid=?, comment=?, exchange=?, exchange2=?,
+                            exchange3=?, rcv=?, snt=?, rcvnr=?, sntnr=?,
+                            section=?, mycall=?, countryprefix=?, wpxprefix=?,
+                            continent=?, operator=?, station=?, contest_nr=?,
+                            points=?, multiplier=?, multiplier2=?, multiplier3=?,
+                            prec=?, ck=?, power=?, is_claimed=?,
+                            sent_exchange=?, timestamp=?, raw_ts=?, duration=?
+                        WHERE n1mm_id=?
+                        """,
+                        (contest, call, band, mode, freq, name, qth, grid,
+                         comment, exchange, exchange2, exchange3, rcv, snt,
+                         rcvnr, sntnr, section, mycall, countryprefix,
+                         wpxprefix, continent, operator, station, contest_nr,
+                         points, multiplier, multiplier2, multiplier3, prec,
+                         ck, power, is_claimed, sent_exchange, timestamp,
+                         raw_ts, duration, n1mm_id),
+                    )
+                    return None
+                # Different file (edited timestamp -> new slice filename):
+                # drop the stale row. The new one is inserted below and the
+                # orphaned audio file is reported back to the caller.
+                con.execute("DELETE FROM qsos WHERE n1mm_id=?", (n1mm_id,))
+                superseded = old_fp
         con.execute(
             """
             INSERT OR IGNORE INTO qsos
                (contest, call, band, mode, freq, name, qth, grid, comment,
-                exchange, exchange2, exchange3, operator, station,
-                contest_nr, points, multiplier, timestamp, raw_ts, duration, file_path)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                exchange, exchange2, exchange3, rcv, snt, rcvnr, sntnr,
+                section, mycall, countryprefix, wpxprefix, continent,
+                operator, station, contest_nr, points, multiplier,
+                multiplier2, multiplier3, prec, ck, power, n1mm_id,
+                is_claimed, sent_exchange, timestamp, raw_ts, duration, file_path)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (contest, call, band, mode, freq, name, qth, grid, comment,
-             exchange, exchange2, exchange3, operator, station,
-             contest_nr, points, multiplier, timestamp, raw_ts, duration, file_path),
+             exchange, exchange2, exchange3, rcv, snt, rcvnr, sntnr,
+             section, mycall, countryprefix, wpxprefix, continent,
+             operator, station, contest_nr, points, multiplier,
+             multiplier2, multiplier3, prec, ck, power, n1mm_id,
+             is_claimed, sent_exchange, timestamp, raw_ts, duration, file_path),
         )
+    return superseded
 
 
 def insert_contact(contact, file_path: Optional[str] = None) -> None:
     """Convenience wrapper that pulls fields off an :class:`N1MMContact`."""
     insert_qso(
-        contest=contact.contest,
+        contest=getattr(contact, "contest", ""),
         call=contact.call,
         band=contact.band,
         mode=getattr(contact, "mode", ""),
@@ -115,11 +279,28 @@ def insert_contact(contact, file_path: Optional[str] = None) -> None:
         exchange=getattr(contact, "exchange", ""),
         exchange2=getattr(contact, "exchange2", ""),
         exchange3=getattr(contact, "exchange3", ""),
+        rcv=getattr(contact, "rcv", ""),
+        snt=getattr(contact, "snt", ""),
+        rcvnr=getattr(contact, "rcvnr", ""),
+        sntnr=getattr(contact, "sntnr", ""),
+        section=getattr(contact, "section", ""),
+        mycall=getattr(contact, "mycall", ""),
+        countryprefix=getattr(contact, "countryprefix", ""),
+        wpxprefix=getattr(contact, "wpxprefix", ""),
+        continent=getattr(contact, "continent", ""),
         operator=getattr(contact, "operator", ""),
         station=getattr(contact, "station", ""),
         contest_nr=getattr(contact, "contest_nr", ""),
         points=getattr(contact, "points", ""),
         multiplier=getattr(contact, "multiplier", ""),
+        multiplier2=getattr(contact, "multiplier2", ""),
+        multiplier3=getattr(contact, "multiplier3", ""),
+        prec=getattr(contact, "prec", ""),
+        ck=getattr(contact, "ck", ""),
+        power=getattr(contact, "power", ""),
+        n1mm_id=getattr(contact, "n1mm_id", ""),
+        is_claimed=getattr(contact, "is_claimed", ""),
+        sent_exchange=getattr(contact, "sent_exchange", ""),
         timestamp=contact.timestamp,
         raw_ts=getattr(contact, "raw_ts", ""),
         file_path=file_path,
@@ -135,7 +316,8 @@ def query_contacts(
     date_to: Optional[float] = None,
     continuous: Optional[bool] = None,
     rx: Optional[str] = None,
-    limit: int = 500,
+    limit: int = 200,
+    offset: int = 0,
 ) -> List[dict]:
     """Return QSO records matching the given filters (newest first).
 
@@ -152,8 +334,11 @@ def query_contacts(
     """
     sql = (
         "SELECT id, contest, call, band, mode, freq, name, qth, grid, "
-        "exchange, exchange2, exchange3, comment, operator, station, "
-        "contest_nr, points, multiplier, file_path, timestamp, duration "
+        "exchange, exchange2, exchange3, rcv, snt, rcvnr, sntnr, section, "
+        "mycall, countryprefix, wpxprefix, continent, comment, operator, "
+        "station, contest_nr, points, multiplier, multiplier2, multiplier3, "
+        "prec, ck, power, n1mm_id, is_claimed, sent_exchange, "
+        "file_path, timestamp, duration "
         "FROM qsos WHERE 1=1"
     )
     args: List = []
@@ -169,10 +354,44 @@ def query_contacts(
         # exact directory name. Case-insensitive via lower().
         sql += " AND lower(contest) LIKE lower(?)"
         args.append(f"%{contest}%")
+    if call:
+        # Pushed down into SQL via the REGEXP helper (regex or literal
+        # substring fallback handled in Python). This avoids fetching
+        # thousands of rows just to filter them in Python.
+        sql += " AND call REGEXP ?"
+        args.append(call.strip())
     if band:
-        # Substring match so "20M", "20m" and "20" all match a stored "20M".
-        sql += " AND band LIKE ?"
-        args.append(f"%{band.upper()}%")
+        # Flexible band match. The user may type either the band *label*
+        # (e.g. "20M" = 20 metres = 14 MHz) or the *frequency* in MHz
+        # (e.g. "14", "14MHz"). Stored values can be any of these forms.
+        # We expand the input into every equivalent form and OR them together
+        # so "20M" finds a stored "14MHz" and "14" finds a stored "20M".
+        import re
+        b = band.strip().upper()
+        m = re.search(r'(\d+(?:\.\d+)?)', b)
+        patterns = set()
+        if m:
+            num = m.group(1)
+            patterns.add(f"%{num}%")          # bare number (14 or 20)
+            patterns.add(f"%{num}M%")         # label form (20M)
+            patterns.add(f"%{num}MHZ%")      # explicit MHz (14MHZ)
+            # If the number looks like a band *label* (20, 40, 80, 15, 10...),
+            # also test the corresponding centre frequency in MHz.
+            try:
+                label_mhz = {
+                    160: 1.8, 80: 3.5, 40: 7.0, 30: 10.0, 20: 14.0,
+                    17: 18.0, 15: 21.0, 12: 24.0, 10: 28.0, 6: 50.0,
+                    2: 144.0,
+                }.get(int(float(num)))
+                if label_mhz is not None:
+                    patterns.add(f"%{label_mhz:g}%")
+                    patterns.add(f"%{label_mhz:g}MHZ%")
+            except (ValueError, TypeError):
+                pass
+        else:
+            patterns.add(f"%{b}%")
+        sql += " AND (" + " OR ".join("band LIKE ?" for _ in patterns) + ")"
+        args.extend(patterns)
     if mode:
         sql += " AND mode=?"
         args.append(mode.upper())
@@ -182,30 +401,21 @@ def query_contacts(
     if date_to is not None:
         sql += " AND timestamp <= ?"
         args.append(date_to)
-    # The call filter is applied in Python (regex/substring), so we fetch a
-    # generous slice and trim afterwards.
-    sql += " ORDER BY timestamp DESC LIMIT ?"
-    args.append(max(limit, 5000))
+    sql += " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
+    args.append(limit)
+    args.append(offset)
 
-    with _lock, sqlite3.connect(DB_PATH) as con:
+    with _lock, _connect() as con:
         con.row_factory = sqlite3.Row
+        # Total number of matching rows (ignoring the LIMIT/OFFSET) so the UI
+        # can display the real count and offer "load more" pagination instead
+        # of pulling thousands of rows into memory on every request.
+        count_sql = "SELECT COUNT(*) FROM qsos" + sql.split("FROM qsos", 1)[1].split("ORDER BY", 1)[0]
+        total = con.execute(count_sql, args[:-2]).fetchone()[0]
         rows = con.execute(sql, args).fetchall()
-
-    # Compile the call matcher once (regex, fallback to literal substring).
-    matcher = None
-    if call:
-        pattern = call.strip()
-        if pattern:
-            try:
-                matcher = re.compile(pattern, re.IGNORECASE)
-            except re.error:
-                safe = re.escape(pattern)
-                matcher = re.compile(safe, re.IGNORECASE)
 
     results = []
     for r in rows:
-        if matcher and not matcher.search(r["call"] or ""):
-            continue
         fp = r["file_path"]
         base = os.path.basename(fp) if fp else ""
         label = "RX1"
@@ -231,11 +441,28 @@ def query_contacts(
             "exchange": r["exchange"] or "",
             "exchange2": r["exchange2"] or "",
             "exchange3": r["exchange3"] or "",
+            "rcv": r["rcv"] or "",
+            "snt": r["snt"] or "",
+            "rcvnr": r["rcvnr"] or "",
+            "sntnr": r["sntnr"] or "",
+            "section": r["section"] or "",
+            "mycall": r["mycall"] or "",
+            "countryprefix": r["countryprefix"] or "",
+            "wpxprefix": r["wpxprefix"] or "",
+            "continent": r["continent"] or "",
             "operator": r["operator"] or "",
             "station": r["station"] or "",
             "contest_nr": r["contest_nr"] or "",
             "points": r["points"] or "",
             "multiplier": r["multiplier"] or "",
+            "multiplier2": r["multiplier2"] or "",
+            "multiplier3": r["multiplier3"] or "",
+            "prec": r["prec"] or "",
+            "ck": r["ck"] or "",
+            "power": r["power"] or "",
+            "n1mm_id": r["n1mm_id"] or "",
+            "is_claimed": r["is_claimed"] or "",
+            "sent_exchange": r["sent_exchange"] or "",
             "label": label,
             "timestamp": _fmt_ts(ts),
             "duration": r["duration"] or 0.0,
@@ -244,7 +471,7 @@ def query_contacts(
         })
         if len(results) >= limit:
             break
-    return results
+    return {"total": total, "qsos": results}
 
 
 def clear_all() -> None:
@@ -257,6 +484,23 @@ def delete_qso(file_path: str) -> None:
     """Remove a single QSO record matched by its file_path."""
     with _lock, sqlite3.connect(DB_PATH) as con:
         con.execute("DELETE FROM qsos WHERE file_path=?", (file_path,))
+
+
+def delete_qso_by_n1mm_id(n1mm_id: str) -> Optional[str]:
+    """Remove a QSO matched by its N1MM GUID and return its file_path.
+
+    Used by the ``<contactdelete>`` packet handler so the dashboard row and
+    the associated audio file can both be removed.
+    """
+    with _lock, sqlite3.connect(DB_PATH) as con:
+        row = con.execute(
+            "SELECT file_path FROM qsos WHERE n1mm_id=?", (n1mm_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        fp = row[0]
+        con.execute("DELETE FROM qsos WHERE n1mm_id=?", (n1mm_id,))
+        return fp
 
 
 def update_qso_duration(file_path: str, duration: float) -> None:
@@ -283,9 +527,16 @@ def migrate_existing(recordings_dir: str) -> None:
     Older audio files created before the DB existed have no rich metadata, so
     we parse what we can from the filename (call/band/label/timestamp) and
     store a minimal record. ``INSERT OR IGNORE`` keeps us idempotent.
+
+    All rows are inserted inside a single connection / transaction so that
+    seeding thousands of files at startup stays fast (opening one SQLite
+    connection per file previously made startup take tens of seconds with
+    only a couple of thousand recordings).
     """
     if not os.path.isdir(recordings_dir):
         return
+
+    rows: List[tuple] = []
     for contest in os.listdir(recordings_dir):
         cdir = os.path.join(recordings_dir, contest)
         if not os.path.isdir(cdir):
@@ -305,14 +556,7 @@ def migrate_existing(recordings_dir: str) -> None:
                         )
                     except Exception:
                         ts = 0.0
-                insert_qso(
-                    contest="_continuous",
-                    call="CONTINUOUS",
-                    band="",
-                    mode="",
-                    timestamp=ts,
-                    file_path=fp,
-                )
+                rows.append(("_continuous", "CONTINUOUS", "", ts, fp))
                 continue
             call, band, ts = "UNKNOWN", "", 0.0
             parts = fname[:-4].split("_")
@@ -325,11 +569,14 @@ def migrate_existing(recordings_dir: str) -> None:
                     ts = 0.0
                 call = parts[2]
                 band = parts[3]
-            insert_qso(
-                contest=contest,
-                call=call,
-                band=band,
-                mode="",
-                timestamp=ts,
-                file_path=fp,
-            )
+            rows.append((contest, call, band, ts, fp))
+
+    if not rows:
+        return
+
+    with _lock, _connect() as con:
+        con.executemany(
+            "INSERT OR IGNORE INTO qsos (contest, call, band, timestamp, file_path) "
+            "VALUES (?,?,?,?,?)",
+            rows,
+        )

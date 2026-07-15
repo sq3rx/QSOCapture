@@ -95,9 +95,13 @@ class QSORequest:
     band: str
     mode: str
     contest: str
-    timestamp: float
+    timestamp: float          # epoch seconds of the QSO time (from N1MM)
     pre_roll: float
     post_roll: float
+    # epoch seconds when the contact packet was received. This drives the
+    # slicing offset against the live audio buffer (the buffer only contains
+    # audio captured after the packet arrived).
+    receive_ts: float = 0.0
     # Rich metadata forwarded from N1MM (persisted to the DB so the
     # dashboard can show frequency / exchange / name / QTH etc.).
     freq: str = ""
@@ -108,11 +112,28 @@ class QSORequest:
     exchange: str = ""
     exchange2: str = ""
     exchange3: str = ""
+    rcv: str = ""
+    snt: str = ""
+    rcvnr: str = ""
+    sntnr: str = ""
+    section: str = ""
+    mycall: str = ""
+    countryprefix: str = ""
+    wpxprefix: str = ""
+    continent: str = ""
     operator: str = ""
     station: str = ""
     contest_nr: str = ""
     points: str = ""
     multiplier: str = ""
+    multiplier2: str = ""
+    multiplier3: str = ""
+    prec: str = ""
+    ck: str = ""
+    power: str = ""
+    n1mm_id: str = ""
+    is_claimed: str = ""
+    sent_exchange: str = ""
     raw_ts: str = ""
 
 
@@ -272,8 +293,13 @@ class AudioSource(ABC):
 
     def slice_qso(self, req: QSORequest) -> Optional[str]:
         now = time.time()
-        start_off = (now - req.timestamp) + req.pre_roll
-        end_off = (now - req.timestamp) - req.post_roll
+        # The audio buffer only contains samples captured since the contact
+        # packet arrived, so base the slice window on the *receive* time
+        # (when audio actually started being recorded) rather than the QSO
+        # time reported by N1MM (which can be in the past).
+        ref_ts = req.receive_ts if req.receive_ts else req.timestamp
+        start_off = (now - ref_ts) + req.pre_roll
+        end_off = (now - ref_ts) - req.post_roll
         if end_off < 0:
             end_off = 0
         safe_call = "".join(ch for ch in req.call if ch.isalnum() or ch in "-_")
@@ -308,18 +334,37 @@ class AudioSource(ABC):
             # the dashboard can display it.
             try:
                 import db as qso_db
-                qso_db.insert_qso(
+                superseded = qso_db.insert_qso(
                     contest=f"{year}_{req.contest}" if req.contest else f"{year}_GENERAL",
                     call=req.call, band=req.band, mode=req.mode,
                     freq=req.freq, name=req.name, qth=req.qth, grid=req.grid,
                     comment=req.comment, exchange=req.exchange,
                     exchange2=req.exchange2, exchange3=req.exchange3,
-                    operator=req.operator, station=req.station,
+                    rcv=req.rcv, snt=req.snt, rcvnr=req.rcvnr, sntnr=req.sntnr,
+                    section=req.section, mycall=req.mycall,
+                    countryprefix=req.countryprefix, wpxprefix=req.wpxprefix,
+                    continent=req.continent, operator=req.operator, station=req.station,
                     contest_nr=req.contest_nr, points=req.points,
-                    multiplier=req.multiplier, timestamp=req.timestamp,
+                    multiplier=req.multiplier, multiplier2=req.multiplier2,
+                    multiplier3=req.multiplier3, prec=req.prec, ck=req.ck,
+                    power=req.power, n1mm_id=req.n1mm_id, is_claimed=req.is_claimed,
+                    sent_exchange=req.sent_exchange, timestamp=req.timestamp,
                     raw_ts=req.raw_ts,
                     file_path=f"{contest_dir}/{fname}",
                 )
+                # If an edited N1MM contact (contactreplace) produced a new
+                # slice filename, the old audio file is now orphaned — remove
+                # it so it does not linger in the recordings folder.
+                if superseded:
+                    old_path = os.path.join(self.cfg.recordings_dir, superseded)
+                    try:
+                        if os.path.isfile(old_path):
+                            os.remove(old_path)
+                            logger.info("[%s] removed superseded audio file: %s",
+                                        rx_label, old_path)
+                    except OSError as e:
+                        logger.warning("Could not remove superseded file %s: %s",
+                                       old_path, e)
             except Exception as e:
                 logger.debug("qso db insert failed: %s", e)
         return saved[0][1] if saved else None

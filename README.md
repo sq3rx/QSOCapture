@@ -1,5 +1,9 @@
 # QSOCapture by SQ3RX
 
+[![Build and Release](https://github.com/sq3rx/QSOCapture/actions/workflows/main.yml/badge.svg)](https://github.com/sq3rx/QSOCapture/actions/workflows/main.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org)
+
 **Version:** 1.1.0
 
 **QSOCapture** is a lightweight contest audio recorder and log player for
@@ -11,6 +15,21 @@ clean, color-coded web dashboard.
 > Record every contact automatically, then replay it in the browser with
 > adjustable playback speed — perfect for contest post-analysis and
 > training.
+
+---
+
+## Table of Contents
+
+- [Features](#features)
+- [Requirements](#requirements)
+- [Quick start](#quick-start)
+- [Desktop EXE & Windows Installer](#desktop-exe--windows-installer)
+- [Configuration](#configuration)
+- [Using the dashboard](#using-the-dashboard)
+- [Project layout](#project-layout)
+- [API reference](#api-reference)
+- [Troubleshooting](#troubleshooting)
+- [License](#license)
 
 ---
 
@@ -31,8 +50,9 @@ clean, color-coded web dashboard.
    how much audio is buffered.
  - **Per-RX logging** — pause/resume/start messages and QSO slices are logged
    and stored separately per receiver (`[RX1]`, `[RX2]`).
- - **Web dashboard** — browse, filter and replay recordings from any device
-   on your network.
+ - **Web dashboard** — browse, filter and replay recordings from the local
+   machine (binds to 127.0.0.1 by default; change `web_host` to `0.0.0.0` in
+   settings only if you intentionally want to expose it on the network).
  - **Rich filtering** — by contest, callsign / prefix (supports regex), band,
    mode, **RX (All / RX1 / RX2)**, and an exact date/time range.
  - **Separate views** — N1MM QSOs and Continuous recordings are kept apart,
@@ -53,6 +73,7 @@ clean, color-coded web dashboard.
   - `sounddevice` (only needed for soundcard mode)
   - `websockets` (only needed for TCI mode)
   - `lameenc` (optional — only if you want MP3 output instead of WAV)
+  - `pywebview` (needed for the desktop EXE / embedded WebView2 launcher — `launcher.py`)
 
 Install everything with:
 
@@ -83,13 +104,24 @@ pip install -r requirements.txt
 
 ---
 
-## Desktop EXE (built-in browser)
+## Desktop EXE & Windows Installer
 
 The app can also be shipped as a single standalone ``QSOCapture.exe`` that
 launches the web server and opens the dashboard in an **embedded browser**
 (Edge WebView2 on Windows) — no external browser or Python install required.
 
-Build it yourself (Windows):
+### Download ready-made builds
+
+Go to the **[Releases](https://github.com/sq3rx/QSOCapture/releases)** page and
+download either:
+
+- **`QSOCapture.exe`** — a portable, single-file executable. Just run it; no
+  installation needed.
+- **`QSOCapture-setup-x.y.z.exe`** — a Windows installer (Inno Setup) that
+  places the app in `Program Files`, adds a Start Menu / desktop shortcut and
+  an uninstall entry. Recommended for most users.
+
+### Build it yourself (Windows)
 
 ```bash
 pip install -r requirements.txt
@@ -100,6 +132,14 @@ The result is ``dist/QSOCapture.exe``. Double-click it and the dashboard opens
 in its own window. ``config.cfg``, ``recordings/`` and ``qsos.db`` are stored
 next to the executable. If the embedded WebView2 engine is missing, the app
 automatically falls back to opening your default system browser.
+
+To build the **Windows installer** (requires [Inno Setup](https://jrsoftware.org/isinfo.php)):
+
+```bash
+iscc installer.iss
+```
+
+This produces ``installer/QSOCapture-setup-<version>.exe``.
 
 To run the desktop wrapper directly (without building):
 
@@ -123,10 +163,12 @@ with an explanation. The most important options:
 | general | `station_name` | Your station callsign / label shown in the header. |
 | general | `recordings_dir` | Where audio files are stored. |
 | general | `default_contest` | Contest name used when N1MM does not supply one. |
- | general | `continuous_recording` | ON = the continuous-recording feature is available. |
- | general | `continuous_autostart` | ON = start continuous recording automatically on launch. **OFF by default** — use the dashboard button to start it on demand. |
- | general | `continuous_chunk_minutes` | Length of each continuous chunk. |
+| general | `continuous_recording` | ON = the continuous-recording feature is available. |
+| general | `continuous_autostart` | ON = start continuous recording automatically on launch. **OFF by default** — use the dashboard button to start it on demand. |
+| general | `continuous_chunk_minutes` | Length of each continuous chunk. |
+| general | `max_recordings_gb` | Disk cap for the `recordings/` folder in GB. `0` = unlimited; when exceeded, the oldest **continuous** chunks are pruned automatically (N1MM QSO slices are preserved). |
 | audio | `audio_mode` | `tci` (ExpertSDR) or `soundcard`. |
+| audio | `sample_width` | Bytes per sample in the saved file (default `2` = 16-bit, standard for WAV). |
 | audio | `audio_format` | `wav` (lossless) or `mp3` (smaller files). |
 | audio | `sample_rate` | Must match your radio / TCI / soundcard (48000 typical). |
 | audio | `channels` | 1 = SO1R (mono), 2 = SO2R (stereo). |
@@ -134,10 +176,11 @@ with an explanation. The most important options:
 | audio | `post_roll` | Seconds waited **after** the N1MM packet before slicing. |
 | audio | `tci_host` / `tci_port` | ExpertSDR TCI server address (default `127.0.0.1:50001`). |
 | audio | `tci_receiver` | Which ExpertSDR receiver to record (0 = main RX). |
+| audio | `tci_version` | TCI protocol version advertised by ExpertSDR (default `2`). |
 | audio | `soundcard_device` | Substring of the input device name (empty = default). |
 | n1mm | `n1mm_udp_port` | UDP port N1MM broadcasts on (default `12060`). |
 | n1mm | `n1mm_bind_ip` | Interface to listen on (`0.0.0.0` = all). |
-| web | `web_host` / `web_port` | Dashboard bind address (default `0.0.0.0:8000`). |
+| web | `web_host` / `web_port` | Dashboard bind address (default `127.0.0.1:8000` — local only; set `0.0.0.0` to expose on the LAN). |
 
 ### How QSO slicing works
 
@@ -211,6 +254,7 @@ QSOCapture/
 ├── n1mm_listener.py   # N1MM Logger+ UDP listener
 ├── index.html         # Tailwind dashboard (served by main.py)
 ├── build.spec         # PyInstaller spec for building the standalone EXE
+├── installer.iss      # Inno Setup script for the Windows installer
 ├── config.cfg         # Your settings (created/updated automatically)
 ├── qsos.db            # SQLite database (created on first run)
 ├── recordings/        # Recorded audio (created on first run)
@@ -224,11 +268,16 @@ QSOCapture/
 | Method | Endpoint | Purpose |
 | ------ | -------- | ------- |
 | GET | `/api/contests` | List contest folders. |
- | GET | `/api/qsos` | Filtered QSO list (`contest`, `call`, `band`, `mode`, `rx`, `date_from`, `date_to`, `continuous`). |
-| GET | `/api/status` | TCI / N1MM connection state. |
+| GET | `/api/qsos` | Filtered QSO list (`contest`, `call`, `band`, `mode`, `rx`, `date_from`, `date_to`, `continuous`). |
+| GET | `/api/status` | TCI / N1MM connection state + per-RX buffer fill. |
 | GET | `/api/log` | Recent application log lines. |
 | GET | `/api/config` | Current config + UI schema (with help). |
 | POST | `/api/config` | Update config live and restart services. |
+| POST | `/api/continuous/pause` | Finalise the current continuous chunk and stop recording. |
+| POST | `/api/continuous/resume` | Resume continuous recording with a fresh chunk. |
+| GET | `/api/export` | Download all (or one contest's) recordings as a ZIP archive. |
+| GET | `/api/audio_devices` | List available soundcard input devices (for `soundcard_device`). |
+| GET | `/api/paths` | Absolute filesystem paths of `recordings/` and `config.cfg`. |
 | POST | `/api/factory_reset` | Wipe log + recordings + restore defaults. |
 | GET | `/audio/{contest}/{file}` | Stream a recorded audio file. |
 
@@ -253,9 +302,11 @@ QSOCapture/
  - **Rebuilding the EXE** — after changing source, delete `build/` and `dist/`
    and run `pyinstaller build.spec` again to avoid stale artifacts.
 
+---
+
 ## License
 
-This project is provided as-is for amateur radio use. Feel free to modify and
-share it.
+This project is licensed under the MIT License — see the [LICENSE](LICENSE) file
+for details. Free to use, modify and share for amateur radio and beyond.
 
 **73 de SQ3RX**

@@ -21,6 +21,9 @@ recordings/
 # Logs
 *.log
 
+# Tests (local test scripts and fixtures — not committed)
+tests/
+
 # Editor / OS
 .vscode/
 .idea/

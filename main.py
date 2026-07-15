@@ -17,14 +17,16 @@ from __future__ import annotations
 import logging
 import os
 import time
-import queue
 import shutil
+import zipfile
+import io
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from typing import List, Optional
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
 
 import config as config_module
 from config import AppConfig, load_config, config_to_dict, save_config, CONFIG_SCHEMA
@@ -47,8 +49,14 @@ audio_source = None
 n1mm = None
 _config_lock = threading.Lock()
 
-# Rolling in-memory log buffer (captured via a custom handler).
-LOG_BUFFER: "queue.Queue" = queue.Queue(maxsize=2000)
+# Rolling in-memory log buffer (captured via a custom handler). A bounded
+# deque is cheaper than a Queue: append/popleft are O(1) and get_recent_logs
+# does not need to copy the underlying queue object.
+LOG_BUFFER: "deque" = deque(maxlen=2000)
+
+# Pool used to run the post-roll delayed QSO slicing tasks. Bounding it
+# prevents unbounded thread creation during a contest pile-up.
+SLICE_POOL = ThreadPoolExecutor(max_workers=4, thread_name_prefix="qso-slice")
 
 
 class _LogCaptureHandler(logging.Handler):
@@ -57,7 +65,7 @@ class _LogCaptureHandler(logging.Handler):
     def emit(self, record: logging.LogRecord) -> None:
         try:
             msg = self.format(record)
-            LOG_BUFFER.put_nowait(msg)
+            LOG_BUFFER.append(msg)
         except Exception:
             pass
 
@@ -72,7 +80,7 @@ logging.getLogger().addHandler(_log_handler)
 
 def get_recent_logs(n: int = 200) -> List[str]:
     """Return the most recent *n* log lines (oldest first)."""
-    items = list(LOG_BUFFER.queue)
+    items = list(LOG_BUFFER)
     return items[-n:]
 
 
@@ -108,8 +116,10 @@ def on_contact(contact: N1MMContact) -> None:
     # "2026_CQWWCW") when building the directory and DB record. Prefixing
     # here too produced a doubled prefix like "2026_2026_CQWWCW".
     # The QSO slice (and its DB record) is created by the audio backend once
-    # the post-roll delay elapses, so we only schedule the slice here.
-    schedule_qso_slice(contact, audio_source, cfg, None)
+    # the post-roll delay elapses, so we only schedule the slice here. The
+    # task runs in the bounded SLICE_POOL instead of spawning a new thread
+    # per contact (which could grow unbounded during a contest pile-up).
+    SLICE_POOL.submit(schedule_qso_slice, contact, audio_source, cfg)
 
 
 # ---------------------------------------------------------------------------
@@ -127,6 +137,10 @@ async def lifespan(app: FastAPI):
     audio_source.start()
     n1mm = N1MMListener(cfg, on_contact=on_contact)
     n1mm.start()
+    # Periodic disk-limit enforcement (best-effort, daemon thread).
+    dl_thread = threading.Thread(target=_disk_limit_loop, daemon=True,
+                                 name="disk-limit")
+    dl_thread.start()
     logger.info("QSOCapture started (mode=%s)", cfg.audio_mode)
     yield
     if n1mm:
@@ -137,49 +151,6 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="QSOCapture", version="1.1.0", lifespan=lifespan)
-
-
-# ---------------------------------------------------------------------------
-# Helper: scan recordings directory and build QSO records (legacy fallback)
-# ---------------------------------------------------------------------------
-def _scan_qsos(contest_filter: Optional[str] = None) -> List[dict]:
-    """Walk the recordings dir and return metadata for each WAV file.
-
-    The filename convention is ``YYYY-MM-DD_HHMM_CALL_BAND_LABEL.wav``.
-    """
-    results: List[dict] = []
-    root = cfg.recordings_dir
-    if not os.path.isdir(root):
-        return results
-
-    for contest in sorted(os.listdir(root)):
-        cdir = os.path.join(root, contest)
-        if not os.path.isdir(cdir):
-            continue
-        if contest_filter and contest != contest_filter:
-            continue
-        for fname in os.listdir(cdir):
-            if not (fname.endswith(".wav") or fname.endswith(".mp3")):
-                continue
-            # Parse: 2026-07-13_2120_SQ3RX_20M_RX1.wav
-            parts = fname[:-4].split("_")
-            if len(parts) < 5:
-                continue
-            date_part, time_part, call, band, *rest = parts
-            label = rest[0] if rest else "RX1"
-            ts = f"{date_part} {time_part}"
-            results.append({
-                "contest": contest,
-                "file": fname,
-                "call": call,
-                "band": band,
-                "label": label,
-                "timestamp": ts,
-                "url": f"/audio/{contest}/{fname}",
-            })
-    # Sort by timestamp descending (newest first).
-    results.sort(key=lambda r: r["timestamp"], reverse=True)
-    return results
 
 
 # ---------------------------------------------------------------------------
@@ -218,6 +189,8 @@ def api_qsos(
     date_to: Optional[float] = Query(None),
     continuous: Optional[bool] = Query(None),
     rx: Optional[str] = Query(None),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(200, ge=1, le=500),
 ) -> JSONResponse:
     """Return filtered QSO records backed by the SQLite database.
 
@@ -234,8 +207,9 @@ def api_qsos(
         contest=contest, call=call, band=band,
         mode=mode, date_from=date_from, date_to=date_to,
         continuous=continuous, rx=rx,
+        offset=offset, limit=limit,
     )
-    return JSONResponse({"count": len(qsos), "qsos": qsos})
+    return JSONResponse({"count": qsos["total"], "qsos": qsos["qsos"]})
 
 
 @app.get("/audio/{contest}/{filename}")
@@ -270,6 +244,39 @@ def api_continuous_resume() -> JSONResponse:
         raise HTTPException(status_code=503, detail="audio not running")
     audio_source.resume_continuous()
     return JSONResponse({"ok": True, "paused": False})
+
+
+@app.get("/api/export")
+def api_export(contest: Optional[str] = Query(None)) -> FileResponse:
+    """Export all recordings (or a single contest folder) as a ZIP archive.
+
+    The archive is built in memory and streamed back, so the dashboard can
+    download the whole log for backup or off-machine analysis.
+    """
+    root = cfg.recordings_dir
+    if not os.path.isdir(root):
+        raise HTTPException(status_code=404, detail="no recordings")
+    base = root if not contest else os.path.join(root, contest)
+    if contest and not os.path.isdir(base):
+        raise HTTPException(status_code=404, detail="contest not found")
+    buf = io.BytesIO()
+    written = 0
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for dirpath, _dirs, files in os.walk(base):
+            for fn in files:
+                if not (fn.endswith(".wav") or fn.endswith(".mp3")):
+                    continue
+                full = os.path.join(dirpath, fn)
+                # Store with a path relative to the recordings dir.
+                arcname = os.path.relpath(full, root)
+                zf.write(full, arcname)
+                written += 1
+    if written == 0:
+        raise HTTPException(status_code=404, detail="no audio files to export")
+    buf.seek(0)
+    name = (contest or "QSOCapture_all").replace(os.sep, "_")
+    return FileResponse(buf, media_type="application/zip",
+                        filename=f"{name}.zip")
 
 
 @app.get("/api/audio_devices")
@@ -359,16 +366,20 @@ def api_set_config(payload: dict) -> JSONResponse:
             raw = payload[field]
             try:
                 if ftype == "int":
-                    setattr(cfg, field, int(raw))
+                    value = int(raw)
                 elif ftype == "float":
-                    setattr(cfg, field, float(raw))
+                    value = float(raw)
                 elif ftype == "bool":
-                    setattr(cfg, field, str(raw).lower() in ("1", "true", "yes", "on"))
+                    value = str(raw).lower() in ("1", "true", "yes", "on")
                 else:
-                    setattr(cfg, field, str(raw))
+                    value = str(raw)
             except (ValueError, TypeError) as e:
                 raise HTTPException(status_code=400,
                                     detail=f"Invalid value for {field}: {e}")
+            # Sanity-check ranges so a bad value does not crash the audio
+            # source (or bind to an invalid port) when it is restarted below.
+            _validate_field_range(field, value)
+            setattr(cfg, field, value)
     save_config(cfg, "config.cfg")
     _apply_and_restart()
     return JSONResponse({"ok": True, "values": config_to_dict(cfg)})
@@ -401,14 +412,95 @@ def api_factory_reset() -> JSONResponse:
         cfg = AppConfig()
         save_config(cfg, "config.cfg")
         # 4. Clear the in-memory log buffer.
-        while not LOG_BUFFER.empty():
-            try:
-                LOG_BUFFER.get_nowait()
-            except Exception:
-                break
+        LOG_BUFFER.clear()
     _apply_and_restart()
     logger.info("Factory reset completed")
     return JSONResponse({"ok": True, "values": config_to_dict(cfg)})
+
+
+def _validate_field_range(field: str, value) -> None:
+    """Reject obviously invalid configuration values before they are applied.
+
+    Prevents e.g. ``channels=5`` or ``sample_rate=1`` from crashing the audio
+    backend at restart, or binding to an illegal port.
+    """
+    limits = {
+        "sample_rate": (8000, 192000),
+        "channels": (1, 2),
+        "pre_roll": (0.0, 120.0),
+        "post_roll": (0.0, 120.0),
+        "continuous_chunk_minutes": (1, 1440),
+        "tci_port": (1, 65535),
+        "tci_receiver": (0, 3),
+        "n1mm_udp_port": (1, 65535),
+        "web_port": (1, 65535),
+        "sample_width": (1, 4),
+        "max_recordings_gb": (0.0, 100000.0),
+    }
+    if field in limits:
+        lo, hi = limits[field]
+        if value < lo or value > hi:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Value for {field} out of range ({lo}..{hi}): {value}",
+            )
+
+
+def enforce_disk_limit() -> int:
+    """Delete oldest continuous chunks until ``recordings_dir`` is under
+    ``max_recordings_gb`` (no-op when the limit is 0 / unlimited).
+
+    Only continuous chunks are pruned (they are the bulk, regenerable
+    material); individual N1MM QSO slices are preserved. Returns the number
+    of files removed.
+    """
+    limit_gb = getattr(cfg, "max_recordings_gb", 0.0) or 0.0
+    if limit_gb <= 0:
+        return 0
+    rec_dir = cfg.recordings_dir
+    cont_dir = os.path.join(rec_dir, "_continuous")
+    if not os.path.isdir(cont_dir):
+        return 0
+    removed = 0
+    while True:
+        total = 0.0
+        files = []
+        for fn in os.listdir(cont_dir):
+            fp = os.path.join(cont_dir, fn)
+            if os.path.isfile(fp):
+                try:
+                    total += os.path.getsize(fp) / (1024 ** 3)
+                    files.append((os.path.getmtime(fp), fp, fn))
+                except OSError:
+                    pass
+        if total <= limit_gb or not files:
+            break
+        # Remove the oldest chunk.
+        files.sort()
+        _mt, fp, fn = files[0]
+        try:
+            os.remove(fp)
+            rel = "_continuous/" + fn
+            try:
+                qso_db.delete_qso(rel)
+            except Exception:
+                pass
+            removed += 1
+        except OSError:
+            break
+    if removed:
+        logger.info("Disk limit enforced: removed %d old continuous chunk(s)", removed)
+    return removed
+
+
+# Background scheduler that periodically enforces the recordings disk cap.
+def _disk_limit_loop() -> None:
+    while True:
+        try:
+            enforce_disk_limit()
+        except Exception as e:
+            logger.debug("disk limit check error: %s", e)
+        time.sleep(300)
 
 
 # ---------------------------------------------------------------------------

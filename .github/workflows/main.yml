@@ -1,4 +1,4 @@
-name: Build and Release EXE
+name: Build and Release
 
 on:
   push:
@@ -25,9 +25,17 @@ jobs:
       - name: Build with PyInstaller
         run: pyinstaller --noconfirm build.spec
 
+      - name: Install Inno Setup
+        run: choco install innosetup -y
+
+      - name: Build Windows installer
+        run: iscc installer.iss /dMyAppVersion="${{ github.ref_name }}"
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/qsocapture.exe
+          files: |
+            dist/qsocapture.exe
+            installer/QSOCapture-setup-${{ github.ref_name }}.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
