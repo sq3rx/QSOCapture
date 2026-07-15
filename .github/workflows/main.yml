@@ -23,7 +23,7 @@ jobs:
           pip install -r requirements.txt
 
       - name: Build with PyInstaller
-        run: pyinstaller --noconfirm spec.spec
+        run: pyinstaller --noconfirm build.spec
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
