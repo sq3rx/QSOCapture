@@ -40,8 +40,6 @@ if sys.stderr is None:
 
 import uvicorn
 
-import main as qso_main  # reuse the already-built FastAPI app + config
-
 
 def _is_frozen() -> bool:
     """Return True when running inside a PyInstaller bundle."""
@@ -51,22 +49,23 @@ def _is_frozen() -> bool:
 def _app_dir() -> str:
     """Directory that should hold config/recordings/index.html.
 
-    When frozen this is the directory containing the executable; otherwise the
-    project source directory.
+    Data is stored in the current user's ``%LOCALAPPDATA%\\QSOCapture`` which
+    is always writable without administrator privileges (unlike
+    ``C:\\Program Files`` where the executable is installed). Keeping user data
+    out of Program Files is what lets the app run normally for a non-admin
+    user.
     """
-    if _is_frozen():
-        return os.path.dirname(sys.executable)
-    return os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(
+        os.environ.get("LOCALAPPDATA", os.path.expanduser("~")),
+        "QSOCapture",
+    )
 
 
 def _ensure_assets(app_dir: str) -> None:
     """Make sure ``index.html`` exists in the writable app directory.
 
-    When the executable lives in a read-only location (e.g. ``C:\\Program
-    Files\\...`` installed by an admin installer), we cannot copy the bundled
-    asset next to the ``.exe``. In that case we fall back to a per-user
-    directory (``%LOCALAPPDATA%/QSOCapture``) which is always writable, and
-    point ``main.py`` at that copy via ``qso_main.INDEX_HTML_OVERRIDE``.
+    ``app_dir`` is already ``%LOCALAPPDATA%\\QSOCapture`` (always writable
+    without admin rights), so we can simply copy the bundled asset there.
     """
     target = os.path.join(app_dir, "index.html")
     if os.path.isfile(target):
@@ -80,18 +79,9 @@ def _ensure_assets(app_dir: str) -> None:
         if os.path.isfile(src):
             try:
                 shutil.copyfile(src, target)
-                return
-            except PermissionError:
-                # Read-only install dir (e.g. Program Files). Fall back to a
-                # writable per-user location and tell main.py to serve from there.
-                user_dir = os.path.join(
-                    os.environ.get("LOCALAPPDATA", app_dir), "QSOCapture"
-                )
-                os.makedirs(user_dir, exist_ok=True)
-                user_target = os.path.join(user_dir, "index.html")
-                shutil.copyfile(src, user_target)
-                qso_main.INDEX_HTML_OVERRIDE = user_target
-                return
+            except OSError:
+                pass  # dashboard simply won't render, server still works
+            return
     # If we still don't have it, the dashboard simply won't render, but the
     # server keeps working (user can open a normal browser).
 
@@ -109,9 +99,50 @@ def _wait_for_server(url: str, timeout: float = 15.0) -> bool:
     return False
 
 
+def _migrate_legacy_data(app_dir: str) -> None:
+    """Move user data left in the executable directory (e.g. an old
+    ``C:\\Program Files\\QSOCapture`` install) into the per-user *app_dir*.
+
+    Before this change the app stored ``config.cfg``, ``qsos.db`` and
+    ``recordings/`` next to the executable, i.e. inside Program Files where a
+    normal user cannot write. We now keep everything in ``%LOCALAPPDATA%``.
+    On first launch we relocate any existing data so previously recorded QSOs
+    are not lost. The move is best-effort: failures (e.g. locked files) are
+    skipped and the new location simply starts fresh for that item.
+    """
+    # The executable directory (frozen) or script directory (dev).
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        legacy_dir = os.path.dirname(sys.executable)
+    else:
+        legacy_dir = os.path.dirname(os.path.abspath(__file__))
+    if os.path.normcase(os.path.abspath(legacy_dir)) == os.path.normcase(os.path.abspath(app_dir)):
+        return  # already the same location (dev mode)
+
+    items = ["config.cfg", "qsos.db", "qsos.db-wal", "qsos.db-shm", "recordings"]
+    for name in items:
+        src = os.path.join(legacy_dir, name)
+        dst = os.path.join(app_dir, name)
+        if not os.path.exists(src) or os.path.exists(dst):
+            continue
+        try:
+            shutil.move(src, dst)
+        except OSError:
+            pass  # keep going; app will recreate what is missing
+
+
 def main() -> None:
     app_dir = _app_dir()
+    os.makedirs(app_dir, exist_ok=True)
     os.chdir(app_dir)
+
+    # Import main AFTER switching into the writable app dir so that its
+    # module-level ``load_config()`` reads/writes ``config.cfg`` from AppData
+    # rather than the read-only Program Files location.
+    import main as qso_main  # reuse the already-built FastAPI app + config
+
+    # Bring over any data left behind by an older installation.
+    _migrate_legacy_data(app_dir)
+
     _ensure_assets(app_dir)
 
     # Force the server to bind locally only (the embedded browser is local).

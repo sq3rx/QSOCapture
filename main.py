@@ -241,7 +241,7 @@ async def lifespan(app: FastAPI):
         logger.info("QSOCapture stopped")
 
 
-app = FastAPI(title="QSOCapture", version="1.1.0", lifespan=lifespan)
+app = FastAPI(title="QSOCapture", version="1.1.1", lifespan=lifespan)
 
 
 # ---------------------------------------------------------------------------

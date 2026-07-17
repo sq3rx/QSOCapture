@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org)
 
-**Version:** 1.1.0
+**Version:** 1.1.1
 
 **QSOCapture** is a lightweight contest audio recorder and log player for
 amateur radio operators. It captures audio from your receiver (via the
@@ -132,9 +132,17 @@ pyinstaller build.spec
 ```
 
 The result is ``dist/QSOCapture.exe``. Double-click it and the dashboard opens
-in its own window. ``config.cfg``, ``recordings/`` and ``qsos.db`` are stored
-next to the executable. If the embedded WebView2 engine is missing, the app
+in its own window. If the embedded WebView2 engine is missing, the app
 automatically falls back to opening your default system browser.
+
+> **Where are my data stored?** The executable is installed in ``Program
+> Files`` (read-only for normal users), but all your personal data —
+> ``config.cfg``, ``qsos.db`` (QSO log) and the ``recordings/`` folder — live
+> in ``%LOCALAPPDATA%\QSOCapture`` (e.g.
+> ``C:\Users\<you>\AppData\Local\QSOCapture``). This means the app runs without
+> administrator rights, and your recordings survive an uninstall. On first
+> launch any data left behind in an older ``Program Files`` install is moved
+> automatically into that folder.
 
 To build the **Windows installer** (requires [Inno Setup](https://jrsoftware.org/isinfo.php)):
 

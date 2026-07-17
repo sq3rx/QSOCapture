@@ -5,6 +5,23 @@ in plain business language, without going into implementation details.
 
 ---
 
+## Version 1.1.1
+
+### No more "Run as administrator" needed
+
+- The desktop app previously stored its data (`config.cfg`, the `qsos.db` log
+  database and the `recordings/` folder) **next to the executable**, i.e.
+  inside `Program Files`. Because that folder is read-only for a normal user,
+  the app would not start unless launched as administrator.
+- User data now lives in **`%LOCALAPPDATA%\QSOCapture`** (for example
+  `C:\Users\<you>\AppData\Local\QSOCapture`), which is always writable without
+  admin rights. The program now launches normally for any user.
+- On first launch, any data left behind in an older `Program Files` install is
+  **moved automatically** into the new folder, so previously recorded QSOs are
+  preserved.
+
+---
+
 ## Version 1.1.0
 
 The headline improvements in this release are an easier Windows installation
