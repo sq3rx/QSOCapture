@@ -25,11 +25,14 @@ clean, color-coded web dashboard.
 - [Quick start](#quick-start)
 - [Desktop EXE & Windows Installer](#desktop-exe--windows-installer)
 - [Configuration](#configuration)
-- [Using the dashboard](#using-the-dashboard)
-- [Project layout](#project-layout)
-- [API reference](#api-reference)
-- [Troubleshooting](#troubleshooting)
-- [License](#license)
+ - [Using the dashboard](#using-the-dashboard)
+ - [Screenshots](#screenshots)
+ - [Project layout](#project-layout)
+ - [API reference](#api-reference)
+ - [Troubleshooting](#troubleshooting)
+ - [Changelog](#changelog)
+ - [Development approach](#development-approach)
+ - [License](#license)
 
 ---
 
@@ -221,7 +224,9 @@ Stopping finalises the current chunk into a complete, playable file.
 
 Shows `Timestamp · Call · Band · Mode · Freq · Exch · RX · Contest` plus an
 inline audio player with a **playback-speed selector** (0.8×–1.5×). Click a
-row for the full QSO detail (name, QTH, grid, exchange, points, …).
+row for the full QSO detail — name, QTH, grid, exchange, points, **WPX prefix,
+continent, multipliers, precedence, check, power** and more, all captured
+automatically from the N1MM Logger+ contact broadcast.
 
 ### Continuous view
 
@@ -239,6 +244,20 @@ The **⚙ Settings** panel lets you change every option live. Hover the **?**
 icon next to any field for an explanation. **⚠ Factory Reset** erases the
 entire QSO log, all recordings and restores default settings (with a
 confirmation prompt).
+
+---
+
+## Screenshots
+
+A few views of the **QSOCapture** dashboard in action:
+
+![Dashboard — QSO list with audio player](screenshots/1.png)
+
+![Dashboard — filters and continuous recordings](screenshots/2.png)
+
+![Dashboard — live log view](screenshots/3.png)
+
+![Settings panel](screenshots/4.png)
 
 ---
 
@@ -304,9 +323,38 @@ QSOCapture/
 
 ---
 
+## Changelog
+
+For a business-oriented summary of what changed in each release, see
+[CHANGELOG.md](CHANGELOG.md).
+
 ## License
 
 This project is licensed under the MIT License — see the [LICENSE](LICENSE) file
 for details. Free to use, modify and share for amateur radio and beyond.
+
+---
+
+## Development approach
+
+This project was created with an **agentic (AI-assisted) approach** — the code,
+structure and documentation were iteratively developed with the help of an AI
+coding agent. Key characteristics of this workflow:
+
+ - **Task-driven iteration** — features were implemented step by step, with the
+   agent proposing changes, applying them to the codebase and verifying the
+   result before moving on.
+ - **Single-agent orchestration** — a single autonomous agent handled
+   exploration, editing, testing and documentation rather than a hand-written
+   spec-up-front process.
+ - **Documentation as a first-class output** — README, changelog and inline
+   help were generated and kept in sync with the code as part of the same
+   workflow.
+ - **Human-in-the-loop review** — the maintainer reviews each change, requests
+   adjustments (e.g. *"add a screenshots section"* or *"mention the agentic
+   approach"*) and the agent applies them.
+
+This keeps the project easy to evolve: new capabilities can be added by
+describing the desired behaviour in natural language.
 
 **73 de SQ3RX**

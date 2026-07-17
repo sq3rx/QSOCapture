@@ -206,10 +206,16 @@ def insert_qso(
     new file path, otherwise ``None``.
     """
     superseded: Optional[str] = None
-    with _lock, sqlite3.connect(DB_PATH) as con:
-        if n1mm_id:
+    # An empty n1mm_id must be stored as NULL, not the empty string. The
+    # UNIQUE index on n1mm_id would otherwise treat every "" as the same
+    # value, so the second INSERT OR IGNORE (e.g. the next continuous chunk
+    # or a QSO without a GUID) would be silently dropped — leaving only the
+    # first recording visible in the dashboard.
+    n1mm_id_val = n1mm_id or None
+    with _lock, _connect() as con:
+        if n1mm_id_val:
             existing = con.execute(
-                "SELECT file_path FROM qsos WHERE n1mm_id=?", (n1mm_id,)
+                "SELECT file_path FROM qsos WHERE n1mm_id=?", (n1mm_id_val,)
             ).fetchone()
             if existing is not None:
                 old_fp = existing[0]
@@ -235,31 +241,30 @@ def insert_qso(
                          wpxprefix, continent, operator, station, contest_nr,
                          points, multiplier, multiplier2, multiplier3, prec,
                          ck, power, is_claimed, sent_exchange, timestamp,
-                         raw_ts, duration, n1mm_id),
+                         raw_ts, duration, n1mm_id_val),
                     )
                     return None
                 # Different file (edited timestamp -> new slice filename):
                 # drop the stale row. The new one is inserted below and the
                 # orphaned audio file is reported back to the caller.
-                con.execute("DELETE FROM qsos WHERE n1mm_id=?", (n1mm_id,))
+                con.execute("DELETE FROM qsos WHERE n1mm_id=?", (n1mm_id_val,))
                 superseded = old_fp
+        params = (contest, call, band, mode, freq, name, qth, grid, comment,
+                  exchange, exchange2, exchange3, rcv, snt, rcvnr, sntnr,
+                  section, mycall, countryprefix, wpxprefix, continent,
+                  operator, station, contest_nr, points, multiplier,
+                  multiplier2, multiplier3, prec, ck, power, n1mm_id_val,
+                  is_claimed, sent_exchange, timestamp, raw_ts, duration, file_path)
         con.execute(
-            """
-            INSERT OR IGNORE INTO qsos
-               (contest, call, band, mode, freq, name, qth, grid, comment,
-                exchange, exchange2, exchange3, rcv, snt, rcvnr, sntnr,
-                section, mycall, countryprefix, wpxprefix, continent,
-                operator, station, contest_nr, points, multiplier,
-                multiplier2, multiplier3, prec, ck, power, n1mm_id,
-                is_claimed, sent_exchange, timestamp, raw_ts, duration, file_path)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """,
-            (contest, call, band, mode, freq, name, qth, grid, comment,
-             exchange, exchange2, exchange3, rcv, snt, rcvnr, sntnr,
-             section, mycall, countryprefix, wpxprefix, continent,
-             operator, station, contest_nr, points, multiplier,
-             multiplier2, multiplier3, prec, ck, power, n1mm_id,
-             is_claimed, sent_exchange, timestamp, raw_ts, duration, file_path),
+            "INSERT OR IGNORE INTO qsos ("
+            "contest, call, band, mode, freq, name, qth, grid, comment, "
+            "exchange, exchange2, exchange3, rcv, snt, rcvnr, sntnr, "
+            "section, mycall, countryprefix, wpxprefix, continent, "
+            "operator, station, contest_nr, points, multiplier, "
+            "multiplier2, multiplier3, prec, ck, power, n1mm_id, "
+            "is_claimed, sent_exchange, timestamp, raw_ts, duration, file_path) "
+            "VALUES (" + ",".join("?" for _ in params) + ")",
+            params,
         )
     return superseded
 
@@ -318,6 +323,8 @@ def query_contacts(
     rx: Optional[str] = None,
     limit: int = 200,
     offset: int = 0,
+    sort_by: str = "timestamp",
+    sort_dir: str = "DESC",
 ) -> List[dict]:
     """Return QSO records matching the given filters (newest first).
 
@@ -401,7 +408,20 @@ def query_contacts(
     if date_to is not None:
         sql += " AND timestamp <= ?"
         args.append(date_to)
-    sql += " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
+    # Whitelist the sort column/direction so user input can never inject SQL.
+    allowed_cols = {
+        "timestamp": "timestamp",
+        "start": "timestamp",
+        "stop": "(timestamp + duration)",
+        "call": "call",
+        "band": "band",
+        "mode": "mode",
+        "contest": "contest",
+        "duration": "duration",
+    }
+    sort_col = allowed_cols.get(sort_by, "timestamp")
+    sort_dir = "ASC" if sort_dir.upper() == "ASC" else "DESC"
+    sql += f" ORDER BY {sort_col} {sort_dir} LIMIT ? OFFSET ?"
     args.append(limit)
     args.append(offset)
 
@@ -476,13 +496,13 @@ def query_contacts(
 
 def clear_all() -> None:
     """Remove every QSO record from the database (factory reset)."""
-    with _lock, sqlite3.connect(DB_PATH) as con:
+    with _lock, _connect() as con:
         con.execute("DELETE FROM qsos")
 
 
 def delete_qso(file_path: str) -> None:
     """Remove a single QSO record matched by its file_path."""
-    with _lock, sqlite3.connect(DB_PATH) as con:
+    with _lock, _connect() as con:
         con.execute("DELETE FROM qsos WHERE file_path=?", (file_path,))
 
 
@@ -492,7 +512,7 @@ def delete_qso_by_n1mm_id(n1mm_id: str) -> Optional[str]:
     Used by the ``<contactdelete>`` packet handler so the dashboard row and
     the associated audio file can both be removed.
     """
-    with _lock, sqlite3.connect(DB_PATH) as con:
+    with _lock, _connect() as con:
         row = con.execute(
             "SELECT file_path FROM qsos WHERE n1mm_id=?", (n1mm_id,)
         ).fetchone()
@@ -505,13 +525,13 @@ def delete_qso_by_n1mm_id(n1mm_id: str) -> Optional[str]:
 
 def update_qso_duration(file_path: str, duration: float) -> None:
     """Update the duration of an existing QSO record (matched by file_path)."""
-    with _lock, sqlite3.connect(DB_PATH) as con:
+    with _lock, _connect() as con:
         con.execute("UPDATE qsos SET duration=? WHERE file_path=?", (duration, file_path))
 
 
 def update_qso_file_path(old_path: str, new_path: str) -> None:
     """Update the stored file_path of a QSO record (e.g. after WAV->MP3)."""
-    with _lock, sqlite3.connect(DB_PATH) as con:
+    with _lock, _connect() as con:
         con.execute("UPDATE qsos SET file_path=? WHERE file_path=?", (new_path, old_path))
 
 
@@ -519,6 +539,31 @@ def _fmt_ts(ts: float) -> str:
     if not ts:
         return ""
     return time.strftime("%Y-%m-%d %H:%M", time.localtime(ts))
+
+
+def _file_duration(path: str) -> float:
+    """Return the duration (seconds) of an audio file, or 0.0 on any error.
+
+    WAV duration is read directly from the header. For MP3 we prefer
+    :mod:`mutagen` (exact) and fall back to a 128 kbps CBR estimate from the
+    file size so the Continuous view's Stop column is correct even when the
+    library is not installed.
+    """
+    try:
+        if path.endswith(".wav"):
+            import wave as _wave
+            with _wave.open(path, "rb") as wf:
+                fr = wf.getframerate() or 1
+                return wf.getnframes() / fr
+        if path.endswith(".mp3"):
+            try:
+                from mutagen.mp3 import MP3
+                return float(MP3(path).info.length)
+            except Exception:
+                return os.path.getsize(path) * 8.0 / 128000.0
+    except Exception:
+        pass
+    return 0.0
 
 
 def migrate_existing(recordings_dir: str) -> None:
@@ -532,6 +577,10 @@ def migrate_existing(recordings_dir: str) -> None:
     seeding thousands of files at startup stays fast (opening one SQLite
     connection per file previously made startup take tens of seconds with
     only a couple of thousand recordings).
+
+    The duration of each file is computed up front so the Continuous view's
+    Stop column is populated correctly (previously it was left at 0, leaving
+    the Stop cell blank until the next app restart that re-derived it).
     """
     if not os.path.isdir(recordings_dir):
         return
@@ -545,6 +594,8 @@ def migrate_existing(recordings_dir: str) -> None:
             if not (fname.endswith(".wav") or fname.endswith(".mp3")):
                 continue
             fp = f"{contest}/{fname}"
+            full = os.path.join(recordings_dir, fp)
+            dur = _file_duration(full)
             if contest == "_continuous":
                 # Continuous chunk filename: 20260713_212000_RX1.wav
                 parts = fname[:-4].split("_")
@@ -556,7 +607,7 @@ def migrate_existing(recordings_dir: str) -> None:
                         )
                     except Exception:
                         ts = 0.0
-                rows.append(("_continuous", "CONTINUOUS", "", ts, fp))
+                rows.append(("_continuous", "CONTINUOUS", "", ts, fp, dur))
                 continue
             call, band, ts = "UNKNOWN", "", 0.0
             parts = fname[:-4].split("_")
@@ -569,14 +620,15 @@ def migrate_existing(recordings_dir: str) -> None:
                     ts = 0.0
                 call = parts[2]
                 band = parts[3]
-            rows.append((contest, call, band, ts, fp))
+            rows.append((contest, call, band, ts, fp, dur))
 
     if not rows:
         return
 
     with _lock, _connect() as con:
         con.executemany(
-            "INSERT OR IGNORE INTO qsos (contest, call, band, timestamp, file_path) "
-            "VALUES (?,?,?,?,?)",
+            "INSERT OR IGNORE INTO qsos "
+            "(contest, call, band, timestamp, file_path, duration) "
+            "VALUES (?,?,?,?,?,?)",
             rows,
         )

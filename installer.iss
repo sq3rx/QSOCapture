@@ -1,5 +1,4 @@
 #define MyAppName "QSOCapture"
-#define MyAppVersion "1.1.0"
 #define MyAppPublisher "SQ3RX"
 #define MyAppURL "https://github.com/sq3rx/QSOCapture"
 #define MyAppExeName "QSOCapture.exe"
@@ -29,7 +28,7 @@ SetupIconFile=
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
-ArchitecturesInstallIn64BitMode=x64
+ArchitecturesInstallIn64BitMode=x64os
 PrivilegesRequired=admin
 
 [Languages]

@@ -20,13 +20,15 @@ import time
 import shutil
 import zipfile
 import io
+import queue
+import json
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from typing import List, Optional
 
-from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 
 import config as config_module
 from config import AppConfig, load_config, config_to_dict, save_config, CONFIG_SCHEMA
@@ -56,7 +58,56 @@ LOG_BUFFER: "deque" = deque(maxlen=2000)
 
 # Pool used to run the post-roll delayed QSO slicing tasks. Bounding it
 # prevents unbounded thread creation during a contest pile-up.
-SLICE_POOL = ThreadPoolExecutor(max_workers=4, thread_name_prefix="qso-slice")
+#
+# The worker threads MUST be daemon threads. Otherwise, when the app is
+# stopped with Ctrl+C, Python waits for every non-daemon worker to finish
+# (each may be sleeping up to ``post_roll`` seconds and then writing a file),
+# which makes shutdown hang for a long time. Making them daemon lets the
+# interpreter exit immediately; we also shut the pool down (without waiting)
+# in the lifespan ``finally`` so in-flight tasks are dropped cleanly.
+import concurrent.futures.thread as _cf_thread
+import weakref as _weakref
+
+
+class _DaemonThreadPoolExecutor(ThreadPoolExecutor):
+    """ThreadPoolExecutor whose worker threads are daemon threads.
+
+    Python 3.14 creates the worker threads directly inside ``_adjust_thread_count``
+    (there is no ``_make_worker_thread`` hook), so we override that method and
+    mirror its body but set ``daemon=True`` on the ``threading.Thread`` *before*
+    it is started (setting daemon after start() raises RuntimeError).
+
+    With daemon workers the interpreter can exit immediately on Ctrl+C instead
+    of blocking until every in-flight post-roll QSO slice finishes.
+    """
+
+    def _adjust_thread_count(self):
+        # if idle threads are available, don't spin new threads
+        if self._idle_semaphore.acquire(timeout=0):
+            return
+
+        def weakref_cb(_, q=self._work_queue):
+            q.put(None)
+
+        num_threads = len(self._threads)
+        if num_threads < self._max_workers:
+            thread_name = "%s_%d" % (self._thread_name_prefix or self, num_threads)
+            t = threading.Thread(
+                name=thread_name,
+                target=_cf_thread._worker,
+                daemon=True,
+                args=(
+                    _weakref.ref(self, weakref_cb),
+                    self._create_worker_context(),
+                    self._work_queue,
+                ),
+            )
+            t.start()
+            self._threads.add(t)
+            _cf_thread._threads_queues[t] = self._work_queue
+
+
+SLICE_POOL = _DaemonThreadPoolExecutor(max_workers=4, thread_name_prefix="qso-slice")
 
 
 class _LogCaptureHandler(logging.Handler):
@@ -82,6 +133,22 @@ def get_recent_logs(n: int = 200) -> List[str]:
     """Return the most recent *n* log lines (oldest first)."""
     items = list(LOG_BUFFER)
     return items[-n:]
+
+
+# Server-Sent Events (SSE) queue. The audio backend pushes lightweight
+# notifications (e.g. "continuous started", "qso saved", "chunk finalised")
+# here so the dashboard can refresh the list on *events* instead of polling
+# every few seconds (which caused distracting flicker). A bounded queue keeps
+# memory flat; if the UI falls behind, oldest notifications are dropped.
+EVENT_QUEUE: "queue.Queue" = queue.Queue(maxsize=500)
+
+
+def push_event(name: str, data: Optional[dict] = None) -> None:
+    """Enqueue a dashboard event (best-effort, never blocks)."""
+    try:
+        EVENT_QUEUE.put_nowait({"event": name, "data": data or {}})
+    except queue.Full:
+        pass
 
 
 def _apply_and_restart() -> None:
@@ -142,15 +209,57 @@ async def lifespan(app: FastAPI):
                                  name="disk-limit")
     dl_thread.start()
     logger.info("QSOCapture started (mode=%s)", cfg.audio_mode)
-    yield
-    if n1mm:
-        n1mm.stop()
-    if audio_source:
-        audio_source.stop()
-    logger.info("QSOCapture stopped")
+    try:
+        yield
+    except _asyncio.CancelledError:
+        # Server is shutting down (Ctrl+C): the lifespan coroutine is cancelled
+        # while parked on the inner receive(). Swallow it so it does not surface
+        # as an "Exception in ASGI application" traceback on shutdown.
+        pass
+    finally:
+        # Cleanup always runs (normal exit or cancelled shutdown).
+        if n1mm:
+            n1mm.stop()
+        if audio_source:
+            audio_source.stop()
+        # Discard any in-flight post-roll QSO slicing tasks. The pool workers
+        # are daemon threads (see SLICE_POOL definition), so this lets the
+        # interpreter exit immediately instead of blocking on sleep(s) /
+        # file writes during shutdown. cancel_futures=True (3.9+) drops tasks
+        # that have not started yet; already-running daemon workers are simply
+        # abandoned when the process exits.
+        try:
+            SLICE_POOL.shutdown(wait=False, cancel_futures=True)
+        except TypeError:
+            # Older Python without cancel_futures: shutdown without waiting.
+            SLICE_POOL.shutdown(wait=False)
+        logger.info("QSOCapture stopped")
 
 
 app = FastAPI(title="QSOCapture", version="1.1.0", lifespan=lifespan)
+
+
+# ---------------------------------------------------------------------------
+# Shutdown-safe ASGI wrapper
+# ---------------------------------------------------------------------------
+# When the server is stopped (Ctrl+C) the lifespan coroutine and any in-flight
+# request/SSE tasks are cancelled with asyncio.CancelledError. Starlette/uvicorn
+# re-raise these to the top-level runner, which prints an
+# "Exception in ASGI application" traceback. This thin wrapper catches
+# CancelledError at the ASGI boundary and returns cleanly so shutdown is silent.
+import asyncio as _asyncio
+
+
+async def _cancel_safe_app(scope, receive, send):
+    try:
+        await app(scope, receive, send)
+    except _asyncio.CancelledError:
+        # Normal shutdown cancellation: do not surface as a traceback.
+        return
+
+
+# uvicorn imports this name (see __main__ below).
+application = _cancel_safe_app
 
 
 # ---------------------------------------------------------------------------
@@ -191,6 +300,8 @@ def api_qsos(
     rx: Optional[str] = Query(None),
     offset: int = Query(0, ge=0),
     limit: int = Query(200, ge=1, le=500),
+    sort_by: str = Query("timestamp"),
+    sort_dir: str = Query("DESC"),
 ) -> JSONResponse:
     """Return filtered QSO records backed by the SQLite database.
 
@@ -208,6 +319,7 @@ def api_qsos(
         mode=mode, date_from=date_from, date_to=date_to,
         continuous=continuous, rx=rx,
         offset=offset, limit=limit,
+        sort_by=sort_by, sort_dir=sort_dir,
     )
     return JSONResponse({"count": qsos["total"], "qsos": qsos["qsos"]})
 
@@ -333,6 +445,51 @@ def api_status() -> JSONResponse:
 def api_log(n: int = Query(200, ge=1, le=1000)) -> JSONResponse:
     """Return the most recent *n* application log lines."""
     return JSONResponse({"lines": get_recent_logs(n)})
+
+
+@app.get("/api/events")
+async def api_events(request: Request):
+    """Server-Sent Events stream of dashboard notifications.
+
+    Emits lightweight JSON "event: <name>\\ndata: <json>" frames whenever the
+    audio backend starts/stops recording, saves a QSO, or finalises a
+    continuous chunk. The frontend uses these to refresh the list on *events*
+    instead of polling on a timer (which caused flicker). The generator exits
+    cleanly when the client disconnects.
+    """
+    import asyncio
+
+    async def event_stream():
+        # Prime the client so the connection is immediately usable.
+        yield ": connected\n\n"
+        try:
+            while True:
+                try:
+                    item = EVENT_QUEUE.get_nowait()
+                except queue.Empty:
+                    # No pending event: small sleep so the loop stays responsive
+                    # to cancellation (server shutdown / client disconnect).
+                    await asyncio.sleep(0.5)
+                    continue
+                payload = json.dumps(item)
+                yield f"event: {item['event']}\ndata: {payload}\n\n"
+        except asyncio.CancelledError:
+            # Server is shutting down (or client gone): terminate the SSE
+            # stream silently instead of surfacing a CancelledError as an
+            # "Exception in ASGI application" traceback. Avoiding
+            # run_in_executor / is_disconnected here prevents a hang on
+            # shutdown (no pending thread-pool task to wait for).
+            return
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -510,7 +667,7 @@ if __name__ == "__main__":
     import uvicorn
 
     uvicorn.run(
-        "main:app",
+        "main:application",
         host=cfg.web_host,
         port=cfg.web_port,
         log_level="info",

@@ -15,14 +15,22 @@ version_info.txt
 
 # Local data — not committed (user specific)
 qsos.db
+*.db
+*.db-shm
+*.db-wal
 config.cfg
 recordings/
+test_recordings_api/
 
 # Logs
 *.log
 
 # Tests (local test scripts and fixtures — not committed)
 tests/
+
+# CBR import tooling (local helper — not committed)
+cbr/
+import_cbr.py
 
 # Editor / OS
 .vscode/

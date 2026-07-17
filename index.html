@@ -102,6 +102,8 @@
     .hover\:bg-brand\/20:hover { background:rgba(34,197,94,.2); }
     .hover\:bg-red-700:hover { background:#b91c1c; }
     .hover\:opacity-90:hover { opacity:.9; }
+    .animate-pulse { animation: qsopulse 1.4s ease-in-out infinite; }
+    @keyframes qsopulse { 0%,100% { opacity:1; } 50% { opacity:.35; } }
     .align-middle { vertical-align:middle; } .inline-block { display:inline-block; }
     .w-2 { width:.5rem; } .h-2 { height:.5rem; } .rounded-full { border-radius:9999px; }
     .ml-1 { margin-left:.25rem; } .mr-1\.5 { margin-right:.375rem; }
@@ -124,6 +126,9 @@
         <span id="status" class="px-3 py-1 rounded-full bg-slate-800 border border-slate-700 text-slate-300">loading&hellip;</span>
         <span id="tciBadge" class="px-3 py-1 rounded-full bg-slate-800 border border-slate-700 text-slate-300">TCI &hellip;</span>
         <span id="n1mmBadge" class="px-3 py-1 rounded-full bg-slate-800 border border-slate-700 text-slate-300">N1MM &hellip;</span>
+        <span id="recBadge" class="hidden items-center px-3 py-1 rounded-full bg-red-600/10 border border-red-500/40 text-red-300">
+          <span class="w-2 h-2 rounded-full bg-red-500 mr-1.5 animate-pulse"></span>RECORDING
+        </span>
         <span id="bufContainer" class="flex items-center gap-2 text-xs"></span>
       </div>
     </header>
@@ -208,20 +213,22 @@
 
     <div id="qsoView" class="overflow-x-auto rounded-lg border border-slate-800">
       <table class="w-full text-sm">
-        <thead class="bg-slate-900 text-slate-400 text-left">
-          <tr>
-            <th class="px-4 py-3 font-medium">Timestamp</th>
-            <th class="px-4 py-3 font-medium">Call</th>
-            <th class="px-4 py-3 font-medium">Band</th>
-            <th class="px-4 py-3 font-medium">Mode</th>
-            <th class="px-4 py-3 font-medium">Freq</th>
-            <th class="px-4 py-3 font-medium">Exch</th>
-            <th class="px-4 py-3 font-medium">DXCC</th>
-            <th class="px-4 py-3 font-medium">RX</th>
-            <th class="px-4 py-3 font-medium">Contest</th>
-            <th class="px-4 py-3 font-medium w-[340px]">Player</th>
-          </tr>
-        </thead>
+    <thead class="bg-slate-900 text-slate-400 text-left">
+      <tr>
+        <th id="sortTimestamp" class="px-4 py-3 font-medium cursor-pointer select-none hover:text-slate-200">
+          Timestamp <span id="sortTimestampArrow" class="text-brand">▼</span>
+        </th>
+        <th class="px-4 py-3 font-medium">Call</th>
+        <th class="px-4 py-3 font-medium">Band</th>
+        <th class="px-4 py-3 font-medium">Mode</th>
+        <th class="px-4 py-3 font-medium">Freq</th>
+        <th class="px-4 py-3 font-medium">Exch</th>
+        <th class="px-4 py-3 font-medium">DXCC</th>
+        <th class="px-4 py-3 font-medium">RX</th>
+        <th class="px-4 py-3 font-medium">Contest</th>
+        <th class="px-4 py-3 font-medium w-[340px]">Player</th>
+      </tr>
+    </thead>
         <tbody id="rows" class="divide-y divide-slate-800"></tbody>
       </table>
     </div>
@@ -237,8 +244,12 @@
       <table class="w-full text-sm">
         <thead class="bg-slate-900 text-slate-400 text-left">
           <tr>
-            <th class="px-4 py-3 font-medium">Start</th>
-            <th class="px-4 py-3 font-medium">Stop</th>
+            <th id="sortStart" class="px-4 py-3 font-medium cursor-pointer select-none hover:text-slate-200">
+              Start <span id="sortStartArrow" class="text-brand">▼</span>
+            </th>
+            <th id="sortStop" class="px-4 py-3 font-medium cursor-pointer select-none hover:text-slate-200">
+              Stop <span id="sortStopArrow" class="text-slate-500">▼</span>
+            </th>
             <th class="px-4 py-3 font-medium">Duration</th>
             <th class="px-4 py-3 font-medium">RX</th>
             <th class="px-4 py-3 font-medium w-[340px]">Player</th>
@@ -319,6 +330,41 @@
     // the displayed rows always match the latest count shown in the header.
     let qsoReqId = 0;
 
+    // Sort state for the dashboard. Both the N1MM "Timestamp" header and the
+    // Continuous "Start"/"Stop" headers are clickable. Clicking a header that
+    // is already the active sort column flips the direction (DESC <-> ASC);
+    // clicking a different header switches to that column (keeping the current
+    // direction). The arrow on the active column reflects the direction, the
+    // others are dimmed.
+    let sortDir = 'DESC';
+    let sortCol = 'timestamp';
+
+    function updateSortArrows() {
+      const arrow = (active, dim) => {
+        const el = $(active + 'Arrow');
+        el.textContent = (sortDir === 'DESC') ? '▼' : '▲';
+        el.className = dim ? 'text-slate-500' : 'text-brand';
+      };
+      arrow('sortTimestamp', sortCol !== 'timestamp');
+      arrow('sortStart', sortCol !== 'start');
+      arrow('sortStop', sortCol !== 'stop');
+    }
+
+    function setSort(col) {
+      if (sortCol === col) {
+        sortDir = (sortDir === 'DESC') ? 'ASC' : 'DESC';
+      } else {
+        sortCol = col;
+      }
+      updateSortArrows();
+      loadQsos();
+    }
+
+    $('sortTimestamp').addEventListener('click', () => setSort('timestamp'));
+    $('sortStart').addEventListener('click', () => setSort('start'));
+    $('sortStop').addEventListener('click', () => setSort('stop'));
+    updateSortArrows();
+
     function showModal() {
       const m = $('cfgModal');
       m.className = 'fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4';
@@ -398,6 +444,7 @@
         const recBtn = $('toggleRec');
         recPaused = !!(s.audio && s.audio.continuous_paused);
         updateRecButton();
+        updateRecordingBadge();
       } catch (e) {
         const st = $('status');
         st.textContent = 'offline';
@@ -518,8 +565,18 @@
       return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
     }
 
+    // Lightweight auto-refresh of the dashboard list so freshly saved
+    // recordings (e.g. a new continuous chunk) appear without a manual
+    // Refresh. Only re-runs when the user is at the top of the list (not
+    // scrolled into "load more" pages) so it never disrupts pagination or
+    // re-fetches older pages. The request id guard discards stale responses.
+    let qsoAuto = true;
     async function loadQsos(append = false) {
       if (qsoLoading) return;
+      if (qsoAuto && !append) {
+        // Auto-refresh keeps the first page in sync; never auto-paginate.
+        qsoOffset = 0;
+      }
       if (!append) {
         qsoOffset = 0;
         rows.innerHTML = '';
@@ -546,6 +603,8 @@
       if (dt) params.set('date_to', toEpoch(dt, true));
       params.set('offset', qsoOffset);
       params.set('limit', PAGE_SIZE);
+      params.set('sort_by', sortCol);
+      params.set('sort_dir', sortDir);
 
       qsoLoading = true;
       try {
@@ -564,51 +623,52 @@
         $('qsoView').className = 'overflow-x-auto rounded-lg border border-slate-800' + (isCont ? ' hidden' : '');
         $('contView').className = 'overflow-x-auto rounded-lg border border-slate-800' + (isCont ? '' : ' hidden');
 
-        if (isCont) {
-          d.qsos.forEach(q => {
-            const start = q.timestamp;
-            const stop = q.duration ? _fmtStop(q.timestamp, q.duration) : '—';
-            const tr = document.createElement('tr');
-            tr.className = 'hover:bg-slate-900/50';
-            tr.innerHTML = `
-              <td class="px-4 py-2 whitespace-nowrap text-slate-300">${start}</td>
-              <td class="px-4 py-2 whitespace-nowrap text-slate-400">${stop}</td>
-              <td class="px-4 py-2 text-slate-400 font-mono">${fmtDuration(q.duration)}</td>
-              <td class="px-4 py-2">${rxBadge(q.label)}</td>`;
-            const td = document.createElement('td');
-            td.className = 'px-0 py-0';
-            td.appendChild(buildPlayer(q.url));
-            tr.appendChild(td);
-            $('contRows').appendChild(tr);
-          });
-          return;
-        }
+          if (isCont) {
+            d.qsos.forEach(q => {
+              const start = q.timestamp;
+              const recording = !q.duration;
+              const stop = recording ? 'recording…'
+                                     : _fmtStop(q.timestamp, q.duration);
+              const tr = document.createElement('tr');
+              tr.className = 'hover:bg-slate-900/50';
+              tr.innerHTML = `
+                <td class="px-4 py-2 whitespace-nowrap text-slate-300">${start}</td>
+                <td class="px-4 py-2 whitespace-nowrap ${recording ? 'text-amber-300' : 'text-slate-400'}">${stop}</td>
+                <td class="px-4 py-2 text-slate-400 font-mono">${fmtDuration(q.duration)}</td>
+                <td class="px-4 py-2">${rxBadge(q.label)}</td>`;
+              const td = document.createElement('td');
+              td.className = 'px-0 py-0';
+              td.appendChild(buildPlayer(q.url));
+              tr.appendChild(td);
+              $('contRows').appendChild(tr);
+            });
+         } else {
+           d.qsos.forEach(q => {
+             const tr = document.createElement('tr');
+             tr.className = 'hover:bg-slate-900/50 cursor-pointer';
+             tr.innerHTML = `
+               <td class="px-4 py-2 whitespace-nowrap text-slate-400">${q.timestamp}</td>
+               <td class="px-4 py-2 font-semibold text-brand">${q.call}</td>
+               <td class="px-4 py-2">${bandBadge(q.band)}</td>
+               <td class="px-4 py-2">${modeBadge(q.mode)}</td>
+               <td class="px-4 py-2 text-slate-400 font-mono">${q.freq || '—'}</td>
+               <td class="px-4 py-2 text-slate-300">${q.exchange || '—'}</td>
+               <td class="px-4 py-2 text-slate-400">${q.countryprefix || (q.wpxprefix ? q.wpxprefix : '—')}</td>
+               <td class="px-4 py-2">${rxBadge(q.label)}</td>
+               <td class="px-4 py-2 text-slate-500">${q.contest}</td>`;
+             const td = document.createElement('td');
+             td.className = 'px-0 py-0';
+             td.appendChild(buildPlayer(q.url));
+             tr.appendChild(td);
+             tr.addEventListener('click', (e) => {
+               if (e.target.tagName === 'AUDIO' || e.target.tagName === 'SELECT') return;
+               showDetail(q);
+             });
+             rows.appendChild(tr);
+           });
+         }
 
-        d.qsos.forEach(q => {
-          const tr = document.createElement('tr');
-          tr.className = 'hover:bg-slate-900/50 cursor-pointer';
-          tr.innerHTML = `
-            <td class="px-4 py-2 whitespace-nowrap text-slate-400">${q.timestamp}</td>
-            <td class="px-4 py-2 font-semibold text-brand">${q.call}</td>
-            <td class="px-4 py-2">${bandBadge(q.band)}</td>
-            <td class="px-4 py-2">${modeBadge(q.mode)}</td>
-            <td class="px-4 py-2 text-slate-400 font-mono">${q.freq || '—'}</td>
-            <td class="px-4 py-2 text-slate-300">${q.exchange || '—'}</td>
-            <td class="px-4 py-2 text-slate-400">${q.countryprefix || (q.wpxprefix ? q.wpxprefix : '—')}</td>
-            <td class="px-4 py-2">${rxBadge(q.label)}</td>
-            <td class="px-4 py-2 text-slate-500">${q.contest}</td>`;
-          const td = document.createElement('td');
-          td.className = 'px-0 py-0';
-          td.appendChild(buildPlayer(q.url));
-          tr.appendChild(td);
-          tr.addEventListener('click', (e) => {
-            if (e.target.tagName === 'AUDIO' || e.target.tagName === 'SELECT') return;
-            showDetail(q);
-          });
-          rows.appendChild(tr);
-        });
-
-        qsoOffset += d.qsos.length;
+         qsoOffset += d.qsos.length;
       } finally {
         qsoLoading = false;
       }
@@ -732,6 +792,10 @@
     });
     $('refresh').addEventListener('click', loadQsos);
     $('loadMore').addEventListener('click', () => loadQsos(true));
+
+    // The QSO list is refreshed on backend *events* (see the EventSource
+    // wiring at the bottom of this script) instead of a fixed 5s poll, which
+    // caused distracting flicker. Manual Refresh / Load more always work.
 
     $('openLog').addEventListener('click', showLog);
     $('closeLog').addEventListener('click', hideLog);
@@ -937,6 +1001,17 @@
           const d = await r.json();
           recPaused = !!d.paused;
           updateRecButton();
+          // The user is clearly working with continuous recordings, so always
+          // switch to the Continuous tab after a toggle and refresh
+          // immediately. On Stop the freshly finalised chunk now appears
+          // right away (previously the condition was inverted and the view
+          // stayed on the "N1MM QSOs" tab, so a saved recording looked like
+          // it had vanished); on Start the live recording is shown too.
+          const sel = $('continuous');
+          if (sel.value !== 'true') {
+            sel.value = 'true';
+          }
+          loadQsos();
         } else {
           loadStatus();
         }
@@ -950,10 +1025,59 @@
 
     loadStatus();
     loadContests().then(loadQsos);
-    setInterval(loadStatus, 10000);
-    setInterval(() => {
-      if ($('logModal').className.includes('flex') && $('logAuto').checked) loadLog();
-    }, 3000);
+
+    // --- Periodic status refresh (buffer fill / connection badges) --------
+    // The QSO *list* is refreshed on backend SSE events (instead of a fixed
+    // poll) to avoid flicker. But the RX1/RX2 buffer-fill badges and the
+    // TCI/N1MM connection state live in loadStatus() and only change on those
+    // sparse events — so without its own timer the buffer seconds appear
+    // frozen. Refresh status on a light interval (decoupled from the list)
+    // so the fill levels stay live without re-rendering the rows.
+    setInterval(loadStatus, 2000);
+
+    // --- Recording "live" badge --------------------------------------------
+    // Shows a pulsing RECORDING badge in the header whenever continuous
+    // recording is actively running (not paused). Mirrors the server state
+    // already loaded by loadStatus() into the `recPaused` variable.
+    function updateRecordingBadge() {
+      const badge = $('recBadge');
+      if (!recPaused) {
+        // Recording live -> show the badge (remove the `hidden` class).
+        badge.className = 'items-center px-3 py-1 rounded-full bg-red-600/10 border border-red-500/40 text-red-300';
+      } else {
+        // Paused -> hide the badge.
+        badge.className = 'hidden items-center px-3 py-1 rounded-full bg-red-600/10 border border-red-500/40 text-red-300';
+      }
+    }
+
+    // --- Server-Sent Events: event-driven list refresh --------------------
+    // The backend pushes lightweight notifications (qso_saved,
+    // continuous_chunk_saved, continuous_resumed, continuous_paused) on the
+    // /api/events stream. We refresh the dashboard on those instead of a
+    // timer, so the list updates exactly when something changes (no flicker).
+    function onDashboardEvent() {
+      const cfgOpen = $('cfgModal').className.includes('flex');
+      const detailOpen = $('detailModal').className.includes('flex');
+      if (cfgOpen || detailOpen) return;
+      loadStatus();
+      // Refresh the first page so new recordings appear without disturbing
+      // pagination ("Load more" pages are never auto-refetched).
+      loadQsos(false);
+    }
+
+    if (typeof EventSource !== 'undefined') {
+      const es = new EventSource('/api/events');
+      es.addEventListener('qso_saved', onDashboardEvent);
+      es.addEventListener('continuous_chunk_saved', onDashboardEvent);
+      es.addEventListener('continuous_resumed', () => {
+        recPaused = false; updateRecButton(); updateRecordingBadge(); onDashboardEvent();
+      });
+      es.addEventListener('continuous_paused', () => {
+        recPaused = true; updateRecButton(); updateRecordingBadge(); onDashboardEvent();
+      });
+      // The browser auto-reconnects EventSource on connection drop; nothing
+      // else is needed here.
+    }
   </script>
 </body>
 </html>

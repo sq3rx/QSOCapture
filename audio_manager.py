@@ -18,6 +18,21 @@ import numpy as np
 logger = logging.getLogger("QSOCapture.audio")
 
 
+def _emit_event(name: str, data: Optional[dict] = None) -> None:
+    """Emit a dashboard event to the web layer (best-effort, lazy import).
+
+    Uses a lazy import of :func:`main.push_event` so importing
+    :mod:`audio_manager` does not create a circular import with :mod:`main`
+    (which imports this module at module load). If the web layer is not
+    running (e.g. unit tests) the call is silently ignored.
+    """
+    try:
+        from main import push_event
+        push_event(name, data)
+    except Exception:
+        pass
+
+
 class CircularAudioBuffer:
     """Fixed-capacity ring buffer for raw int16 PCM frames."""
 
@@ -187,10 +202,23 @@ class AudioSource(ABC):
         self._thread: Optional[threading.Thread] = None
         self._continuous: Optional[threading.Thread] = None
         # Continuous-recording writer state (queue-fed from the capture loop).
-        self._cont_queue: "queue.Queue" = queue.Queue()
+        # The queue is *bounded* so a slow disk / encoder can never make the
+        # capture callback block indefinitely (which would stall live audio).
+        # When the queue is full the oldest pending chunk is dropped so we
+        # always keep the freshest audio.
+        self._cont_queue: "queue.Queue" = queue.Queue(maxsize=600)
         self._cont_files: dict = {}
         self._cont_lock = threading.Lock()
         self._cont_start = 0.0
+        # Dedicated encoder worker: MP3 encoding of finalized chunks happens
+        # here (off the writer thread) so a long encode never blocks draining
+        # of the continuous queue during multi-hour sessions.
+        self._enc_queue: "queue.Queue" = queue.Queue()
+        self._enc_thread: Optional[threading.Thread] = None
+        self._enc_started = False
+        # True while the encoder thread is actively encoding a chunk (so the
+        # drain helper can wait until the DB row is fully migrated to .mp3).
+        self._enc_busy = False
         # When True the continuous writer stops accepting audio and keeps the
         # current chunk finalised (used by the dashboard "stop recording" btn).
         self._continuous_paused = False
@@ -212,6 +240,10 @@ class AudioSource(ABC):
                                         name=f"capture-{self.label}")
         self._thread.start()
         if self.cfg.continuous_recording:
+            # Dedicated MP3 encoder worker so a (potentially slow) encode of a
+            # finalized chunk never blocks the writer thread that drains the
+            # live audio queue.
+            self._ensure_encoder()
             self._continuous = threading.Thread(target=self._continuous_loop,
                                                 daemon=True, name=f"cont-{self.label}")
             self._continuous.start()
@@ -219,6 +251,42 @@ class AudioSource(ABC):
         for label, _buf in self.rx_buffers:
             logger.info("[%s] audio source started (mode=%s, rx=%s, so2r=%s)",
                         label, self.cfg.audio_mode, rxs, self.cfg.channels >= 2)
+
+    def _ensure_encoder(self) -> None:
+        """Start the MP3 encoder worker thread once (idempotent)."""
+        if self._enc_started:
+            return
+        self._enc_started = True
+        self._enc_thread = threading.Thread(target=self._encoder_loop,
+                                            daemon=True, name=f"enc-{self.label}")
+        self._enc_thread.start()
+
+    def _encoder_loop(self) -> None:
+        """Off-thread MP3 encoder: pulls finalized WAV chunks from ``_enc_queue``
+        and encodes them to MP3 without blocking the continuous writer thread.
+        """
+        while self._running or not self._enc_queue.empty():
+            try:
+                item = self._enc_queue.get(timeout=0.5)
+            except queue.Empty:
+                continue
+            self._enc_busy = True
+            try:
+                rx_label, wav_path, sample_rate, db_old_rel, duration = item
+                try:
+                    mp3_path = self._encode_mp3(wav_path, sample_rate)
+                    new_rel = "_continuous/" + os.path.basename(mp3_path)
+                    try:
+                        import db as qso_db
+                        qso_db.update_qso_file_path(db_old_rel, new_rel)
+                        qso_db.update_qso_duration(new_rel, duration)
+                    except Exception as e:
+                        logger.debug("encoder db update failed: %s", e)
+                except Exception as e:
+                    logger.warning("[%s] MP3 encode failed for %s: %s",
+                                   rx_label, wav_path, e)
+            finally:
+                self._enc_busy = False
 
     def stop(self) -> None:
         """Stop capture and clean up threads promptly (no shutdown hang)."""
@@ -250,8 +318,34 @@ class AudioSource(ABC):
             self._thread.join(timeout=2.0)
         if self._continuous:
             self._continuous.join(timeout=2.0)
+        if self._enc_thread:
+            self._enc_thread.join(timeout=2.0)
 
     # -- continuous recording pause / resume (dashboard control) ----------
+    def _drain_encoder(self, timeout: float = 30.0) -> None:
+        """Block until the MP3 encoder queue is empty and all pending chunks
+        have been finalised and registered in the DB.
+
+        Called after a chunk is closed so the dashboard (which refreshes
+        immediately on Stop) sees the fully migrated ``.mp3`` row with its
+        duration already set, instead of a transient ``.wav`` row or nothing
+        at all. We wait for both the queue to drain *and* the encoder thread
+        to finish its current encode (``_enc_busy``), because the DB row is
+        only migrated to ``.mp3`` once the encode + DB update completes.
+        """
+        if not self.cfg.continuous_recording or self.cfg.audio_format != "mp3":
+            return
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if self._enc_queue.empty() and not self._enc_busy:
+                # Give the encoder loop one last chance to pull a freshly
+                # queued item; if the queue stays empty and the encoder is
+                # idle we are done.
+                time.sleep(0.05)
+                if self._enc_queue.empty() and not self._enc_busy:
+                    return
+            time.sleep(0.05)
+
     def pause_continuous(self) -> None:
         """Finalise the current continuous chunk and stop writing new audio.
 
@@ -264,7 +358,13 @@ class AudioSource(ABC):
         if not self.cfg.continuous_recording or self._continuous_paused:
             return
         self._continuous_paused = True
+        _emit_event("continuous_paused")
         self._close_cont_files()
+        # Wait for the encoder to finish so the DB row is fully migrated to
+        # .mp3 (with its duration) before the dashboard refreshes. Without
+        # this the UI could show a transient .wav row or nothing at all until
+        # the next app restart re-derived the duration.
+        self._drain_encoder()
         self._clear_buffers()
         for label, _buf in self.rx_buffers:
             logger.info("[%s] continuous recording paused (chunk finalised, buffers cleared)",
@@ -288,6 +388,7 @@ class AudioSource(ABC):
         self._open_cont_files()
         self._cont_start = time.time()
         self._continuous_paused = False
+        _emit_event("continuous_resumed")
         for label, _buf in self.rx_buffers:
             logger.info("[%s] continuous recording resumed (new chunk)", label)
 
@@ -367,6 +468,8 @@ class AudioSource(ABC):
                                        old_path, e)
             except Exception as e:
                 logger.debug("qso db insert failed: %s", e)
+        if saved:
+            _emit_event("qso_saved")
         return saved[0][1] if saved else None
 
     def _buffer_filled_sec(self) -> float:
@@ -401,8 +504,27 @@ class AudioSource(ABC):
             })
         return detail
 
+    def _enqueue_cont(self, rx_label: str, frames: np.ndarray) -> None:
+        """Non-blocking enqueue of continuous audio frames.
+
+        Uses a *bounded* queue. If the queue is full (writer/encoder falling
+        behind, e.g. on a slow disk) the oldest pending chunk is dropped so the
+        capture callback never blocks on a full queue — live audio keeps
+        flowing and only a small tail of continuous recording is skipped.
+        """
+        frames = np.asarray(frames, dtype=np.int16).copy()
+        while True:
+            try:
+                self._cont_queue.put_nowait((rx_label, frames))
+                return
+            except queue.Full:
+                try:
+                    self._cont_queue.get_nowait()
+                except queue.Empty:
+                    return
+
     def _continuous_loop(self) -> None:
-        """Drain the continuous queue, appending audio to per-RX chunk files.
+        """Drain the continuous queue, appending audio to per-RX style chunk files.
 
         A fresh chunk file is opened for every RX (RX1 / RX2 in SO2R) and
         rolled over every ``continuous_chunk_minutes`` so each file is exactly
@@ -446,7 +568,16 @@ class AudioSource(ABC):
         self._close_cont_files()
 
     def _open_cont_files(self) -> None:
-        stamp = time.strftime("%Y%m%d_%H%M%S", time.localtime())
+        # Include a millisecond component derived from the FULL epoch time (not
+        # just the fractional part of the current second) so two chunks opened
+        # in the same wall-clock second — e.g. rapid Stop -> Start cycles after
+        # a factory reset — get distinct filenames and therefore distinct
+        # UNIQUE file_path rows in the DB. Without the full-time base the
+        # sub-second part repeats every second and the second chunk's
+        # INSERT OR IGNORE was silently dropped, so the recording never
+        # appeared in the dashboard.
+        stamp = time.strftime("%Y%m%d_%H%M%S", time.localtime()) + \
+                f"{int(time.time() * 1000) % 100000:05d}"
         out_dir = os.path.join(self.cfg.recordings_dir, "_continuous")
         os.makedirs(out_dir, exist_ok=True)
         with self._cont_lock:
@@ -486,6 +617,10 @@ class AudioSource(ABC):
         If the chunk contains no audio frames it is discarded (file deleted
         and DB row removed) so the continuous view never shows a "start
         without stop / no audio" entry.
+
+        When MP3 is configured, the (potentially slow) encode is handed off to
+        the dedicated encoder thread (``_encoder_loop``) so this writer thread
+        never blocks on it during long multi-hour sessions.
         """
         try:
             f["wf"].close()
@@ -508,19 +643,20 @@ class AudioSource(ABC):
                 pass
             logger.info("[%s] continuous chunk discarded (empty, no audio)", rx_label)
             return
-        if self.cfg.audio_format == "mp3":
-            old = rel
-            path = self._encode_mp3(path, self.cfg.sample_rate)
-            rel = "_continuous/" + os.path.basename(path)
         logger.info("[%s] continuous chunk saved (%s, %.1f s)",
                     rx_label, os.path.basename(path), duration)
+        _emit_event("continuous_chunk_saved")
         try:
             import db as qso_db
-            if self.cfg.audio_format == "mp3":
-                qso_db.update_qso_file_path(old, rel)
             qso_db.update_qso_duration(rel, duration)
         except Exception as e:
             logger.debug("continuous db update failed: %s", e)
+        # MP3 encoding happens off-thread so it never blocks the writer.
+        if self.cfg.audio_format == "mp3":
+            # Pass the computed duration so the encoder thread can persist it
+            # on the *renamed* .mp3 row (otherwise the duration update above
+            # would target the soon-to-be-deleted .wav row and be lost).
+            self._enc_queue.put((rx_label, path, self.cfg.sample_rate, rel, duration))
 
     def _roll_cont_files(self) -> None:
         with self._cont_lock:
@@ -619,12 +755,12 @@ class SoundcardAudioSource(AudioSource):
                 self.rx1_buf.write(pcm[:, 0:1])
                 self.rx2_buf.write(pcm[:, 1:2])
                 if self.cfg.continuous_recording and self._running:
-                    self._cont_queue.put(('RX1', pcm[:, 0:1].copy()))
-                    self._cont_queue.put(('RX2', pcm[:, 1:2].copy()))
+                    self._enqueue_cont('RX1', pcm[:, 0:1])
+                    self._enqueue_cont('RX2', pcm[:, 1:2])
             else:
                 self.buffer.write(pcm)
                 if self.cfg.continuous_recording and self._running:
-                    self._cont_queue.put(('RX1', pcm.copy()))
+                    self._enqueue_cont('RX1', pcm)
 
         try:
             self._stream = sd.InputStream(
@@ -865,7 +1001,7 @@ class TCIAudioSource(AudioSource):
         self._frames_received += n
         if self.cfg.continuous_recording and self._running:
             label = self._rx_label_map.get(rx_index, 'RX1')
-            self._cont_queue.put((label, pcm.copy()))
+            self._enqueue_cont(label, pcm)
         now = time.monotonic()
         if now - self._last_log_time >= 5.0:
             secs = self._frames_received / max(self.cfg.sample_rate, 1)
