@@ -10,6 +10,8 @@ FastAPI server and opens the dashboard in an embedded WebView2 browser.
 
 import os
 
+from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
+
 block_cipher = None
 
 # The dashboard HTML must be bundled so the launcher can copy it next to the
@@ -24,8 +26,8 @@ datas = [
 a = Analysis(
     ["launcher.py"],
     pathex=[os.getcwd()],
-    binaries=[],
-    datas=datas,
+    binaries=collect_dynamic_libs("cefpython3"),
+    datas=datas + collect_data_files("cefpython3"),
     hiddenimports=[
         "main",
         "config",
@@ -43,6 +45,11 @@ a = Analysis(
         "uvicorn.lifespan",
         "uvicorn.lifespan.on",
         "webview",
+        # CEF (Chromium Embedded Framework) backend for pywebview. Ships a
+        # full Chromium engine inside the package so the app opens in its own
+        # window with no external WebView2/system-browser dependency.
+        "cefpython3",
+        "cefpython3.win",
     ],
     hookspath=[],
     hooksconfig={},
