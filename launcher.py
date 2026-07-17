@@ -211,20 +211,76 @@ def main() -> None:
             icon=icon_path or None,
         )
 
-        # Use the bundled CEF (Chromium Embedded Framework) backend. CEF ships
-        # a full Chromium engine inside the package, so the app opens in its
-        # OWN window with NO external dependency (no WebView2 runtime, no
-        # system browser, no extra install). We try CEF first; if it fails we
-        # fall back to the system browser as a last resort.
+        # Decide which GUI backend to use. The goal is ALWAYS to open the
+        # dashboard in its OWN native window -- never in the system browser.
+        #
+        # Backend priority:
+        #   1. edgechromium (Edge WebView2) -- ships with Windows 10/11, needs
+        #      NO extra install. This is the reliable default on modern
+        #      Windows and keeps the app in a dedicated window.
+        #   2. cef (Chromium Embedded Framework) -- only if cefpython3 is
+        #      actually installed/importable. Bundling a full Chromium engine
+        #      is heavy and cefpython3 wheels are not available for every
+        #      Python version, so we treat it as an OPTIONAL fallback rather
+        #      than the primary backend.
+        #   3. default (whatever pywebview auto-detects) -- last embedded try.
+        #   4. webbrowser -- ONLY if every embedded backend failed. This is a
+        #      genuine last-resort safety net, not the normal path.
+        def _log_fallback(reason: str) -> None:
+            try:
+                with open(os.path.join(app_dir, "webview_fallback.log"), "a", encoding="utf-8") as lf:
+                    lf.write(time.strftime("%Y-%m-%d %H:%M:%S") + " " + reason + "\n")
+            except Exception:
+                pass
+
+        cef_available = False
         try:
-            webview.start(gui="cef")
+            import cefpython3  # noqa: F401  (only check importability)
+            cef_available = True
+        except Exception:
+            cef_available = False
+
+        started = False
+        last_exc: Exception | None = None
+
+        # 1) Edge WebView2 (preferred, zero extra dependency on modern Windows)
+        try:
+            webview.start(gui="edgechromium")
+            started = True
         except Exception as exc:
-            print(f"CEF backend failed ({exc}); trying default backend.")
+            last_exc = exc
+            print(f"Edge WebView2 backend failed ({exc}); trying next backend.")
+
+        # 2) CEF -- only if the package is installed.
+        if not started and cef_available:
+            try:
+                webview.start(gui="cef")
+                started = True
+            except Exception as exc:
+                last_exc = exc
+                print(f"CEF backend failed ({exc}); trying default backend.")
+
+        # 3) Default auto-detected backend.
+        if not started:
             try:
                 webview.start()
-            except Exception as exc2:
-                raise RuntimeError(f"all embedded backends failed: {exc2}") from exc2
-    except Exception as exc:  # Every embedded backend failed -> fall back.
+                started = True
+            except Exception as exc:
+                last_exc = exc
+                print(f"Default backend failed ({exc}).")
+
+        # 4) Last resort: system browser (logs the failure for diagnostics).
+        if not started:
+            reason = f"all embedded backends failed: {last_exc}"
+            print(f"Embedded browser unavailable ({last_exc}); opening system browser.")
+            _log_fallback(reason)
+            webbrowser.open(base_url)
+            try:
+                while True:
+                    time.sleep(1.0)
+            except KeyboardInterrupt:
+                pass
+    except Exception as exc:  # webview import or window creation failed.
         print(f"Embedded browser unavailable ({exc}); opening system browser.")
         try:
             with open(os.path.join(app_dir, "webview_fallback.log"), "a", encoding="utf-8") as lf:

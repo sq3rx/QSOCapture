@@ -12,6 +12,27 @@ import os
 
 from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
 
+# CEF (cefpython3) wheels are not published for every Python version (e.g.
+# Python 3.10+ on Windows). We only bundle CEF when it is actually installed,
+# so the build succeeds even when it is absent. The launcher treats CEF as an
+# OPTIONAL backend (it prefers the always-available Edge WebView2 engine), so
+# omitting it does not break the standalone window.
+def _cef_binaries():
+    try:
+        import cefpython3  # noqa: F401
+        return collect_dynamic_libs("cefpython3")
+    except Exception:
+        return []
+
+
+def _cef_datas():
+    try:
+        import cefpython3  # noqa: F401
+        return collect_data_files("cefpython3")
+    except Exception:
+        return []
+
+
 block_cipher = None
 
 # The dashboard HTML must be bundled so the launcher can copy it next to the
@@ -26,8 +47,8 @@ datas = [
 a = Analysis(
     ["launcher.py"],
     pathex=[os.getcwd()],
-    binaries=collect_dynamic_libs("cefpython3"),
-    datas=datas + collect_data_files("cefpython3"),
+    binaries=_cef_binaries(),
+    datas=datas + _cef_datas(),
     hiddenimports=[
         "main",
         "config",

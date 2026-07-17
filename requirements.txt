@@ -5,5 +5,11 @@ sounddevice>=0.4.6
 websockets>=12.0
 lameenc>=1.3
 pywebview>=5.0
-cefpython3>=66.1
+# cefpython3 is OPTIONAL. The launcher uses the native Edge WebView2 backend
+# (ships with Windows 10/11, no extra install) by default, and only falls back
+# to CEF when cefpython3 is importable. cefpython3 wheels are not published for
+# every Python version (e.g. 3.10+), so we must NOT hard-require it here or the
+# automated build (pip install -r requirements.txt) would fail on those
+# interpreters. Install it manually only if you want the CEF backend bundled.
+# cefpython3>=66.1
 pyinstaller>=6.0

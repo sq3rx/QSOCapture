@@ -11,12 +11,17 @@ This is the first numbered pre-release. From this point the project follows a
 clear `0.1.0beta` → `0.1.0` → `0.2.0` … versioning scheme.
 
 ### Runs in its own window (no external browser)
-- The desktop app now opens the dashboard in a **native window** (bundled
-  Chromium via CEF) instead of silently launching the system browser. The
-  full Chromium engine is packaged inside the EXE, so no external WebView2
-  runtime or system browser is required.
-- The fallback to the system browser is kept only as a last resort if the
-  embedded engine fails to initialise.
+- The desktop app opens the dashboard in a **native window** instead of
+  silently launching the system browser.
+- The **Edge WebView2** backend (`edgechromium`) is used by default. It ships
+  with Windows 10/11 and needs **no extra install**, so the app reliably opens
+  in its own window on a normal Windows machine.
+- The CEF (Chromium Embedded Framework) backend is only used as an **optional**
+  fallback when `cefpython3` is actually installed (its wheels are not
+  available for every Python version). When CEF is absent the app still opens
+  in the native WebView2 window.
+- The fallback to the system browser is kept **only** as a genuine last resort
+  if every embedded engine fails to initialise.
 
 ### Branded favicon
 - The dashboard tab now shows the QSOCapture logo consistently. A
@@ -24,12 +29,11 @@ clear `0.1.0beta` → `0.1.0` → `0.2.0` … versioning scheme.
   (the same multi-size icon generated from `icon.svg`), in both the N1MM and
   Continuous views.
 
-### Self-contained Chromium window (no WebView2 needed)
-- The desktop app now renders the dashboard with the **bundled CEF (Chromium
-  Embedded Framework)** backend instead of relying on the system WebView2
-  runtime. The full Chromium engine is packaged inside the EXE/installer, so
-  the app always opens in its **own native window** — with no external
-  dependency, no separate WebView2 download, and no system-browser fallback.
+### Native window priority
+- The launcher now tries backends in a strict order: **Edge WebView2 → CEF (if
+  installed) → default → system browser**. This guarantees the app starts in a
+  dedicated window on modern Windows rather than a browser tab, and the build
+  continues to work even when the heavy CEF package is not installed.
 
 ### Consistent sort indicators
 - The sort arrows in the **N1MM QSOs** and **Continuous** table headers now use
