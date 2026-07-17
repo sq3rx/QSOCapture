@@ -61,29 +61,34 @@ def _app_dir() -> str:
     )
 
 
+# Name of the bundled application icon (multi-size .ico).
+ICON_BASENAME = "icon.ico"
+
+
 def _ensure_assets(app_dir: str) -> None:
-    """Make sure ``index.html`` exists in the writable app directory.
+    """Make sure ``index.html`` (and ``icon.ico``) exist in the writable app dir.
 
     ``app_dir`` is already ``%LOCALAPPDATA%\\QSOCapture`` (always writable
-    without admin rights), so we can simply copy the bundled asset there.
+    without admin rights), so we can simply copy the bundled assets there. The
+    icon is served as the dashboard favicon by main.py and used as the WebView2
+    window icon by the launcher.
     """
-    target = os.path.join(app_dir, "index.html")
-    if os.path.isfile(target):
-        return
-    # Look for the asset inside the bundle first, then the source tree.
-    candidates = []
-    if _is_frozen():
-        candidates.append(os.path.join(sys._MEIPASS, "index.html"))
-    candidates.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "index.html"))
-    for src in candidates:
-        if os.path.isfile(src):
-            try:
-                shutil.copyfile(src, target)
-            except OSError:
-                pass  # dashboard simply won't render, server still works
-            return
-    # If we still don't have it, the dashboard simply won't render, but the
-    # server keeps working (user can open a normal browser).
+    for basename in ("index.html", ICON_BASENAME):
+        target = os.path.join(app_dir, basename)
+        if os.path.isfile(target):
+            continue
+        # Look for the asset inside the bundle first, then the source tree.
+        candidates = []
+        if _is_frozen():
+            candidates.append(os.path.join(sys._MEIPASS, basename))
+        candidates.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), basename))
+        for src in candidates:
+            if os.path.isfile(src):
+                try:
+                    shutil.copyfile(src, target)
+                except OSError:
+                    pass  # best-effort; app still works without this asset
+                break
 
 
 def _wait_for_server(url: str, timeout: float = 15.0) -> bool:
@@ -176,6 +181,18 @@ def main() -> None:
     try:
         import webview  # imported late so the frozen bundle loads assets first
 
+        # Locate the application icon (next to the executable, in _MEIPASS when
+        # frozen, or in the source tree) and use it as the window icon.
+        icon_path = ""
+        for cand in (
+            os.path.join(app_dir, ICON_BASENAME),
+            os.path.join(sys._MEIPASS, ICON_BASENAME) if _is_frozen() else "",
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), ICON_BASENAME),
+        ):
+            if cand and os.path.isfile(cand):
+                icon_path = cand
+                break
+
         # Open the dashboard inside the embedded WebView2 browser.
         webview.create_window(
             "QSOCapture",
@@ -185,6 +202,7 @@ def main() -> None:
             min_size=(900, 600),
             text_select=True,
             confirm_close=False,
+            icon=icon_path or None,
         )
         webview.start()
     except Exception as exc:  # WebView2 missing / init failure -> fall back.

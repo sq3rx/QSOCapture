@@ -24,7 +24,7 @@ AllowNoIcons=yes
 LicenseFile=
 OutputDir=installer
 OutputBaseFilename=QSOCapture-setup-{#MyAppVersion}
-SetupIconFile=
+SetupIconFile=icon.ico
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
@@ -38,6 +38,7 @@ Name: "polish"; MessagesFile: "compiler:Languages\Polish.isl"
 [Files]
 Source: "dist\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion isreadme
+Source: "icon.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"

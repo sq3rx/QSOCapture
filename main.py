@@ -270,6 +270,19 @@ application = _cancel_safe_app
 # ---------------------------------------------------------------------------
 # Web / API routes
 # ---------------------------------------------------------------------------
+@app.get("/icon.ico")
+def favicon() -> FileResponse:
+    """Serve the application icon (used as the dashboard favicon)."""
+    candidates = []
+    if INDEX_HTML_OVERRIDE:
+        candidates.append(os.path.join(os.path.dirname(INDEX_HTML_OVERRIDE), "icon.ico"))
+    candidates.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon.ico"))
+    for path in candidates:
+        if os.path.isfile(path):
+            return FileResponse(path, media_type="image/x-icon", filename="icon.ico")
+    raise HTTPException(status_code=404, detail="icon not found")
+
+
 @app.get("/", response_class=HTMLResponse)
 def dashboard() -> HTMLResponse:
     """Serve the Tailwind dashboard."""

@@ -13,6 +13,9 @@ dist/
 *.manifest
 version_info.txt
 
+# Icon generation intermediate (icon.ico and icon.svg are committed)
+icon_512.png
+
 # Local data — not committed (user specific)
 qsos.db
 *.db

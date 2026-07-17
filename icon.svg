@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <!-- Tło ikony z zaokrąglonymi rogami -->
+  <rect width="512" height="512" rx="110" fill="#1e222b"/>
+
+  <!-- Definicje gradientów -->
+  <defs>
+    <linearGradient id="radioGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00f2fe" />
+      <stop offset="100%" stop-color="#4facfe" />
+    </linearGradient>
+    <linearGradient id="successGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#00ff87" />
+      <stop offset="100%" stop-color="#60efff" />
+    </linearGradient>
+  </defs>
+
+  <!-- Fale radiowe / Audio w tle -->
+  <circle cx="256" cy="256" r="180" stroke="url(#radioGrad)" stroke-width="12" fill="none" opacity="0.2" stroke-dasharray="20 15"/>
+  <circle cx="256" cy="256" r="130" stroke="url(#radioGrad)" stroke-width="8" fill="none" opacity="0.4" stroke-dasharray="10 10"/>
+
+  <!-- Główny motyw: Przechwytywacz (Capture) i Sygnał QSO -->
+  <g transform="translate(256, 256)">
+    <!-- Ramiona przechwytujące (jak celownik/magnes) -->
+    <path d="M -90,-40 L -90,-90 L -40,-90" stroke="url(#successGrad)" stroke-width="24" stroke-linecap="round" fill="none"/>
+    <path d="M 90,-40 L 90,-90 L 40,-90" stroke="url(#successGrad)" stroke-width="24" stroke-linecap="round" fill="none"/>
+    <path d="M -90,40 L -90,90 L -40,90" stroke="url(#successGrad)" stroke-width="24" stroke-linecap="round" fill="none"/>
+    <path d="M 90,40 L 90,90 L 40,90" stroke="url(#successGrad)" stroke-width="24" stroke-linecap="round" fill="none"/>
+
+    <!-- Słupki audio (Equalizer / Sliced QSO) w środku -->
+    <rect x="-50" y="-30" width="16" height="60" rx="8" fill="url(#radioGrad)"/>
+    <rect x="-20" y="-55" width="16" height="110" rx="8" fill="url(#radioGrad)"/>
+    <rect x="10" y="-40" width="16" height="80" rx="8" fill="url(#radioGrad)"/>
+    <rect x="40" y="-20" width="16" height="40" rx="8" fill="url(#radioGrad)"/>
+  </g>
+
+  <!-- Mała czerwona kropka REC (symbol nagrywania audio) -->
+  <circle cx="390" cy="120" r="18" fill="#ff3366"/>
+</svg>
