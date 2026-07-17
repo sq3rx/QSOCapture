@@ -135,6 +135,51 @@ def _migrate_legacy_data(app_dir: str) -> None:
             pass  # keep going; app will recreate what is missing
 
 
+def _webview2_runtime_present() -> bool:
+    """Return True if a system WebView2 runtime is installed."""
+    import winreg
+    # Per-user and machine-wide roots used by the WebView2 installer.
+    roots = (
+        (winreg.HKEY_CURRENT_USER, r"Software\Microsoft\EdgeWebView\Applications"),
+        (winreg.HKEY_LOCAL_MACHINE, r"Software\Microsoft\EdgeWebView\Applications"),
+        (winreg.HKEY_LOCAL_MACHINE, r"Software\WOW6432Node\Microsoft\EdgeWebView\Applications"),
+    )
+    for hkey, sub in roots:
+        try:
+            with winreg.OpenKey(hkey, sub) as k:
+                # At least one version sub-key means a runtime is installed.
+                if winreg.QueryInfoKey(k)[0] > 0:
+                    return True
+        except OSError:
+            continue
+    return False
+
+
+def _ensure_webview2_runtime(app_dir: str) -> bool:
+    """Make sure the WebView2 runtime is available.
+
+    If a system runtime is already present, return immediately. Otherwise
+    download the Evergreen Bootstrapper and run it (needs network + may need
+    admin). Returns True when a runtime is now available, False otherwise.
+    The launcher falls back to the system browser if this still fails.
+    """
+    if _webview2_runtime_present():
+        return True
+    print("WebView2 runtime not found; attempting to install it (needs network)...")
+    bootstrapper = os.path.join(app_dir, "MicrosoftEdgeWebview2Setup.exe")
+    url = "https://go.microsoft.com/fwlink/p/?LinkId=2124703"
+    try:
+        urllib.request.urlretrieve(url, bootstrapper)
+        # /silent installs without UI; non-zero exit (e.g. admin needed) is
+        # caught below and we fall back to the system browser.
+        rc = os.system(f'"{bootstrapper}" /silent /install')  # noqa: S605
+        print(f"WebView2 bootstrapper exit code: {rc}")
+        return _webview2_runtime_present()
+    except Exception as exc:
+        print(f"Could not install WebView2 runtime automatically: {exc}")
+        return False
+
+
 def main() -> None:
     app_dir = _app_dir()
     os.makedirs(app_dir, exist_ok=True)
@@ -178,6 +223,13 @@ def main() -> None:
         print("ERROR: QSOCapture server failed to start.", file=sys.stderr)
         return
 
+    # Make sure a WebView2 runtime is available. On first run (or when the
+    # system runtime is missing) this downloads and installs the Evergreen
+    # WebView2 runtime so the app can open in its own window instead of the
+    # browser. If it still cannot be obtained, the launcher falls back to the
+    # system browser below.
+    _ensure_webview2_runtime(app_dir)
+
     try:
         import webview  # imported late so the frozen bundle loads assets first
 
@@ -210,22 +262,6 @@ def main() -> None:
             confirm_close=False,
             icon=icon_path or None,
         )
-
-        # Use a BUNDLED WebView2 Fixed Version when present so the app always
-        # opens in its own window, even on machines without the system
-        # WebView2 runtime installed. The fixed version is shipped next to the
-        # executable (or inside _MEIPASS) under a ``webview2`` folder and its
-        # path is handed to WebView2 via the documented environment variable.
-        # When the folder is missing we rely on the system runtime / fallback.
-        for wv_cand in (
-            os.path.join(os.path.dirname(os.path.abspath(__file__)), "webview2"),
-            os.path.join(sys._MEIPASS, "webview2") if _is_frozen() else "",
-            os.path.join(app_dir, "webview2"),
-        ):
-            if wv_cand and os.path.isdir(wv_cand):
-                os.environ["WEBVIEW2_BROWSER_EXECUTABLE_FOLDER"] = wv_cand
-                print(f"Using bundled WebView2 from {wv_cand}")
-                break
 
         # Try the native Edge WebView2 backend first. If it fails (e.g. the
         # WebView2 runtime is genuinely missing, or the frozen import cannot
