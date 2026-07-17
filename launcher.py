@@ -210,9 +210,44 @@ def main() -> None:
             confirm_close=False,
             icon=icon_path or None,
         )
-        webview.start(gui="edgechromium")
-    except Exception as exc:  # WebView2 missing / init failure -> fall back.
+
+        # Use a BUNDLED WebView2 Fixed Version when present so the app always
+        # opens in its own window, even on machines without the system
+        # WebView2 runtime installed. The fixed version is shipped next to the
+        # executable (or inside _MEIPASS) under a ``webview2`` folder and its
+        # path is handed to WebView2 via the documented environment variable.
+        # When the folder is missing we rely on the system runtime / fallback.
+        for wv_cand in (
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "webview2"),
+            os.path.join(sys._MEIPASS, "webview2") if _is_frozen() else "",
+            os.path.join(app_dir, "webview2"),
+        ):
+            if wv_cand and os.path.isdir(wv_cand):
+                os.environ["WEBVIEW2_BROWSER_EXECUTABLE_FOLDER"] = wv_cand
+                print(f"Using bundled WebView2 from {wv_cand}")
+                break
+
+        # Try the native Edge WebView2 backend first. If it fails (e.g. the
+        # WebView2 runtime is genuinely missing, or the frozen import cannot
+        # resolve the backend), retry with pywebview's default backend, and
+        # only as a last resort fall back to the system browser. This avoids
+        # silently dropping into the browser when a different bundled backend
+        # (e.g. CEFFython/Qt) is actually available.
+        try:
+            webview.start(gui="edgechromium")
+        except Exception as exc:
+            print(f"edgechromium backend failed ({exc}); trying default backend.")
+            try:
+                webview.start()
+            except Exception as exc2:
+                raise RuntimeError(f"all embedded backends failed: {exc2}") from exc2
+    except Exception as exc:  # Every embedded backend failed -> fall back.
         print(f"Embedded browser unavailable ({exc}); opening system browser.")
+        try:
+            with open(os.path.join(app_dir, "webview_fallback.log"), "a", encoding="utf-8") as lf:
+                lf.write(time.strftime("%Y-%m-%d %H:%M:%S") + " " + str(exc) + "\n")
+        except Exception:
+            pass
         webbrowser.open(base_url)
         try:
             while True:

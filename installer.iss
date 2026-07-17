@@ -39,6 +39,9 @@ Name: "polish"; MessagesFile: "compiler:Languages\Polish.isl"
 Source: "dist\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion isreadme
 Source: "icon.ico"; DestDir: "{app}"; Flags: ignoreversion
+; Bundled WebView2 Fixed Version — lets the app open in its own window even
+; when the system WebView2 runtime is not installed (no admin needed).
+Source: "webview2\*"; DestDir: "{app}\webview2"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"

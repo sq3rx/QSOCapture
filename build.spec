@@ -19,6 +19,10 @@ block_cipher = None
 datas = [
     ("index.html", "."),
     ("icon.ico", "."),
+    # Bundled WebView2 Fixed Version so the app opens in its OWN window even
+    # when the system WebView2 runtime is not installed. The launcher sets
+    # WEBVIEW2_BROWSER_EXECUTABLE_FOLDER to this directory before starting.
+    ("webview2", "webview2"),
 ]
 
 a = Analysis(
