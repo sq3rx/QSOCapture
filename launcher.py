@@ -60,7 +60,14 @@ def _app_dir() -> str:
 
 
 def _ensure_assets(app_dir: str) -> None:
-    """Make sure ``index.html`` exists in the writable app directory."""
+    """Make sure ``index.html`` exists in the writable app directory.
+
+    When the executable lives in a read-only location (e.g. ``C:\\Program
+    Files\\...`` installed by an admin installer), we cannot copy the bundled
+    asset next to the ``.exe``. In that case we fall back to a per-user
+    directory (``%LOCALAPPDATA%/QSOCapture``) which is always writable, and
+    point ``main.py`` at that copy via ``qso_main.INDEX_HTML_OVERRIDE``.
+    """
     target = os.path.join(app_dir, "index.html")
     if os.path.isfile(target):
         return
@@ -71,8 +78,20 @@ def _ensure_assets(app_dir: str) -> None:
     candidates.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "index.html"))
     for src in candidates:
         if os.path.isfile(src):
-            shutil.copyfile(src, target)
-            return
+            try:
+                shutil.copyfile(src, target)
+                return
+            except PermissionError:
+                # Read-only install dir (e.g. Program Files). Fall back to a
+                # writable per-user location and tell main.py to serve from there.
+                user_dir = os.path.join(
+                    os.environ.get("LOCALAPPDATA", app_dir), "QSOCapture"
+                )
+                os.makedirs(user_dir, exist_ok=True)
+                user_target = os.path.join(user_dir, "index.html")
+                shutil.copyfile(src, user_target)
+                qso_main.INDEX_HTML_OVERRIDE = user_target
+                return
     # If we still don't have it, the dashboard simply won't render, but the
     # server keeps working (user can open a normal browser).
 

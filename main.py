@@ -51,6 +51,11 @@ audio_source = None
 n1mm = None
 _config_lock = threading.Lock()
 
+# Optional override for the dashboard HTML file path. The launcher sets this
+# when it cannot copy ``index.html`` next to the executable (e.g. a read-only
+# ``Program Files`` install) and instead placed a copy in ``%LOCALAPPDATA%``.
+INDEX_HTML_OVERRIDE: Optional[str] = None
+
 # Rolling in-memory log buffer (captured via a custom handler). A bounded
 # deque is cheaper than a Queue: append/popleft are O(1) and get_recent_logs
 # does not need to copy the underlying queue object.
@@ -268,7 +273,7 @@ application = _cancel_safe_app
 @app.get("/", response_class=HTMLResponse)
 def dashboard() -> HTMLResponse:
     """Serve the Tailwind dashboard."""
-    path = cfg.dashboard_file
+    path = INDEX_HTML_OVERRIDE or cfg.dashboard_file
     if not os.path.isfile(path):
         raise HTTPException(status_code=404, detail="dashboard file not found")
     with open(path, "r", encoding="utf-8") as f:
