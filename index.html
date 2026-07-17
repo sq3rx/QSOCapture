@@ -625,6 +625,22 @@
         $('qsoView').className = 'overflow-x-auto rounded-lg border border-slate-800' + (isCont ? ' hidden' : '');
         $('contView').className = 'overflow-x-auto rounded-lg border border-slate-800' + (isCont ? '' : ' hidden');
 
+          // Synchronise the active sort column with the visible view so the
+          // sort-arrow highlight matches in BOTH tabs. Without this, switching
+          // to Continuous left sortCol === 'timestamp', so neither the Start
+          // nor Stop arrow was highlighted — looking inconsistent vs N1MM.
+          if (isCont) {
+            if (sortCol !== 'start' && sortCol !== 'stop') {
+              sortCol = 'start';
+              updateSortArrows();
+            }
+          } else {
+            if (sortCol !== 'timestamp') {
+              sortCol = 'timestamp';
+              updateSortArrows();
+            }
+          }
+
           if (isCont) {
             d.qsos.forEach(q => {
               const start = q.timestamp;

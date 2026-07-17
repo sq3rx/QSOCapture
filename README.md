@@ -1,10 +1,14 @@
 # QSOCapture by SQ3RX
 
+<p align="center">
+  <img src="icon.svg" alt="QSOCapture icon" width="128" height="128" />
+</p>
+
 [![Build and Release](https://github.com/sq3rx/QSOCapture/actions/workflows/main.yml/badge.svg)](https://github.com/sq3rx/QSOCapture/actions/workflows/main.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org)
 
-**Version:** 1.1.1
+**Version:** 0.1.0beta
 
 **QSOCapture** is a lightweight contest audio recorder and log player for
 amateur radio operators. It captures audio from your receiver (via the

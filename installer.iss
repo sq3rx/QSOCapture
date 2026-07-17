@@ -6,7 +6,7 @@
 ; Jeśli podano wersję z linii komend (np. iscc installer.iss /dMyAppVersion=1.2.3),
 ; to nadpisuje wartość domyślną powyżej.
 #ifndef MyAppVersion
-  #define MyAppVersion "1.1.0"
+  #define MyAppVersion "0.1.0beta"
 #endif
 
 [Setup]

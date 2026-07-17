@@ -194,6 +194,12 @@ def main() -> None:
                 break
 
         # Open the dashboard inside the embedded WebView2 browser.
+        # Force the native Edge WebView2 backend (gui='edgechromium') so the
+        # app opens in its OWN window instead of falling back to the system
+        # browser. The default pywebview backend on Windows is WinForms/IE
+        # (which needs pythonnet); when that is not available the launcher
+        # silently dropped to webbrowser.open(). Edge WebView2 ships with
+        # modern Windows 10/11 and requires no extra dependency.
         webview.create_window(
             "QSOCapture",
             base_url,
@@ -204,7 +210,7 @@ def main() -> None:
             confirm_close=False,
             icon=icon_path or None,
         )
-        webview.start()
+        webview.start(gui="edgechromium")
     except Exception as exc:  # WebView2 missing / init failure -> fall back.
         print(f"Embedded browser unavailable ({exc}); opening system browser.")
         webbrowser.open(base_url)

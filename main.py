@@ -241,7 +241,7 @@ async def lifespan(app: FastAPI):
         logger.info("QSOCapture stopped")
 
 
-app = FastAPI(title="QSOCapture", version="1.1.1", lifespan=lifespan)
+app = FastAPI(title="QSOCapture", version="0.1.0beta", lifespan=lifespan)
 
 
 # ---------------------------------------------------------------------------
@@ -281,6 +281,18 @@ def favicon() -> FileResponse:
         if os.path.isfile(path):
             return FileResponse(path, media_type="image/x-icon", filename="icon.ico")
     raise HTTPException(status_code=404, detail="icon not found")
+
+
+@app.get("/favicon.ico")
+def favicon_root() -> FileResponse:
+    """Serve the application icon at the default ``/favicon.ico`` path.
+
+    Browsers automatically request ``/favicon.ico`` for the tab icon. This
+    route serves the same multi-size icon (generated from ``icon.svg``) so the
+    dashboard tab consistently shows the QSOCapture logo in both the N1MM and
+    Continuous views.
+    """
+    return favicon()
 
 
 @app.get("/", response_class=HTMLResponse)
