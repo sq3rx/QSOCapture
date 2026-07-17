@@ -208,7 +208,6 @@ def main() -> None:
             min_size=(900, 600),
             text_select=True,
             confirm_close=False,
-            icon=icon_path or None,
         )
 
         # Decide which GUI backend to use. The goal is ALWAYS to open the
@@ -243,9 +242,15 @@ def main() -> None:
         started = False
         last_exc: Exception | None = None
 
+        # The application icon is passed to webview.start() (not create_window,
+        # which does NOT accept an `icon` argument in this pywebview version).
+        # This avoids a TypeError at window creation that previously forced the
+        # launcher to fall back to the system browser.
+        icon_arg = icon_path or None
+
         # 1) Edge WebView2 (preferred, zero extra dependency on modern Windows)
         try:
-            webview.start(gui="edgechromium")
+            webview.start(gui="edgechromium", icon=icon_arg)
             started = True
         except Exception as exc:
             last_exc = exc
@@ -254,7 +259,7 @@ def main() -> None:
         # 2) CEF -- only if the package is installed.
         if not started and cef_available:
             try:
-                webview.start(gui="cef")
+                webview.start(gui="cef", icon=icon_arg)
                 started = True
             except Exception as exc:
                 last_exc = exc
@@ -263,7 +268,7 @@ def main() -> None:
         # 3) Default auto-detected backend.
         if not started:
             try:
-                webview.start()
+                webview.start(icon=icon_arg)
                 started = True
             except Exception as exc:
                 last_exc = exc
