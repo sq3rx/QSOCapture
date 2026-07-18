@@ -10,9 +10,10 @@ How it works
 2. Switch the working directory to the folder that contains the executable so
    that ``config.cfg`` / ``recordings/`` are stored next to the ``.exe``
    (writable location) instead of the temporary ``_MEIPASS`` directory.
-3. Copy ``index.html`` next to the executable on first run (it is frozen inside
-   the bundle but must live in the writable directory so ``main.py`` can serve
-   it).
+3. Copy ``index.html`` (and ``icon.ico``) into the writable app directory on
+   every launch, **overwriting any older copy** left by a previous version (the
+   file is frozen inside the bundle but must live in the writable directory so
+   ``main.py`` can serve it — overwriting is what makes updates take effect).
 4. Start the FastAPI/uvicorn server in a background thread, binding to
    ``127.0.0.1`` so only the local machine can reach it.
 5. Once the server is answering, open a borderless-ish native window pointing at
@@ -66,17 +67,20 @@ ICON_BASENAME = "icon.ico"
 
 
 def _ensure_assets(app_dir: str) -> None:
-    """Make sure ``index.html`` (and ``icon.ico``) exist in the writable app dir.
+    """Make sure ``index.html`` (and ``icon.ico``) in the writable app dir are
+    the versions bundled with *this* build.
 
-    ``app_dir`` is already ``%LOCALAPPDATA%\\QSOCapture`` (always writable
-    without admin rights), so we can simply copy the bundled assets there. The
-    icon is served as the dashboard favicon by main.py and used as the WebView2
-    window icon by the launcher.
+    ``app_dir`` is ``%LOCALAPPDATA%\\QSOCapture`` (always writable without admin
+    rights). On every launch we (re)copy the bundled assets there, **overwriting
+    any previous copy**. This is what makes application updates take effect: the
+    old ``index.html`` left behind by a previous version would otherwise be
+    served forever (the dashboard is read from this file), so without the
+    overwrite the UI would never change after an upgrade. The copy is
+    best-effort — if no bundled asset is found we keep whatever is already there
+    so the app still starts.
     """
     for basename in ("index.html", ICON_BASENAME):
         target = os.path.join(app_dir, basename)
-        if os.path.isfile(target):
-            continue
         # Look for the asset inside the bundle first, then the source tree.
         candidates = []
         if _is_frozen():

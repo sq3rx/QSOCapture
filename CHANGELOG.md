@@ -35,6 +35,14 @@ dashboard clean-ups, based on hands-on testing during contests.
   stores the value as a frequency (e.g. `14.200`); the value is snapped to the
   nearest amateur band automatically.
 
+### Bug fix (update reliability)
+- Fixed the dashboard not updating after an upgrade. The launcher copied
+  `index.html` into `%LOCALAPPDATA%\QSOCapture` only when the file was missing,
+  so an **old `index.html` left by a previous version kept being served**
+  forever (the UI is read from that file). The launcher now **overwrites**
+  `index.html` (and `icon.ico`) from the bundled copy on **every launch**, so
+  installing a newer build immediately shows the new interface.
+
 ---
 
 ## Version 0.1.0beta
