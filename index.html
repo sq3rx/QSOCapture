@@ -113,6 +113,10 @@
     table { border-collapse:collapse; } th,td { padding:.75rem 1rem; }
     .text-center { text-align:center; } .py-10 { padding-top:2.5rem; padding-bottom:2.5rem; }
     .font-mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+    /* Custom audio player (built in buildPlayer) replaces the native
+       <audio controls> so the progress slider fills the whole row width and
+       the native mute/overflow menu never appears. */
+    input[type=range].qsoslider { accent-color:#22c55e; }
   </style>
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen antialiased">
@@ -129,7 +133,7 @@
         <span id="tciBadge" class="px-3 py-1 rounded-full bg-slate-800 border border-slate-700 text-slate-300">TCI &hellip;</span>
         <span id="n1mmBadge" class="px-3 py-1 rounded-full bg-slate-800 border border-slate-700 text-slate-300">N1MM &hellip;</span>
         <span id="recBadge" class="hidden items-center px-3 py-1 rounded-full bg-red-600/10 border border-red-500/40 text-red-300">
-          <span class="w-2 h-2 rounded-full bg-red-500 mr-1.5 animate-pulse"></span>RECORDING
+          <span class="w-2 h-2 rounded-full bg-red-500 mr-1.5 animate-pulse"></span>Recording
         </span>
         <span id="bufContainer" class="flex items-center gap-2 text-xs"></span>
       </div>
@@ -225,10 +229,9 @@
         <th class="px-4 py-3 font-medium">Mode</th>
         <th class="px-4 py-3 font-medium">Freq</th>
         <th class="px-4 py-3 font-medium">Exch</th>
-        <th class="px-4 py-3 font-medium">DXCC</th>
         <th class="px-4 py-3 font-medium">RX</th>
         <th class="px-4 py-3 font-medium">Contest</th>
-        <th class="px-4 py-3 font-medium w-[340px]">Player</th>
+        <th class="px-4 py-3 font-medium w-full">Player</th>
       </tr>
     </thead>
         <tbody id="rows" class="divide-y divide-slate-800"></tbody>
@@ -254,7 +257,7 @@
             </th>
             <th class="px-4 py-3 font-medium">Duration</th>
             <th class="px-4 py-3 font-medium">RX</th>
-            <th class="px-4 py-3 font-medium w-[340px]">Player</th>
+            <th class="px-4 py-3 font-medium w-full">Player</th>
           </tr>
         </thead>
         <tbody id="contRows" class="divide-y divide-slate-800"></tbody>
@@ -471,7 +474,7 @@
       } catch (e) {}
     }
 
-    function buildPlayer(url) {
+    function buildPlayer(url, relPath, suggestedName) {
       if (!url) {
         const wrap = document.createElement('div');
         wrap.className = 'px-4 py-2 text-xs text-slate-500';
@@ -480,26 +483,111 @@
       }
       const wrap = document.createElement('div');
       wrap.className = 'flex items-center gap-2 px-4 py-2';
+      // Clicks inside the player must not bubble up to the row (which would
+      // open the QSO detail modal).
+      wrap.addEventListener('click', (e) => e.stopPropagation());
+
+      // The actual media element is kept off-screen; we drive it with our own
+      // controls so the progress slider fills the whole row width. This also
+      // avoids the native mute/overflow menu entirely.
       const audio = document.createElement('audio');
-      audio.controls = true;
       audio.preload = 'none';
       audio.src = url;
-      audio.className = 'w-full';
+      audio.playbackRate = 1.0;
+      audio.style.display = 'none';
+      wrap.appendChild(audio);
+
+      const playBtn = document.createElement('button');
+      playBtn.type = 'button';
+      playBtn.title = 'Play / Pause';
+      playBtn.className = 'text-slate-300 hover:text-brand text-base leading-none px-1 select-none';
+      playBtn.textContent = '▶'; // ▶
+      playBtn.addEventListener('click', () => {
+        if (audio.paused) audio.play(); else audio.pause();
+      });
+      audio.addEventListener('play', () => { playBtn.textContent = '⏸'; }); // ⏸
+      audio.addEventListener('pause', () => { playBtn.textContent = '▶'; });
+      audio.addEventListener('ended', () => { playBtn.textContent = '▶'; });
+
+      const fmt = (s) => {
+        s = Math.floor(s || 0);
+        const m = Math.floor(s / 60);
+        const sec = s % 60;
+        return m + ':' + String(sec).padStart(2, '0');
+      };
+      const time = document.createElement('span');
+      time.className = 'text-xs text-slate-400 whitespace-nowrap tabular-nums w-20 text-right';
+      time.textContent = '0:00';
+
+      const seek = document.createElement('input');
+      seek.type = 'range';
+      seek.min = '0';
+      seek.max = '1000';
+      seek.value = '0';
+      seek.step = '1';
+      seek.title = 'Seek';
+      seek.className = 'qsoslider flex-1 min-w-0 cursor-pointer';
+      seek.addEventListener('input', () => {
+        if (audio.duration) audio.currentTime = (seek.value / 1000) * audio.duration;
+      });
+      audio.addEventListener('loadedmetadata', () => {
+        time.textContent = '0:00 / ' + fmt(audio.duration);
+      });
+      audio.addEventListener('timeupdate', () => {
+        if (audio.duration) {
+          seek.value = String((audio.currentTime / audio.duration) * 1000);
+          time.textContent = fmt(audio.currentTime) + ' / ' + fmt(audio.duration);
+        }
+      });
 
       const speed = document.createElement('select');
-      speed.className = 'bg-slate-800 border border-slate-700 rounded text-xs px-1 py-1';
-      [0.8, 1.0, 1.2, 1.5].forEach(v => {
+      speed.className = 'bg-slate-800 border border-slate-700 rounded text-xs px-2 py-1';
+      [0.8, 1.0, 1.2, 1.5, 2.0].forEach(v => {
         const o = document.createElement('option');
         o.value = v; o.textContent = v + 'x';
         if (v === 1.0) o.selected = true;
         speed.appendChild(o);
       });
       speed.addEventListener('change', () => { audio.playbackRate = parseFloat(speed.value); });
-      audio.playbackRate = 1.0;
 
-      wrap.appendChild(audio);
+      const saveBtn = document.createElement('button');
+      saveBtn.type = 'button';
+      saveBtn.title = 'Save recording to a file';
+      saveBtn.className = 'text-xs px-2 py-1 rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-700 whitespace-nowrap';
+      saveBtn.textContent = '⭳ Save';
+      saveBtn.addEventListener('click', () => saveRecording(relPath, suggestedName));
+
+      wrap.appendChild(playBtn);
+      wrap.appendChild(seek);
+      wrap.appendChild(time);
       wrap.appendChild(speed);
+      wrap.appendChild(saveBtn);
       return wrap;
+    }
+
+    function saveRecording(relPath, suggestedName) {
+      if (!relPath) return;
+      const api = window.pywebview && window.pywebview.api;
+      if (api && typeof api.save_recording === 'function') {
+        // Desktop build: delegate to the native "Save As" dialog.
+        api.save_recording(relPath, suggestedName || '').then((res) => {
+          if (res && res.ok) {
+            // success; nothing else to do
+          } else if (res && res.cancelled) {
+            // user aborted the dialog – no-op
+          } else if (res && res.error) {
+            alert('Cannot save recording: ' + res.error);
+          }
+        }).catch((err) => { alert('Cannot save recording: ' + err); });
+      } else {
+        // Plain browser: trigger a normal download of the recording.
+        const a = document.createElement('a');
+        a.href = '/audio/' + relPath;
+        a.download = suggestedName || '';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      }
     }
 
     const MODE_COLORS = {
@@ -538,19 +626,33 @@
     // Map raw band values (MHz or mixed forms) to standard labels, e.g.
     // "7" / "7.0" / "7MHz" -> "40M", "14" -> "20M", "14mhz" -> "20M".
     function normalizeBand(band) {
-      const raw = (band || '').toLowerCase().replace(/mhz$/, '').replace(/m$/, '').trim();
-      const mhz = parseFloat(raw);
+      const raw = (band || '').trim();
+      if (!raw) return '—';
+      const up = raw.toUpperCase();
+      // Already a band label like "20M", "40M", "160M", "2M", "6M".
+      if (BAND_COLORS[up]) return up;
+      // Parse a frequency in MHz. Handles "14.2", "14.200", "14MHz",
+      // "7.05", "21.3", etc. — N1MM sometimes stores the band as a
+      // frequency, so snap it to the nearest amateur band.
+      const mhz = parseFloat(raw.toLowerCase().replace(/[^0-9.]/g, ''));
       if (!isNaN(mhz)) {
-        const map = {
-          1.8: '160M', 3.5: '80M', 7: '40M', 10: '30M',
-          14: '20M', 18: '17M', 21: '15M', 24: '12M',
-          28: '10M', 50: '6M', 144: '2M',
-        };
-        if (map[mhz]) return map[mhz];
+        const centers = [
+          [1.8, '160M'], [3.5, '80M'], [7.0, '40M'], [10.0, '30M'],
+          [14.0, '20M'], [18.0, '17M'], [21.0, '15M'], [24.0, '12M'],
+          [28.0, '10M'], [50.0, '6M'], [144.0, '2M'],
+        ];
+        let best = null, bestDiff = Infinity;
+        for (const [c, label] of centers) {
+          const diff = Math.abs(mhz - c);
+          if (diff < bestDiff) { bestDiff = diff; best = label; }
+        }
+        // Only snap when reasonably close to a band centre (within 1.5 MHz or
+        // 10% of the value) so an unrelated number isn't mislabelled.
+        if (best && bestDiff <= Math.max(1.5, mhz * 0.1)) return best;
+        return raw;
       }
-      const b = (band || '').toUpperCase();
-      if (BAND_COLORS[b]) return b;
-      return b || '—';
+      // Non-numeric, non-label text (e.g. "VHF") — show as-is.
+      return up;
     }
     function bandBadge(band) {
       const b = normalizeBand(band);
@@ -656,7 +758,7 @@
                 <td class="px-4 py-2">${rxBadge(q.label)}</td>`;
               const td = document.createElement('td');
               td.className = 'px-0 py-0';
-              td.appendChild(buildPlayer(q.url));
+              td.appendChild(buildPlayer(q.url, q.url.replace('/audio/', ''), q.file));
               tr.appendChild(td);
               $('contRows').appendChild(tr);
             });
@@ -671,12 +773,11 @@
                <td class="px-4 py-2">${modeBadge(q.mode)}</td>
                <td class="px-4 py-2 text-slate-400 font-mono">${q.freq || '—'}</td>
                <td class="px-4 py-2 text-slate-300">${q.exchange || '—'}</td>
-               <td class="px-4 py-2 text-slate-400">${q.countryprefix || (q.wpxprefix ? q.wpxprefix : '—')}</td>
                <td class="px-4 py-2">${rxBadge(q.label)}</td>
                <td class="px-4 py-2 text-slate-500">${q.contest}</td>`;
              const td = document.createElement('td');
              td.className = 'px-0 py-0';
-             td.appendChild(buildPlayer(q.url));
+             td.appendChild(buildPlayer(q.url, q.url.replace('/audio/', ''), q.file));
              tr.appendChild(td);
              tr.addEventListener('click', (e) => {
                if (e.target.tagName === 'AUDIO' || e.target.tagName === 'SELECT') return;
@@ -866,8 +967,8 @@
       return textInput('cfg__web_addr', v, '0.0.0.0:8000');
     }
     function n1mmAddrWidget(val) {
-      const v = val || '0.0.0.0:12060';
-      return textInput('cfg__n1mm_addr', v, '0.0.0.0:12060');
+      const v = val || '127.0.0.1:12060';
+      return textInput('cfg__n1mm_addr', v, '127.0.0.1:12060');
     }
     let audioDevices = [];
     function soundcardWidget(val) {
@@ -896,7 +997,10 @@
 
         let general = fieldBlock('Station name', textInput('cfg_station_name', v.station_name), helpMap.station_name)
           + fieldBlock('Recordings directory', textInput('cfg_recordings_dir', v.recordings_dir), helpMap.recordings_dir)
-          + fieldBlock('Saved to', `<div class="text-xs text-slate-400 break-all px-2 py-1.5 bg-slate-950 border border-slate-800 rounded">${pr.recordings_abs || ''}</div>`)
+          + fieldBlock('Saved to', `<div class="flex items-center gap-2">
+              <div class="text-xs text-slate-400 break-all flex-1 px-2 py-1.5 bg-slate-950 border border-slate-800 rounded">${pr.recordings_abs || ''}</div>
+              <button id="openRecFolder" type="button" class="text-xs px-3 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-700 whitespace-nowrap">&#128193; Open</button>
+            </div>`)
           + fieldBlock('Default contest', textInput('cfg_default_contest', v.default_contest), helpMap.default_contest)
           + fieldBlock('Continuous recording autostart', boolInput('cfg_continuous_autostart', v.continuous_autostart), helpMap.continuous_autostart)
           + fieldBlock('Continuous chunk (min)', numberInput('cfg_continuous_chunk_minutes', v.continuous_chunk_minutes), helpMap.continuous_chunk_minutes)
@@ -907,15 +1011,14 @@
         let audio = fieldBlock('Audio mode', modeWidget(v.audio_mode), helpMap.audio_mode)
           + fieldBlock('Audio format', selectInput('cfg_audio_format', v.audio_format, ['wav', 'mp3']), helpMap.audio_format)
           + fieldBlock('Sample rate (Hz)', numberInput('cfg_sample_rate', v.sample_rate), helpMap.sample_rate)
-          + fieldBlock('Channels (1=SO1R,2=SO2R)', numberInput('cfg_channels', v.channels), helpMap.channels)
+          + fieldBlock('Channels (1=SO1R,2=SO2R)', selectInput('cfg_channels', v.channels, [1,2]), helpMap.channels)
           + fieldBlock('Pre-roll (s)', numberInput('cfg_pre_roll', v.pre_roll, 'any'), helpMap.pre_roll)
           + fieldBlock('Post-roll (s)', numberInput('cfg_post_roll', v.post_roll, 'any'), helpMap.post_roll)
           + fieldBlock('Sample width (bytes)', selectInput('cfg_sample_width', v.sample_width, [1,2,4]), helpMap.sample_width);
         form.innerHTML += group('Audio', audio);
 
         let tci = fieldBlock('TCI address (host:port)', tciAddrWidget(`${v.tci_host}:${v.tci_port}`), helpMap.tci_host)
-          + fieldBlock('TCI version', selectInput('cfg_tci_version', v.tci_version, [1,2]), helpMap.tci_version)
-          + fieldBlock('TCI receiver idx', selectInput('cfg_tci_receiver', v.tci_receiver, [0,1,2,3]), helpMap.tci_receiver);
+          + fieldBlock('TCI version', selectInput('cfg_tci_version', v.tci_version, [1,2]), helpMap.tci_version);
         form.innerHTML += group('TCI (ExpertSDR)', tci);
 
         let sc = fieldBlock('Soundcard device', soundcardWidget(v.soundcard_device), helpMap.soundcard_device);
@@ -923,6 +1026,22 @@
 
         showModal();
         $('cfgMsg').textContent = '';
+
+        // Open the recordings folder in the system file manager.
+        const openBtn = $('openRecFolder');
+        if (openBtn) {
+          openBtn.addEventListener('click', async () => {
+            try {
+              const r = await fetch('/api/open_folder', { method: 'POST' });
+              if (!r.ok) {
+                const d = await r.json().catch(() => ({}));
+                $('cfgMsg').textContent = 'Error: ' + (d.detail || ('HTTP ' + r.status));
+              }
+            } catch (e) {
+              $('cfgMsg').textContent = 'Error: ' + e.message;
+            }
+          });
+        }
       } catch (e) {
         $('cfgMsg').textContent = 'Failed to load configuration';
       }

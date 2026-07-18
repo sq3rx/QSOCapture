@@ -40,14 +40,13 @@ class AppConfig:
     tci_host: str = "127.0.0.1"
     tci_port: int = 50001
     tci_version: int = 2
-    tci_receiver: int = 0
 
     # soundcard
     soundcard_device: str = ""             # empty = default input device
 
     # n1mm
     n1mm_udp_port: int = 12060
-    n1mm_bind_ip: str = "0.0.0.0"
+    n1mm_bind_ip: str = "127.0.0.1"
 
     # web
     web_host: str = "127.0.0.1"
@@ -115,7 +114,6 @@ def load_config(path: str = "config.cfg") -> AppConfig:
         tci_host=_get(parser, "audio", "tci_host", AppConfig.tci_host),
         tci_port=_get(parser, "audio", "tci_port", AppConfig.tci_port),
         tci_version=_get(parser, "audio", "tci_version", AppConfig.tci_version),
-        tci_receiver=_get(parser, "audio", "tci_receiver", AppConfig.tci_receiver),
 
         soundcard_device=_get(parser, "audio", "soundcard_device", AppConfig.soundcard_device),
 
@@ -165,14 +163,12 @@ CONFIG_SCHEMA = [
      "TCP port of the ExpertSDR TCI server (default 50001)."),
     ("audio", "tci_version", "TCI version", "int", [1, 2],
      "TCI protocol version advertised by ExpertSDR (usually 2)."),
-    ("audio", "tci_receiver", "TCI receiver idx", "int", [0, 1, 2, 3],
-     "Which ExpertSDR receiver to record (0 = main RX, 1+ = sub-receivers)."),
     ("audio", "soundcard_device", "Soundcard device (substr)", "text", None,
      "Substring match of the system input device name to capture (leave empty for the default device)."),
     ("n1mm", "n1mm_udp_port", "N1MM UDP port", "int", None,
      "UDP port N1MM Logger+ sends contact broadcasts on (default 12060)."),
     ("n1mm", "n1mm_bind_ip", "N1MM bind IP", "text", None,
-     "Network interface to listen on for N1MM packets (0.0.0.0 = all interfaces)."),
+     "Network interface to listen on for N1MM packets (127.0.0.1 = local only, safer default; use 0.0.0.0 only if N1MM runs on another machine)."),
     ("web", "web_host", "Web host", "text", None,
      "Network interface the web dashboard binds to (127.0.0.1 = local only, safer default; 0.0.0.0 = accessible from other devices on the network)."),
     ("web", "web_port", "Web port", "int", None,

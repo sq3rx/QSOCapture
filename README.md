@@ -8,7 +8,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org)
 
-**Version:** 0.1.0beta
+**Version:** 0.2.0beta
 
 **QSOCapture** is a lightweight contest audio recorder and log player for
 amateur radio operators. It captures audio from your receiver (via the
@@ -235,10 +235,14 @@ Stopping finalises the current chunk into a complete, playable file.
 ### N1MM QSOs view
 
 Shows `Timestamp · Call · Band · Mode · Freq · Exch · RX · Contest` plus an
-inline audio player with a **playback-speed selector** (0.8×–1.5×). Click a
-row for the full QSO detail — name, QTH, grid, exchange, points, **WPX prefix,
-continent, multipliers, precedence, check, power** and more, all captured
-automatically from the N1MM Logger+ contact broadcast.
+inline audio player with a **playback-speed selector** (0.8×–2.0×) and a
+**Save** button to download the recording. The player uses a **custom progress
+slider** that fills the whole row width, with a play/pause button and a
+current/total time readout (the native browser controls — including the mute
+button and the "…" overflow menu — are no longer shown). Click a row for the
+full QSO detail — name, QTH, grid, exchange, points, **WPX prefix, continent,
+multipliers, precedence, check, power** and more, all captured automatically
+from the N1MM Logger+ contact broadcast.
 
 ### Continuous view
 

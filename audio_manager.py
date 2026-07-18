@@ -801,8 +801,9 @@ class TCIAudioSource(AudioSource):
             self._rx_map = {0: self.rx1_buf, 1: self.rx2_buf}
             self._rx_label_map = {0: 'RX1', 1: 'RX2'}
         else:
-            self._rx_map = {cfg.tci_receiver: self.buffer}
-            self._rx_label_map = {cfg.tci_receiver: 'RX1'}
+            # SO1R: always record the main receiver (index 0).
+            self._rx_map = {0: self.buffer}
+            self._rx_label_map = {0: 'RX1'}
 
     def _capture_loop(self) -> None:
         try:
@@ -849,10 +850,10 @@ class TCIAudioSource(AudioSource):
                 logger.info("[%s] TCI connecting to %s ...", self.label, uri)
                 async with websockets.connect(uri, ping_interval=10,
                                               max_size=None) as ws:
-                    logger.info("[%s] TCI connected to %s (receiver=%d)",
-                                self.label, uri, self.cfg.tci_receiver)
+                    logger.info("[%s] TCI connected to %s (receiver=0)",
+                                self.label, uri)
                     self._connected = True
-                    rx = self.cfg.tci_receiver
+                    rx = 0
 
                     # The server broadcasts initialization commands and ends
                     # with "READY;" (case-insensitive per the TCI spec). We
@@ -902,9 +903,9 @@ class TCIAudioSource(AudioSource):
                         logger.info("[%s] TCI audio requested (SO2R rx=0,1, sr=%d)",
                                     self.label, audio_sr)
                     else:
-                        await ws.send(f"AUDIO_START:{rx};")
-                        logger.info("[%s] TCI audio requested (rx=%d, sr=%d)",
-                                    self.label, rx, audio_sr)
+                        await ws.send("AUDIO_START:0;")
+                        logger.info("[%s] TCI audio requested (rx=0, sr=%d)",
+                                    self.label, audio_sr)
 
                     # Diagnostics: count every binary frame actually received
                     # so the dashboard/log shows whether the server is sending

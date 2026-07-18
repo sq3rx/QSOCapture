@@ -5,6 +5,38 @@ in plain business language, without going into implementation details.
 
 ---
 
+## Version 0.2.0beta
+
+This release focuses on the **audio player** in the dashboard and a few
+dashboard clean-ups, based on hands-on testing during contests.
+
+### Custom audio player (replaces the native browser controls)
+- The inline player no longer uses the browser's built-in `<audio controls>`.
+  Instead it is a **custom player** with a play/pause button, a **progress
+  slider that fills the whole row width**, and a current/total time readout.
+- This removes the native **mute button** and the **"…" overflow menu**
+  (Download / Playback Rate / Mute) entirely — those options now live only in
+  the dashboard controls, so they are never shown twice.
+- The custom slider also fixes the empty grey gap that the native control left
+  behind after hiding the mute button — the progress bar now uses 100% of the
+  available width.
+
+### Playback speed up to 2× and a Save button
+- The **playback-speed selector** now offers **0.8×, 1.0×, 1.2×, 1.5× and 2.0×**
+  (previously it stopped at 1.5×).
+- A **Save** button (⭳) was added next to the player so a recording can be
+  downloaded / saved to a file directly from the dashboard row.
+
+### Cleaner dashboard
+- The **DXCC** column was removed from the main N1MM QSOs view — it was
+  redundant on the dashboard (the full country / WPX prefix is still available
+  in the QSO detail panel).
+- The **Band** column now correctly shows the band (e.g. `20M`) even when N1MM
+  stores the value as a frequency (e.g. `14.200`); the value is snapped to the
+  nearest amateur band automatically.
+
+---
+
 ## Version 0.1.0beta
 
 This is the first numbered pre-release. From this point the project follows a

@@ -135,6 +135,56 @@ def _migrate_legacy_data(app_dir: str) -> None:
             pass  # keep going; app will recreate what is missing
 
 
+class DownloadApi:
+    """JavaScript-callable API exposed to the WebView2 frontend.
+
+    The embedded browser cannot trigger normal file downloads (WebView2 simply
+    does nothing), so the dashboard calls :meth:`save_recording` to open a
+    native "Save As" dialog and copy the recording to the location the user
+    picks. The object is attached to ``window.pywebview.api`` by pywebview.
+    """
+
+    def __init__(self, recordings_dir: str) -> None:
+        self.recordings_dir = recordings_dir
+
+    def save_recording(self, rel_path: str, suggested_name: str) -> dict:
+        """Copy a recording to a user-chosen destination.
+
+        * ``rel_path``       – recording path relative to the recordings dir
+          (same form as the ``/audio/<rel>`` URL, e.g.
+          ``2026_CQWW/SQ3RX_..._RX1.wav`` or ``_continuous/....wav``).
+        * ``suggested_name`` – default filename for the save dialog.
+        Returns ``{"ok": True, "path": <dst>}`` on success,
+        ``{"ok": False, "cancelled": True}`` if the user aborts the dialog, or
+        ``{"ok": False, "error": <msg>}`` on failure.
+        """
+        import webview  # imported lazily; available once the window exists.
+
+        try:
+            # Normalise and strip any traversal components so the resolved
+            # source can never escape the recordings directory.
+            rel = os.path.normpath(rel_path or "").lstrip("./\\")
+            if not rel or rel.startswith("..") or os.path.isabs(rel):
+                return {"ok": False, "error": "invalid path"}
+            src = os.path.join(self.recordings_dir, rel)
+            if not os.path.isfile(src):
+                return {"ok": False, "error": "recording not found"}
+            if not webview.windows:
+                return {"ok": False, "error": "browser window unavailable"}
+            window = webview.windows[0]
+            result = window.create_file_dialog(
+                webview.SAVE_DIALOG,
+                save_filename=suggested_name or os.path.basename(src),
+            )
+            if not result:
+                return {"ok": False, "cancelled": True}
+            dst = result if isinstance(result, str) else result[0]
+            shutil.copy2(src, dst)
+            return {"ok": True, "path": dst}
+        except Exception as exc:  # pragma: no cover - defensive
+            return {"ok": False, "error": str(exc)}
+
+
 def main() -> None:
     app_dir = _app_dir()
     os.makedirs(app_dir, exist_ok=True)
@@ -193,6 +243,11 @@ def main() -> None:
                 icon_path = cand
                 break
 
+        # JS API that lets the dashboard open a native "Save As" dialog for a
+        # recording (WebView2 cannot perform normal downloads). Its methods are
+        # reachable from the frontend via ``window.pywebview.api``.
+        download_api = DownloadApi(qso_main.cfg.recordings_dir)
+
         # Open the dashboard inside the embedded WebView2 browser.
         # Force the native Edge WebView2 backend (gui='edgechromium') so the
         # app opens in its OWN window instead of falling back to the system
@@ -208,6 +263,7 @@ def main() -> None:
             min_size=(900, 600),
             text_select=True,
             confirm_close=False,
+            js_api=download_api,
         )
 
         # Decide which GUI backend to use. The goal is ALWAYS to open the

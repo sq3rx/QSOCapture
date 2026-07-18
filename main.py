@@ -22,6 +22,7 @@ import zipfile
 import io
 import queue
 import json
+import subprocess
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
@@ -444,6 +445,28 @@ def api_paths() -> JSONResponse:
     })
 
 
+@app.post("/api/open_folder")
+def api_open_folder() -> JSONResponse:
+    """Open the recordings directory in the system file manager.
+
+    The dashboard runs locally, so launching the OS file explorer on the
+    server host is the expected behaviour. The folder is created if it does
+    not exist yet so the button works even before the first recording.
+    """
+    abs_path = os.path.abspath(cfg.recordings_dir)
+    try:
+        os.makedirs(abs_path, exist_ok=True)
+        if os.name == "nt":
+            os.startfile(abs_path)  # type: ignore[attr-defined]
+        elif os.name == "posix":
+            subprocess.Popen(["xdg-open", abs_path])
+        else:
+            subprocess.Popen(["open", abs_path])
+        return JSONResponse({"ok": True, "path": abs_path})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Cannot open folder: {e}")
+
+
 @app.get("/api/status")
 def api_status() -> JSONResponse:
     """Lightweight health/status endpoint with TCI and N1MM state."""
@@ -618,7 +641,6 @@ def _validate_field_range(field: str, value) -> None:
         "post_roll": (0.0, 120.0),
         "continuous_chunk_minutes": (1, 1440),
         "tci_port": (1, 65535),
-        "tci_receiver": (0, 3),
         "n1mm_udp_port": (1, 65535),
         "web_port": (1, 65535),
         "sample_width": (1, 4),
