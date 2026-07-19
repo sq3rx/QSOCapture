@@ -214,7 +214,24 @@ def main() -> None:
     # Import main AFTER switching into the writable app dir so that its
     # module-level ``load_config()`` reads/writes ``config.cfg`` from AppData
     # rather than the read-only Program Files location.
-    import main as qso_main  # reuse the already-built FastAPI app + config
+    try:
+        import main as qso_main  # reuse the already-built FastAPI app + config
+    except Exception as exc:  # any import-time failure (e.g. a syntax /
+        # version incompatibility) must NOT be silent -- the frozen console
+        # build discards stderr, so without this the app would "do nothing".
+        try:
+            err_path = os.path.join(app_dir, "launcher_error.log")
+            with open(err_path, "a", encoding="utf-8") as lf:
+                lf.write(time.strftime("%Y-%m-%d %H:%M:%S")
+                         + " FATAL: failed to import main module:\n")
+                import traceback
+                lf.write(traceback.format_exc())
+                lf.write("\n")
+        except Exception:
+            pass
+        # Also surface on stderr in case a console is attached.
+        print("FATAL: QSOCapture failed to start:", exc, file=sys.stderr)
+        return
 
     # Bring over any data left behind by an older installation.
     _migrate_legacy_data(app_dir)

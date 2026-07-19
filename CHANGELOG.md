@@ -10,6 +10,31 @@ in plain business language, without going into implementation details.
 This release fixes the **"missing Python DLL" error on Windows 7** reported by
 users and modernises the build toolchain.
 
+### Fix: application did not start on Windows 7/8 (silent crash)
+- The legacy build (Python 3.8 + CEF) failed to import ``main`` because the
+  daemon thread pool used a worker-thread API that only exists on **Python 3.9+**
+  (``_create_worker_context()`` and the 3-argument ``_worker``). On Python 3.8
+  this raised ``AttributeError`` at import time, and because the frozen
+  ``console=False`` executable discards stderr, the failure was **completely
+  silent** — the app simply did nothing.
+- ``main.py`` now branches on the Python version: the modern 3.9+ path keeps the
+  new worker context; the legacy 3.8 path uses the 2-argument worker, so the
+  import succeeds and the app starts.
+- The launcher now wraps ``import main`` in a ``try/except`` and writes the full
+  traceback to ``%LOCALAPPDATA%\QSOCapture\launcher_error.log`` if import ever
+  fails again (this applies to **all** Windows versions, not just Win7/8), so a
+  future failure is no longer invisible.
+
+### Portable EXE filenames now include the version
+- The standalone portable executables are renamed to make the download
+  unambiguous and avoid collisions in a GitHub Release:
+  - **Modern (Windows 10/11):** ``QSOCapture-portable-<version>.exe``
+    (e.g. ``QSOCapture-portable-0.2.1beta.exe``)
+  - **Legacy (Windows 7/8):** ``QSOCapture-portable-Win7-<version>.exe``
+    (e.g. ``QSOCapture-portable-Win7-0.2.1beta.exe``)
+- The installers keep their existing names (``QSOCapture-setup-<version>.exe``
+  and ``QSOCapture-Win7-setup-<version>.exe``).
+
 ### Windows 7 / 8 support (legacy build)
 - The standard build now targets **Python 3.14** (Windows 10/11) and uses the
   native Edge WebView2 backend. Python 3.9+ and WebView2 do not run on Windows

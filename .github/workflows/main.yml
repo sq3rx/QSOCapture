@@ -32,7 +32,9 @@ jobs:
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
       - name: Build with PyInstaller
-        run: pyinstaller --noconfirm build.spec
+        run: |
+          $env:APP_VERSION="${{ steps.version.outputs.version }}"
+          pyinstaller --noconfirm build.spec
 
       - name: Build Windows installer
         run: iscc installer.iss /dMyAppVersion="${{ steps.version.outputs.version }}"
@@ -42,7 +44,7 @@ jobs:
         with:
           name: modern-build
           path: |
-            dist/QSOCapture.exe
+            dist/QSOCapture-portable-*.exe
             installer/QSOCapture-setup-${{ steps.version.outputs.version }}.exe
           if-no-files-found: error
 
@@ -77,19 +79,21 @@ jobs:
         # BUNDLE_CEF=1 wymusza dołączenie CEF i przerywa budowę, gdyby
         # cefpython3 nie było zainstalowane -- nigdy nie wypuszczamy legacy
         # EXE bez działającej przeglądarki wbudowanej.
+        # APP_VERSION nadaje portable EXE nazwę z numerem wersji.
         run: |
           $env:BUNDLE_CEF="1"
+          $env:APP_VERSION="${{ steps.version.outputs.version }}"
           pyinstaller --noconfirm build.spec
 
       - name: Build Windows installer (legacy)
-        run: iscc installer.iss /dMyAppVersion="${{ steps.version.outputs.version }}" /dMyAppNameSuffix="-Win7" /dMyExeName="QSOCapture-Win7.exe" /dMyAppExeName="QSOCapture-Win7.exe"
+        run: iscc installer.iss /dMyAppVersion="${{ steps.version.outputs.version }}" /dMyAppNameSuffix="-Win7" /dMyExeName="QSOCapture-portable-Win7-${{ steps.version.outputs.version }}.exe" /dMyAppExeName="QSOCapture-portable-Win7-${{ steps.version.outputs.version }}.exe"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: legacy-win7-build
           path: |
-            dist/QSOCapture-Win7.exe
+            dist/QSOCapture-portable-Win7-*.exe
             installer/QSOCapture-Win7-setup-${{ steps.version.outputs.version }}.exe
           if-no-files-found: error
 
@@ -114,9 +118,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            modern/dist/QSOCapture.exe
+            modern/dist/QSOCapture-portable-*.exe
             modern/installer/QSOCapture-setup-*.exe
-            legacy/dist/QSOCapture-Win7.exe
+            legacy/dist/QSOCapture-portable-Win7-*.exe
             legacy/installer/QSOCapture-Win7-setup-*.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

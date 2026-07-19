@@ -113,7 +113,7 @@ pip install -r requirements.txt
 
 ## Desktop EXE & Windows Installer
 
-The app can also be shipped as a single standalone ``QSOCapture.exe`` that
+The app can also be shipped as a single standalone ``QSOCapture-portable-x.y.z.exe`` that
 launches the web server and opens the dashboard in an **embedded browser**
 (Edge WebView2 on Windows) — no external browser or Python install required.
 
@@ -122,8 +122,8 @@ launches the web server and opens the dashboard in an **embedded browser**
 Go to the **[Releases](https://github.com/sq3rx/QSOCapture/releases)** page and
 download either:
 
-- **`QSOCapture.exe`** — a portable, single-file executable. Just run it; no
-  installation needed.
+- **`QSOCapture-portable-x.y.z.exe`** — a portable, single-file executable
+  (carries the version in its name). Just run it; no installation needed.
 - **`QSOCapture-setup-x.y.z.exe`** — a Windows installer (Inno Setup) that
   places the app in `Program Files`, adds a Start Menu / desktop shortcut and
   an uninstall entry. Recommended for most users.
@@ -135,9 +135,11 @@ pip install -r requirements.txt
 pyinstaller build.spec
 ```
 
-The result is ``dist/QSOCapture.exe``. Double-click it and the dashboard opens
-in its own window. If the embedded WebView2 engine is missing, the app
-automatically falls back to opening your default system browser.
+The result is ``dist/QSOCapture-portable-x.y.z.exe`` (the version is taken from
+the git tag via the ``APP_VERSION`` environment variable). Double-click it and
+the dashboard opens in its own window. If the embedded WebView2 engine is
+missing, the app automatically falls back to opening your default system
+browser.
 
 > **Where are my data stored?** The executable is installed in ``Program
 > Files`` (read-only for normal users), but all your personal data —
@@ -170,12 +172,13 @@ python launcher.py
 **Windows 7 and 8 are NOT supported by the standard build.** Python 3.9+ (and
 therefore the modern 3.14 build) cannot run on those systems, and the Edge
 WebView2 engine does not exist there. For Windows 7/8 download the separate
-**`QSOCapture-Win7-setup-x.y.z.exe`** (or the portable **`QSOCapture-Win7.exe`** from
-the legacy release). That build is produced with **Python 3.8 + CEF**
-(`cefpython3`), which is bundled into the EXE, so no external browser or
-runtime is required. The launcher automatically detects Windows 7/8 and uses
-the CEF backend instead of Edge WebView2. The portable legacy executable is
-named `QSOCapture-Win7.exe` to avoid clashing with the modern `QSOCapture.exe`.
+**`QSOCapture-Win7-setup-x.y.z.exe`** (or the portable
+**`QSOCapture-portable-Win7-x.y.z.exe`** from the legacy release). That build is
+produced with **Python 3.8 + CEF** (`cefpython3`), which is bundled into the
+EXE, so no external browser or runtime is required. The launcher automatically
+detects Windows 7/8 and uses the CEF backend instead of Edge WebView2. The
+portable legacy executable is named `QSOCapture-portable-Win7-x.y.z.exe` to
+avoid clashing with the modern `QSOCapture-portable-x.y.z.exe`.
 
 ---
 

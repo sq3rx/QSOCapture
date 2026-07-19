@@ -108,7 +108,14 @@ pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 # When building the legacy (Windows 7/8) package with BUNDLE_CEF=1, give the
 # portable EXE a distinct name so it never collides with the modern build's
 # QSOCapture.exe in the same GitHub Release.
-_EXE_NAME = "QSOCapture-Win7" if _BUNDLE_CEF else "QSOCapture"
+# Portable EXE names carry the "-portable" marker and the app version (when
+# built via CI, APP_VERSION is exported from the git tag). Example:
+#   modern : QSOCapture-portable-0.2.1beta.exe
+#   legacy : QSOCapture-portable-Win7-0.2.1beta.exe
+_APP_VERSION = os.environ.get("APP_VERSION", "")
+_SUFFIX = "-Win7" if _BUNDLE_CEF else ""
+_VER = ("-" + _APP_VERSION) if _APP_VERSION else ""
+_EXE_NAME = f"QSOCapture-portable{_SUFFIX}{_VER}"
 
 exe = EXE(
     pyz,
