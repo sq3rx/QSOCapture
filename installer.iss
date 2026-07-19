@@ -49,7 +49,11 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "polish"; MessagesFile: "compiler:Languages\Polish.isl"
 
 [Files]
-Source: "dist\{#MyExeName}"; DestDir: "{app}"; Flags: ignoreversion
+; The portable build in dist/ carries the version (e.g.
+; QSOCapture-portable-0.2.1beta.exe), but the installed copy is always named
+; QSOCapture.exe so the Start Menu / desktop shortcuts and the "run after
+; install" step point at a stable name regardless of the downloaded version.
+Source: "dist\{#MyExeName}"; DestDir: "{app}"; DestName: "QSOCapture.exe"; Flags: ignoreversion
 Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion isreadme
 Source: "icon.ico"; DestDir: "{app}"; Flags: ignoreversion
 
