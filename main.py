@@ -44,6 +44,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger("QSOCapture.main")
 
+# Single source of truth for the displayed application version. The dashboard
+# reads it via /api/config and shows it in the Settings modal; the installer /
+# PyInstaller build pick up the real release version from CI (installer.iss
+# MyAppVersion / build.spec APP_VERSION), so only bump this when the change is
+# user-visible.
+APP_VERSION = "0.3.0beta"
+
 # ---------------------------------------------------------------------------
 # Global application state (populated in lifespan startup)
 # ---------------------------------------------------------------------------
@@ -51,6 +58,23 @@ cfg: AppConfig = load_config()
 audio_source = None
 n1mm = None
 _config_lock = threading.Lock()
+
+# Live debug-logging switch (toggled from the dashboard "Debug" checkbox in the
+# Log modal). When False (default) only INFO+ is emitted by our modules; when
+# True the QSOCapture loggers emit DEBUG details (buffer fill, raw N1MM
+# packets, QSO slice windows, TCI init banners, ...). The in-memory buffer
+# always captures DEBUG (see _log_handler level below) so past DEBUG lines are
+# visible the moment debug is enabled; this flag only controls *future* emission.
+DEBUG_LOGGING = False
+
+
+def set_debug_logging(on: bool) -> None:
+    """Enable/disable DEBUG emission for the QSOCapture loggers at runtime."""
+    global DEBUG_LOGGING
+    DEBUG_LOGGING = bool(on)
+    level = logging.DEBUG if DEBUG_LOGGING else logging.INFO
+    logging.getLogger("QSOCapture").setLevel(level)
+    logger.info("Debug logging %s", "enabled" if DEBUG_LOGGING else "disabled")
 
 # Optional override for the dashboard HTML file path. The launcher sets this
 # when it cannot copy ``index.html`` next to the executable (e.g. a read-only
@@ -152,7 +176,10 @@ class _LogCaptureHandler(logging.Handler):
 
 
 _log_handler = _LogCaptureHandler()
-_log_handler.setLevel(logging.INFO)
+# Capture everything down to DEBUG into the in-memory buffer so DEBUG lines are
+# available on demand (the dashboard filters them out unless debug is enabled).
+# Emission of DEBUG to the console/tube is still gated by set_debug_logging().
+_log_handler.setLevel(logging.DEBUG)
 _log_handler.setFormatter(
     logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 )
@@ -208,6 +235,9 @@ def on_contact(contact: N1MMContact) -> None:
     from n1mm_listener import schedule_qso_slice
 
     logger.info("Scheduling slice for %s", contact.call)
+    logger.debug("on_contact: call=%s contest=%s freq=%s recv_ts=%.1f pre=%.1f post=%.1f",
+                 contact.call, contact.contest, contact.freq,
+                 contact.receive_ts, cfg.pre_roll, cfg.post_roll)
     # NOTE: do NOT year-prefix contact.contest here. The audio backend's
     # slice_qso() already prefixes the contest with the year (e.g.
     # "2026_CQWWCW") when building the directory and DB record. Prefixing
@@ -238,6 +268,10 @@ async def lifespan(app: FastAPI):
     dl_thread = threading.Thread(target=_disk_limit_loop, daemon=True,
                                  name="disk-limit")
     dl_thread.start()
+    # Debug heartbeat (logs detailed status every 5s only when debug enabled).
+    hb_thread = threading.Thread(target=_debug_heartbeat_loop, daemon=True,
+                                 name="debug-heartbeat")
+    hb_thread.start()
     logger.info("QSOCapture started (mode=%s)", cfg.audio_mode)
     try:
         yield
@@ -266,7 +300,7 @@ async def lifespan(app: FastAPI):
         logger.info("QSOCapture stopped")
 
 
-app = FastAPI(title="QSOCapture", version="0.1.0beta", lifespan=lifespan)
+app = FastAPI(title="QSOCapture", version=APP_VERSION, lifespan=lifespan)
 
 
 # ---------------------------------------------------------------------------
@@ -409,6 +443,11 @@ def api_continuous_resume() -> JSONResponse:
     """Resume continuous recording with a fresh chunk."""
     if audio_source is None:
         raise HTTPException(status_code=503, detail="audio not running")
+    if not audio_source.is_connected():
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot start recording: audio source not connected (TCI not linked)",
+        )
     audio_source.resume_continuous()
     return JSONResponse({"ok": True, "paused": False})
 
@@ -497,6 +536,11 @@ def api_status() -> JSONResponse:
     audio_running = audio_source is not None and getattr(audio_source, "_running", False)
     audio_status = audio_source.get_status() if audio_source else {}
     n1mm_running = n1mm is not None and getattr(n1mm, "_running", False)
+    # In soundcard mode there is no TCI connection, so the "connected" flag
+    # must always be False (the base AudioSource.get_status() returns
+    # self._running, which would wrongly show "TCI connected" in soundcard
+    # mode). Only the TCI source reports a real connection state.
+    tci_connected = bool(audio_status.get("connected", False)) if cfg.audio_mode == "tci" else False
     return JSONResponse({
         "station": cfg.station_name,
         "mode": cfg.audio_mode,
@@ -505,7 +549,7 @@ def api_status() -> JSONResponse:
         "channels": cfg.channels,
         "continuous": cfg.continuous_recording,
         "audio": {
-            "connected": bool(audio_status.get("connected", False)),
+            "connected": tci_connected,
             "frames_received": audio_status.get("frames_received", 0),
             "buffer_filled_sec": round(audio_status.get("buffer_filled_sec", 0.0), 1),
             "buffers": audio_status.get("buffers", []),
@@ -519,9 +563,34 @@ def api_status() -> JSONResponse:
 
 
 @app.get("/api/log")
-def api_log(n: int = Query(200, ge=1, le=1000)) -> JSONResponse:
-    """Return the most recent *n* application log lines."""
-    return JSONResponse({"lines": get_recent_logs(n)})
+def api_log(
+    n: int = Query(200, ge=1, le=2000),
+    debug: bool = Query(False, description="Include DEBUG-level lines"),
+) -> JSONResponse:
+    """Return the most recent log lines.
+
+    By default DEBUG lines are filtered out (the buffer always stores them, but
+    they are noisy during normal operation). When ``debug=true`` all lines are
+    returned and the limit is allowed to go up to 2000 so a full diagnostic
+    trail is available.
+    """
+    lines = get_recent_logs(n if not debug else 2000)
+    if not debug:
+        # Drop DEBUG lines unless the user explicitly asked for them.
+        lines = [ln for ln in lines if "[DEBUG]" not in ln]
+    return JSONResponse({"lines": lines, "debug": debug})
+
+
+@app.post("/api/debug")
+def api_set_debug(payload: dict) -> JSONResponse:
+    """Toggle DEBUG-level logging for the QSOCapture modules.
+
+    Accepts ``{"enabled": true/false}``. Returns the new state. The dashboard
+    Log modal uses this to flip on detailed logging without a restart.
+    """
+    enabled = bool(payload.get("enabled", False))
+    set_debug_logging(enabled)
+    return JSONResponse({"ok": True, "debug": DEBUG_LOGGING})
 
 
 @app.get("/api/events")
@@ -574,8 +643,9 @@ async def api_events(request: Request):
 # ---------------------------------------------------------------------------
 @app.get("/api/config")
 def api_get_config() -> JSONResponse:
-    """Return the current configuration (values + UI schema)."""
+    """Return the current configuration (values + UI schema + version)."""
     return JSONResponse({
+        "version": APP_VERSION,
         "values": config_to_dict(cfg),
         "schema": [
             {"section": s, "field": f, "label": l, "type": t, "choices": ch, "help": h}
@@ -734,6 +804,40 @@ def _disk_limit_loop() -> None:
         except Exception as e:
             logger.debug("disk limit check error: %s", e)
         time.sleep(300)
+
+
+def _debug_heartbeat_loop() -> None:
+    """Periodic DEBUG status dump so the Live Log (debug mode) shows live
+    detail even when nothing else is happening.
+
+    Runs only while ``DEBUG_LOGGING`` is on; sleeps cheaply otherwise so it
+    costs nothing in normal operation. Emits buffer fill levels, TCI/N1MM
+    connection state and the continuous-recording pause flag every 5 s.
+    """
+    while True:
+        if DEBUG_LOGGING:
+            try:
+                running = audio_source is not None and getattr(audio_source, "_running", False)
+                status = audio_source.get_status() if audio_source else {}
+                buffers = (status.get("buffers") or []) if status else []
+                buf_txt = ", ".join(
+                    f"{b.get('label','?')}={b.get('filled_sec',0)}s" for b in buffers
+                ) or "—"
+                n1mm_running = n1mm is not None and getattr(n1mm, "_running", False)
+                # Mirror the /api/status logic: in soundcard mode there is no
+                # TCI connection, so tci_connected must be False.
+                tci_connected = bool(status.get("connected")) if status and cfg.audio_mode == "tci" else False
+                logger.debug(
+                    "heartbeat: audio_running=%s buf=[%s] tci_connected=%s "
+                    "n1mm_running=%s continuous_paused=%s",
+                    running, buf_txt,
+                    tci_connected,
+                    n1mm_running,
+                    bool(status.get("continuous_paused")) if status else False,
+                )
+            except Exception as e:
+                logger.debug("heartbeat error: %s", e)
+        time.sleep(5)
 
 
 # ---------------------------------------------------------------------------

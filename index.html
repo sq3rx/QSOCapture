@@ -273,7 +273,10 @@
     <div class="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-3xl max-h-[85vh] overflow-y-auto">
       <div class="flex items-center justify-between px-5 py-3 border-b border-slate-700 sticky top-0 bg-slate-900">
         <h2 class="text-lg font-semibold">&#9881; Configuration</h2>
-        <button id="closeCfg" class="text-slate-400 hover:text-white text-xl leading-none">&times;</button>
+        <div class="flex items-center gap-3">
+          <span class="text-xs font-normal text-slate-500">v<span id="cfgVersion">…</span></span>
+          <button id="closeCfg" class="text-slate-400 hover:text-white text-xl leading-none">&times;</button>
+        </div>
       </div>
       <div id="cfgForm" class="p-5 grid grid-cols-1 md:grid-cols-2 gap-6"></div>
       <div class="px-5 py-3 border-t border-slate-700 flex items-center justify-between sticky bottom-0 bg-slate-900">
@@ -305,14 +308,17 @@
   <div id="logModal" class="fixed inset-0 bg-black/70 hidden items-center justify-center z-50 p-4">
     <div class="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-4xl max-h-[85vh] overflow-hidden flex flex-col">
       <div class="flex items-center justify-between px-5 py-3 border-b border-slate-700">
-        <h2 class="text-lg font-semibold">&#128220; Live Log</h2>
-        <div class="flex items-center gap-3">
-          <label class="flex items-center gap-1 text-xs text-slate-400">
-            <input id="logAuto" type="checkbox" checked class="accent-brand" /> auto-refresh
-          </label>
-          <button id="refreshLog" class="text-xs px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700">&#x21bb;</button>
-          <button id="closeLog" class="text-slate-400 hover:text-white text-xl leading-none">&times;</button>
-        </div>
+          <h2 class="text-lg font-semibold">&#128220; Live Log</h2>
+          <div class="flex items-center gap-3">
+            <label class="flex items-center gap-1 text-xs text-slate-400" title="Show DEBUG-level details (enables verbose logging)">
+              <input id="logDebug" type="checkbox" class="accent-brand" /> debug
+            </label>
+            <label class="flex items-center gap-1 text-xs text-slate-400">
+              <input id="logAuto" type="checkbox" checked class="accent-brand" /> auto-refresh
+            </label>
+            <button id="refreshLog" class="text-xs px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700">&#x21bb;</button>
+            <button id="closeLog" class="text-slate-400 hover:text-white text-xl leading-none">&times;</button>
+          </div>
       </div>
       <pre id="logBody" class="p-4 text-xs text-slate-300 overflow-y-auto flex-1 whitespace-pre-wrap font-mono"></pre>
     </div>
@@ -322,6 +328,11 @@
     const $ = (id) => document.getElementById(id);
     const rows = $('rows');
     let recPaused = false;
+    // Whether the audio source (TCI radio) is actually connected. In TCI mode
+    // the continuous "Start recording" button must be disabled until the
+    // radio is linked, otherwise we would record silent gap files. In
+    // soundcard mode this stays true (the device is always treated as ready).
+    let tciConnected = true;
 
     // Pagination state for the QSO dashboard. Only a slice of the matching
     // rows is loaded at once so the UI stays responsive even with tens of
@@ -412,8 +423,10 @@
         if (s.mode === 'soundcard') {
           // TCI is irrelevant in soundcard mode — hide the badge entirely.
           tci.className = 'hidden';
+          tciConnected = true; // soundcard is always "ready"
         } else {
           const connected = s.audio && s.audio.connected;
+          tciConnected = !!connected;
           statusBadge(tci, connected, `TCI ${connected ? 'connected' : 'off'}`);
         }
 
@@ -866,7 +879,8 @@
     };
     async function loadLog() {
       try {
-        const r = await fetch('/api/log?n=300');
+        const debugOn = $('logDebug') ? $('logDebug').checked : false;
+        const r = await fetch('/api/log?n=300' + (debugOn ? '&debug=1' : ''));
         const d = await r.json();
         const body = $('logBody');
         body.innerHTML = '';
@@ -920,6 +934,31 @@
     $('closeLog').addEventListener('click', hideLog);
     $('refreshLog').addEventListener('click', loadLog);
     $('closeDetail').addEventListener('click', hideDetail);
+    // Toggling the Debug checkbox flips verbose logging on the server (so
+    // future DEBUG lines are emitted) and immediately reloads the log with
+    // the DEBUG filter applied.
+    $('logDebug').addEventListener('change', async () => {
+      const on = $('logDebug').checked;
+      try {
+        await fetch('/api/debug', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled: on }),
+        });
+      } catch (e) { /* ignore */ }
+      loadLog();
+    });
+
+    // Keep the Live Log modal fresh. Like loadStatus, we poll on a light
+    // interval so newly emitted (DEBUG) lines show up live while the modal is
+    // open. The poll only runs while the modal is visible and the "auto-
+    // refresh" checkbox is ticked, so a closed modal costs nothing.
+    setInterval(() => {
+      const m = $('logModal');
+      const open = m && m.className.includes('flex');
+      const auto = $('logAuto') ? $('logAuto').checked : false;
+      if (open && auto) loadLog();
+    }, 2000);
 
     function textInput(id, val, ph='') {
       return `<input id="${id}" type="text" value="${val ?? ''}" placeholder="${ph}"
@@ -994,6 +1033,10 @@
         (cr.schema || []).forEach(it => { helpMap[it.field] = it.help; });
         const form = $('cfgForm');
         form.innerHTML = '';
+
+        // Show the application version in the Settings modal header.
+        const verEl = $('cfgVersion');
+        if (verEl) verEl.textContent = cr.version || '';
 
         let general = fieldBlock('Station name', textInput('cfg_station_name', v.station_name), helpMap.station_name)
           + fieldBlock('Recordings directory', textInput('cfg_recordings_dir', v.recordings_dir), helpMap.recordings_dir)
@@ -1117,6 +1160,18 @@
     // --- Continuous recording start/stop toggle ---------------------------
     function updateRecButton() {
       const btn = $('toggleRec');
+      // In TCI mode the audio source must be linked before recording can
+      // start. If it is not connected, the "Start recording" action is
+      // disabled (and greyed out) so we never create silent gap files.
+      const blocked = recPaused && !tciConnected;
+      btn.disabled = blocked;
+      if (blocked) {
+        btn.innerHTML = '&#9654; Start recording';
+        btn.className = 'text-xs px-3 py-1.5 rounded-md bg-slate-800 border border-slate-700 text-slate-500 font-medium cursor-not-allowed opacity-60';
+        btn.title = 'Connect TCI (ExpertSDR) before starting recording';
+        return;
+      }
+      btn.title = '';
       if (!recPaused) {
         // Recording is active -> clicking stops it (red).
         btn.innerHTML = '&#9209; Stop recording';
@@ -1149,6 +1204,13 @@
             sel.value = 'true';
           }
           loadQsos();
+        } else if (r.status === 409) {
+          // TCI not connected — the backend refused to start recording.
+          // Refresh status so the button reflects the blocked state and show
+          // a brief hint in the status badge.
+          const d = await r.json().catch(() => ({}));
+          console.warn(d.detail || 'Cannot start recording: TCI not connected');
+          loadStatus();
         } else {
           loadStatus();
         }

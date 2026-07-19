@@ -279,6 +279,9 @@ class N1MMListener:
             sent_exchange=g("sentexchange").strip(),
         )
         logger.info("N1MM contact: %s %s %s", contact.call, contact.band, contact.mode)
+        logger.debug("N1MM contact fields: freq=%s exch=%s n1mm_id=%s rcv=%s snt=%s section=%s",
+                     contact.freq, contact.exchange, contact.n1mm_id,
+                     contact.rcv, contact.snt, contact.section)
         try:
             self.on_contact(contact)
         except Exception as e:
@@ -289,6 +292,7 @@ class N1MMListener:
         n1mm_id = (root.findtext("id") or "").strip()
         if not n1mm_id:
             return
+        logger.debug("N1MM raw delete packet:\n%s", ET.tostring(root, encoding="unicode"))
         logger.info("N1MM contactdelete: %s", n1mm_id)
         try:
             import db as qso_db

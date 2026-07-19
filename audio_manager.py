@@ -385,6 +385,14 @@ class AudioSource(ABC):
         """Re-open a fresh continuous chunk and resume writing."""
         if not self.cfg.continuous_recording or not self._continuous_paused:
             return
+        if not self.is_connected():
+            # In TCI mode there is no audio source until the radio is linked.
+            # Refuse to start recording so we don't create empty/gap files
+            # against a disconnected transceiver. The dashboard "Record"
+            # button should be disabled when TCI is not connected.
+            logger.warning("[%s] cannot resume continuous recording: audio source "
+                           "not connected (TCI not linked)", self.label)
+            return
         self._open_cont_files()
         self._cont_start = time.time()
         self._continuous_paused = False
@@ -403,6 +411,8 @@ class AudioSource(ABC):
         end_off = (now - ref_ts) - req.post_roll
         if end_off < 0:
             end_off = 0
+        logger.debug("[%s] slice window for %s: start_off=%.1f end_off=%.1f (ref_ts=%.1f, now=%.1f)",
+                     self.label, req.call, start_off, end_off, ref_ts, now)
         safe_call = "".join(ch for ch in req.call if ch.isalnum() or ch in "-_")
         stamp = time.strftime("%Y-%m-%d_%H%M", time.localtime(req.timestamp))
         ext = "mp3" if self.cfg.audio_format == "mp3" else "wav"
@@ -419,11 +429,13 @@ class AudioSource(ABC):
                 avail = buf.snapshot_all()
                 if avail.shape[0] > 0:
                     logger.warning("[%s] full window unavailable for %s; saving %d buffered frames",
-                                   rx_label, req.call, avail.shape[0])
+                                    rx_label, req.call, avail.shape[0])
                     frames = avail
                 else:
                     logger.warning("[%s] insufficient buffer for QSO %s", rx_label, req.call)
                     continue
+            logger.debug("[%s] sliced %d frames for %s (contest=%s)",
+                         rx_label, frames.shape[0], req.call, contest_dir)
             fname = f"{stamp}_{safe_call}_{req.band}_{rx_label}.{ext}"
             out_path = os.path.join(out_dir, fname)
             _write_pcm(out_path, frames, self.cfg.sample_rate, 1,
@@ -494,6 +506,16 @@ class AudioSource(ABC):
             "continuous_paused": getattr(self, "_continuous_paused", False),
         }
 
+    def is_connected(self) -> bool:
+        """Return whether the audio source is actually receiving audio.
+
+        For soundcard mode this is always True (the device is treated as
+        always available). For TCI it reflects the real websocket connection
+        state so the dashboard cannot start recording against a radio that is
+        not connected.
+        """
+        return True
+
     def _buffers_detail(self) -> list:
         """Per-RX buffer fill detail for the dashboard (e.g. RX1/RX2)."""
         detail = []
@@ -541,6 +563,7 @@ class AudioSource(ABC):
         if not self.cfg.continuous_recording:
             return
         chunk_sec = max(1, int(self.cfg.continuous_chunk_minutes * 60))
+        logger.debug("[%s] continuous loop started (chunk=%ds)", self.label, chunk_sec)
         while self._running:
             if self._continuous_paused:
                 # Drop queued audio so the queue does not grow while paused.
@@ -553,6 +576,14 @@ class AudioSource(ABC):
                 continue
             # Not paused: ensure a chunk file is open (re-open after a pause).
             if not self._cont_files:
+                # In TCI mode, do not open a chunk (and thus start recording)
+                # until the radio is actually linked. Without this guard the
+                # continuous autostart path would write silent gap files while
+                # TCI is still connecting / disconnected. Soundcard mode is
+                # always "connected" so it is unaffected.
+                if not self.is_connected():
+                    time.sleep(0.5)
+                    continue
                 self._open_cont_files()
                 self._cont_start = time.time()
             try:
@@ -565,6 +596,7 @@ class AudioSource(ABC):
             if time.time() - self._cont_start >= chunk_sec:
                 self._roll_cont_files()
                 self._cont_start = time.time()
+        logger.debug("[%s] continuous loop exiting", self.label)
         self._close_cont_files()
 
     def _open_cont_files(self) -> None:
@@ -887,23 +919,30 @@ class TCIAudioSource(AudioSource):
                     # stream requires: SAMPLE_TYPE, CHANNELS, SAMPLE_RATE and
                     # SAMPLES, in that order, before AUDIO_START. Sample rates
                     # allowed by the spec are 8/12/24/48 kHz.
-                    await ws.send("SET_CLIENT_NAME:QSOCapture;")
-                    await ws.send("AUDIO_STREAM_SAMPLE_TYPE:int16;")
-                    await ws.send(f"AUDIO_STREAM_CHANNELS:{self.cfg.channels};")
+                    async def _tci_send(cmd: str) -> None:
+                        # Log the raw command we send to ExpertSDR (visible in
+                        # the dashboard Log modal when debug is enabled) so the
+                        # full TCI exchange can be inspected.
+                        logger.debug("[%s] TCI >> %s", self.label, cmd)
+                        await ws.send(cmd)
+
+                    await _tci_send("SET_CLIENT_NAME:QSOCapture;")
+                    await _tci_send("AUDIO_STREAM_SAMPLE_TYPE:int16;")
+                    await _tci_send(f"AUDIO_STREAM_CHANNELS:{self.cfg.channels};")
                     # Clamp to a rate the TCI server accepts for the audio stream.
                     audio_sr = min(max(int(self.cfg.sample_rate), 8000), 48000)
-                    await ws.send(f"AUDIO_SAMPLERATE:{audio_sr};")
-                    await ws.send("AUDIO_STREAM_SAMPLES:1024;")
-                    await ws.send("MUTE:false;")
-                    await ws.send("MON_ENABLE:true;")
+                    await _tci_send(f"AUDIO_SAMPLERATE:{audio_sr};")
+                    await _tci_send("AUDIO_STREAM_SAMPLES:1024;")
+                    await _tci_send("MUTE:false;")
+                    await _tci_send("MON_ENABLE:true;")
                     if self.cfg.channels >= 2:
                         # SO2R: capture receiver 0 (RX1) and receiver 1 (RX2).
-                        await ws.send("AUDIO_START:0;")
-                        await ws.send("AUDIO_START:1;")
+                        await _tci_send("AUDIO_START:0;")
+                        await _tci_send("AUDIO_START:1;")
                         logger.info("[%s] TCI audio requested (SO2R rx=0,1, sr=%d)",
                                     self.label, audio_sr)
                     else:
-                        await ws.send("AUDIO_START:0;")
+                        await _tci_send("AUDIO_START:0;")
                         logger.info("[%s] TCI audio requested (rx=0, sr=%d)",
                                     self.label, audio_sr)
 
@@ -914,6 +953,11 @@ class TCIAudioSource(AudioSource):
                     async for message in ws:
                         if not self._running:
                             break
+                        if isinstance(message, str):
+                            # Raw text message received from ExpertSDR (status
+                            # updates, TRX state, etc.). Log it so the full TCI
+                            # exchange is visible in debug mode.
+                            logger.debug("[%s] TCI << %s", self.label, message.strip())
                         self._handle_tci_message(message)
             except asyncio.CancelledError:
                 # stop() cancelled the task: exit the reconnect loop cleanly.
@@ -938,6 +982,9 @@ class TCIAudioSource(AudioSource):
             raw = bytes(message)
             result = self._decode_binary_audio(raw)
             if result is None:
+                # Non-audio binary frame (e.g. control/keepalive). Logged in
+                # debug so the raw TCI stream is fully visible.
+                logger.debug("[%s] TCI << binary (len=%d, not audio)", self.label, len(raw))
                 return
             pcm, rx_index = result
             if pcm is None or pcm.size == 0:
@@ -1020,6 +1067,10 @@ class TCIAudioSource(AudioSource):
             "buffers": self._buffers_detail(),
             "continuous_paused": getattr(self, "_continuous_paused", False),
         }
+
+    def is_connected(self) -> bool:
+        """TCI is only connected once the websocket handshake completes."""
+        return bool(getattr(self, "_connected", False))
 
 
 def create_audio_source(cfg, label: str = "RX1") -> AudioSource:

@@ -5,6 +5,50 @@ in plain business language, without going into implementation details.
 
 ---
 
+## Version 0.3.0beta
+
+This release makes the recorder **safer to use in TCI mode** and adds
+**on-demand debug logging** so connection problems can be diagnosed without
+restarting the app.
+
+### Blocked recording when TCI is not connected
+- Previously the dashboard let you **start continuous recording even when the
+  radio was not linked** over TCI (ExpertSDR). This produced silent gap files
+  (empty chunks) that cluttered the Continuous view.
+- The continuous recorder now **refuses to start** while the TCI connection is
+  down, on three levels:
+  - the backend audio loop does not open a chunk file until the radio is
+    actually linked,
+  - the `/api/continuous/resume` API returns **HTTP 409** when TCI is not
+    connected,
+  - the dashboard **Start recording** button is **disabled and greyed out**
+    (with the tooltip *"Connect TCI (ExpertSDR) before starting recording"*)
+    whenever TCI mode is active and the radio is offline.
+- In **soundcard** mode this guard never triggers — the input device is always
+  treated as ready, so recording works exactly as before.
+- The TCI connection flag is also reported correctly in both the status API and
+  the dashboard badge (it was previously showing "connected" even in soundcard
+  mode).
+
+### Live debug logging (no restart needed)
+- The **Live Log** modal now has a **Debug** checkbox. Ticking it enables
+  `DEBUG`-level logging on the server **at runtime** — no config edit, no
+  restart.
+- With debug on, the log shows the **full TCI exchange** (every command sent
+  to ExpertSDR and every status/keepalive message received), QSO slice windows,
+  buffer-fill levels and a 5-second **heartbeat** of the current state, so a
+  missing-audio problem can be traced live.
+- The in-memory log buffer now **always stores DEBUG lines**; the dashboard only
+  shows them when you ask for them, so normal operation stays quiet while the
+  detailed trail is available on demand.
+
+### Dashboard / API
+- The **Settings** modal shows the running **application version** (`v0.3.0beta`).
+- N1MM contact and delete packets are now logged at DEBUG level for easier
+  troubleshooting.
+
+---
+
 ## Version 0.2.1beta
 
 This release fixes the **"missing Python DLL" error on Windows 7** reported by
