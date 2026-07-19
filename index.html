@@ -225,7 +225,11 @@
     </div>
 
     <div id="qsoView" class="overflow-x-auto rounded-lg border border-slate-800">
-      <table class="w-full text-sm">
+      <table class="w-full text-sm table-fixed">
+    <colgroup>
+      <col style="width:160px" /><col style="width:80px" /><col style="width:72px" /><col style="width:72px" />
+      <col style="width:80px" /><col style="width:112px" /><col style="width:56px" /><col style="width:112px" /><col />
+    </colgroup>
     <thead class="bg-slate-900 text-slate-400 text-left">
       <tr>
         <th id="sortTimestamp" class="px-4 py-3 font-medium cursor-pointer select-none hover:text-slate-200">
@@ -253,7 +257,10 @@
     </div>
 
     <div id="contView" class="overflow-x-auto rounded-lg border border-slate-800 hidden">
-      <table class="w-full text-sm">
+      <table class="w-full text-sm table-fixed">
+        <colgroup>
+          <col style="width:160px" /><col style="width:160px" /><col style="width:96px" /><col style="width:56px" /><col />
+        </colgroup>
         <thead class="bg-slate-900 text-slate-400 text-left">
           <tr>
             <th id="sortStart" class="px-4 py-3 font-medium cursor-pointer select-none hover:text-slate-200">
@@ -965,10 +972,10 @@
 
     let t;
     ['contest','call','band','mode','rx','date_from','date_to','continuous'].forEach(id => {
-      $(id).addEventListener('input', () => { clearTimeout(t); t = setTimeout(loadQsos, 200); });
-      $(id).addEventListener('change', loadQsos);
+      $(id).addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => loadQsos(), 200); });
+      $(id).addEventListener('change', () => loadQsos());
     });
-    $('refresh').addEventListener('click', loadQsos);
+    $('refresh').addEventListener('click', () => loadQsos());
     $('loadMore').addEventListener('click', () => loadQsos(true));
 
     // The QSO list is refreshed on backend *events* (see the EventSource

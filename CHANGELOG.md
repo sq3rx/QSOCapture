@@ -55,9 +55,15 @@ restarting the app.
 - The **Settings** modal no longer shows the version / GitHub icon in its
   header — the version and project link now live only in the About modal.
 - Fixed the dashboard tables looking **collapsed to the left** when the
-  database is empty: an empty N1MM / Continuous list now renders a
-  full-width placeholder row (instead of a separate paragraph below the
-  table), so column widths stay consistent whether the log is empty or full.
+  database is empty: both the N1MM and Continuous tables now use fixed column
+  widths (via `table-fixed` + `<colgroup>`), so column proportions stay
+  consistent whether the log is empty or full. The empty-list placeholder is
+  rendered as a full-width row inside the table (not a separate paragraph).
+- Fixed **duplicate "No QSOs / No continuous recordings yet" rows** appearing
+  every time the **Refresh** button or any filter was changed. The refresh
+  handlers were passing the DOM event object as the `append` flag, which made
+  the list append a new empty-state row instead of rebuilding from scratch;
+  they now always rebuild the first page cleanly.
 
 ---
 
