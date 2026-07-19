@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'v*'  # Uruchomi się tylko przy tagach zaczynających się od 'v'
+  workflow_dispatch:  # Pozwala uruchomić pipeline ręcznie z zakładki Actions (bez tagu, bez Release)
 
 jobs:
   build:
@@ -38,7 +39,6 @@ jobs:
 
       - name: Build Windows installer
         run: iscc installer.iss /dMyAppVersion="${{ steps.version.outputs.version }}" /dMyExeName="QSOCapture-portable-${{ steps.version.outputs.version }}.exe"
-
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -101,6 +101,10 @@ jobs:
   release:
     name: Create Release
     needs: [build, build-win7]
+    # Release powstaje TYLKO przy pushu tagu 'v*'. Przy ręcznym uruchomieniu
+    # (workflow_dispatch) buildy się wykonają i zostaną jako artefakty, ale
+    # żadna wersja nie zostanie opublikowana.
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
       - name: Download modern build

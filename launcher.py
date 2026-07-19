@@ -64,6 +64,72 @@ def _is_windows_legacy() -> bool:
         return False
 
 
+def _init_cef_legacy(app_dir: str) -> bool:
+    """Initialise CEF (cefpython3) explicitly for legacy Windows (7/8).
+
+    On Windows 7/8 the default CEF sandbox (GPU / zygote subprocesses) crashes
+    with an Access Violation inside ``libcef.dll`` (APPCRASH, code c0000005).
+    pywebview 5.x calls ``cef.Initialize`` itself only with default settings, so
+    we must initialise CEF *first* with safe switches and a writable cache path
+    before ``webview.start(gui="cef")``. pywebview skips its own initialisation
+    when ``cef.Initialized()`` is already True, so there is no double-init.
+
+    Safe settings for legacy Windows:
+      * ``no_sandbox`` + ``--no-sandbox``  -> disables the sandbox that AVs.
+      * ``--disable-gpu`` / ``--disable-gpu-sandbox`` -> avoids GPU compositing
+        crashes on Win7.
+      * ``cache_path`` in ``%LOCALAPPDATA%\\QSOCapture\\cef_cache`` -> CEF must
+        not write its singleton lock / cache next to the EXE (often read-only
+        ``Program Files``), which also caused silent crashes.
+      * ``log_file`` -> ``cef_debug.log`` for diagnostics.
+
+    Returns True when CEF was initialised successfully, False otherwise (the
+    caller then falls back to the default backend / system browser instead of
+    crashing).
+    """
+    try:
+        import cefpython3 as cef
+    except Exception as exc:
+        print(f"CEF not importable for legacy init: {exc}")
+        return False
+    try:
+        if cef.Initialized():
+            return True
+        cache_path = os.path.join(app_dir, "cef_cache")
+        os.makedirs(cache_path, exist_ok=True)
+        cef_dir = os.path.dirname(cef.__file__)
+        settings = {
+            "cache_path": cache_path,
+            "no_sandbox": True,
+            "log_severity": getattr(cef, "LOGSEVERITY_INFO", 0),
+            "log_file": os.path.join(app_dir, "cef_debug.log"),
+            "locales_dir_path": os.path.join(cef_dir, "locales"),
+            "resources_dir_path": cef_dir,
+            "browser_subprocess_path": os.path.join(cef_dir, "subprocess.exe"),
+        }
+        switches = {
+            "no-sandbox": "",
+            "disable-gpu": "",
+            "disable-gpu-sandbox": "",
+            "disable-software-rasterizer": "",
+        }
+        cef.Initialize(settings, switches)
+        return True
+    except Exception as exc:
+        # Log but do NOT crash: let the launcher fall back to another backend.
+        try:
+            with open(os.path.join(app_dir, "cef_debug.log"), "a", encoding="utf-8") as lf:
+                lf.write(time.strftime("%Y-%m-%d %H:%M:%S")
+                         + " CEF Initialize failed:\n")
+                import traceback
+                lf.write(traceback.format_exc())
+                lf.write("\n")
+        except Exception:
+            pass
+        print(f"CEF Initialize failed ({exc}); will try fallback backend.")
+        return False
+
+
 def _app_dir() -> str:
     """Directory that should hold config/recordings/index.html.
 
@@ -350,12 +416,21 @@ def main() -> None:
         if legacy_windows:
             # ---- Legacy Windows (7/8): CEF first, no Edge WebView2 ----
             if cef_available:
-                try:
-                    webview.start(gui="cef", icon=icon_arg)
-                    started = True
-                except Exception as exc:
-                    last_exc = exc
-                    print(f"CEF backend failed ({exc}); trying default backend.")
+                # Initialise CEF explicitly with safe flags BEFORE pywebview
+                # starts it. On Win7/8 the default CEF sandbox crashes with an
+                # Access Violation in libcef.dll (APPCRASH c0000005); the
+                # explicit init disables the sandbox, the GPU compositing and
+                # points the cache at a writable AppData dir. pywebview skips
+                # its own cef.Initialize() when already initialised.
+                if not _init_cef_legacy(app_dir):
+                    cef_available = False
+                if cef_available:
+                    try:
+                        webview.start(gui="cef", icon=icon_arg)
+                        started = True
+                    except Exception as exc:
+                        last_exc = exc
+                        print(f"CEF backend failed ({exc}); trying default backend.")
             else:
                 print("CEF backend not available -- legacy Windows needs cefpython3.")
 
