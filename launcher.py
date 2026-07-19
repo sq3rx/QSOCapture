@@ -47,6 +47,23 @@ def _is_frozen() -> bool:
     return getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS")
 
 
+def _is_windows_legacy() -> bool:
+    """Return True on Windows versions older than Windows 10 (i.e. Win7/Win8).
+
+    Python 3.9+ and the Edge WebView2 runtime do not run on these systems, so
+    the embedded browser must use the CEF (Chromium Embedded Framework)
+    backend instead of ``edgechromium``. On modern Windows (10/11) WebView2 is
+    preferred because it ships with the OS and needs no extra dependency.
+    """
+    if sys.platform != "win32":
+        return False
+    try:
+        # sys.getwindowsversion() -> (major, minor, build, platform, service_pack)
+        return sys.getwindowsversion().major < 10
+    except Exception:
+        return False
+
+
 def _app_dir() -> str:
     """Directory that should hold config/recordings/index.html.
 
@@ -273,18 +290,21 @@ def main() -> None:
         # Decide which GUI backend to use. The goal is ALWAYS to open the
         # dashboard in its OWN native window -- never in the system browser.
         #
-        # Backend priority:
-        #   1. edgechromium (Edge WebView2) -- ships with Windows 10/11, needs
-        #      NO extra install. This is the reliable default on modern
-        #      Windows and keeps the app in a dedicated window.
+        # Backend priority on MODERN Windows (10/11):
+        #   1. edgechromium (Edge WebView2) -- ships with the OS, needs NO
+        #      extra install. Reliable default on modern Windows.
         #   2. cef (Chromium Embedded Framework) -- only if cefpython3 is
-        #      actually installed/importable. Bundling a full Chromium engine
-        #      is heavy and cefpython3 wheels are not available for every
-        #      Python version, so we treat it as an OPTIONAL fallback rather
-        #      than the primary backend.
+        #      installed/importable. Bundling a full Chromium engine is heavy
+        #      and wheels are not available for every Python version, so we
+        #      treat it as an OPTIONAL fallback rather than the primary backend.
         #   3. default (whatever pywebview auto-detects) -- last embedded try.
-        #   4. webbrowser -- ONLY if every embedded backend failed. This is a
-        #      genuine last-resort safety net, not the normal path.
+        #   4. webbrowser -- ONLY if every embedded backend failed.
+        #
+        # Backend priority on LEGACY Windows (7/8, major < 10):
+        #   Edge WebView2 does NOT exist there, and Python 3.9+ (hence the
+        #   modern build) cannot even run. The legacy build is therefore made
+        #   with Python 3.8 + cefpython3, so the CEF backend is the PRIMARY
+        #   (and only embedded) choice; we skip edgechromium entirely.
         def _log_fallback(reason: str) -> None:
             try:
                 with open(os.path.join(app_dir, "webview_fallback.log"), "a", encoding="utf-8") as lf:
@@ -299,6 +319,8 @@ def main() -> None:
         except Exception:
             cef_available = False
 
+        legacy_windows = _is_windows_legacy()
+
         started = False
         last_exc: Exception | None = None
 
@@ -308,31 +330,53 @@ def main() -> None:
         # launcher to fall back to the system browser.
         icon_arg = icon_path or None
 
-        # 1) Edge WebView2 (preferred, zero extra dependency on modern Windows)
-        try:
-            webview.start(gui="edgechromium", icon=icon_arg)
-            started = True
-        except Exception as exc:
-            last_exc = exc
-            print(f"Edge WebView2 backend failed ({exc}); trying next backend.")
+        if legacy_windows:
+            # ---- Legacy Windows (7/8): CEF first, no Edge WebView2 ----
+            if cef_available:
+                try:
+                    webview.start(gui="cef", icon=icon_arg)
+                    started = True
+                except Exception as exc:
+                    last_exc = exc
+                    print(f"CEF backend failed ({exc}); trying default backend.")
+            else:
+                print("CEF backend not available -- legacy Windows needs cefpython3.")
 
-        # 2) CEF -- only if the package is installed.
-        if not started and cef_available:
+            # default (last embedded try) then system browser.
+            if not started:
+                try:
+                    webview.start(icon=icon_arg)
+                    started = True
+                except Exception as exc:
+                    last_exc = exc
+                    print(f"Default backend failed ({exc}).")
+        else:
+            # ---- Modern Windows (10/11): Edge WebView2 first ----
+            # 1) Edge WebView2 (preferred, zero extra dependency).
             try:
-                webview.start(gui="cef", icon=icon_arg)
+                webview.start(gui="edgechromium", icon=icon_arg)
                 started = True
             except Exception as exc:
                 last_exc = exc
-                print(f"CEF backend failed ({exc}); trying default backend.")
+                print(f"Edge WebView2 backend failed ({exc}); trying next backend.")
 
-        # 3) Default auto-detected backend.
-        if not started:
-            try:
-                webview.start(icon=icon_arg)
-                started = True
-            except Exception as exc:
-                last_exc = exc
-                print(f"Default backend failed ({exc}).")
+            # 2) CEF -- only if the package is installed.
+            if not started and cef_available:
+                try:
+                    webview.start(gui="cef", icon=icon_arg)
+                    started = True
+                except Exception as exc:
+                    last_exc = exc
+                    print(f"CEF backend failed ({exc}); trying default backend.")
+
+            # 3) Default auto-detected backend.
+            if not started:
+                try:
+                    webview.start(icon=icon_arg)
+                    started = True
+                except Exception as exc:
+                    last_exc = exc
+                    print(f"Default backend failed ({exc}).")
 
         # 4) Last resort: system browser (logs the failure for diagnostics).
         if not started:

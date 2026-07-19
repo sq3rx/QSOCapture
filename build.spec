@@ -16,12 +16,27 @@ from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
 # Python 3.10+ on Windows). We only bundle CEF when it is actually installed,
 # so the build succeeds even when it is absent. The launcher treats CEF as an
 # OPTIONAL backend (it prefers the always-available Edge WebView2 engine), so
-# omitting it does not break the standalone window.
+# omitting it does not break the standalone window on modern Windows.
+#
+# Legacy builds (Windows 7/8) MUST bundle CEF, because Edge WebView2 does not
+# exist there and the modern Python (3.9+) build cannot run on those systems.
+# Set BUNDLE_CEF=1 in the environment to require CEF and FAIL the build when
+# cefpython3 is not importable -- this prevents shipping a legacy EXE that has
+# no working embedded browser.
+_BUNDLE_CEF = os.environ.get("BUNDLE_CEF", "0") == "1"
+
+
 def _cef_binaries():
     try:
         import cefpython3  # noqa: F401
         return collect_dynamic_libs("cefpython3")
     except Exception:
+        if _BUNDLE_CEF:
+            raise SystemExit(
+                "BUNDLE_CEF=1 but cefpython3 is not importable. Install "
+                "cefpython3 (e.g. 'pip install cefpython3') before building "
+                "the legacy Windows 7/8 package."
+            )
         return []
 
 
@@ -30,6 +45,12 @@ def _cef_datas():
         import cefpython3  # noqa: F401
         return collect_data_files("cefpython3")
     except Exception:
+        if _BUNDLE_CEF:
+            raise SystemExit(
+                "BUNDLE_CEF=1 but cefpython3 is not importable. Install "
+                "cefpython3 (e.g. 'pip install cefpython3') before building "
+                "the legacy Windows 7/8 package."
+            )
         return []
 
 
@@ -84,6 +105,11 @@ a = Analysis(
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
+# When building the legacy (Windows 7/8) package with BUNDLE_CEF=1, give the
+# portable EXE a distinct name so it never collides with the modern build's
+# QSOCapture.exe in the same GitHub Release.
+_EXE_NAME = "QSOCapture-Win7" if _BUNDLE_CEF else "QSOCapture"
+
 exe = EXE(
     pyz,
     a.scripts,
@@ -91,7 +117,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name="QSOCapture",
+    name=_EXE_NAME,
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

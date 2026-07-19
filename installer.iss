@@ -9,6 +9,19 @@
   #define MyAppVersion "0.1.0beta"
 #endif
 
+; Opcjonalny suffix w nazwie pliku wyjściowego, by odróżnić buildy (np.
+; "-Win7" dla legacy builda na Windows 7/8). Domyślnie pusty.
+#ifndef MyAppNameSuffix
+  #define MyAppNameSuffix ""
+#endif
+
+; Nazwa pliku EXE aplikacji. Dla legacy builda (BUNDLE_CEF) PyInstaller
+; produkuje "QSOCapture-Win7.exe", więc CI musi przekazać
+; /dMyExeName="QSOCapture-Win7.exe", by instalator kopiował właściwy plik.
+#ifndef MyExeName
+  #define MyExeName "QSOCapture.exe"
+#endif
+
 [Setup]
 ; Unikalny identyfikator aplikacji (GUID) — nie zmieniaj go.
 AppId={{8F3C9A1E-2B4D-4E7A-9C6F-1A2B3C4D5E6F}
@@ -23,7 +36,7 @@ DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
 LicenseFile=
 OutputDir=installer
-OutputBaseFilename=QSOCapture-setup-{#MyAppVersion}
+OutputBaseFilename=QSOCapture{#MyAppNameSuffix}-setup-{#MyAppVersion}
 SetupIconFile=icon.ico
 Compression=lzma2
 SolidCompression=yes
@@ -36,7 +49,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "polish"; MessagesFile: "compiler:Languages\Polish.isl"
 
 [Files]
-Source: "dist\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "dist\{#MyExeName}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion isreadme
 Source: "icon.ico"; DestDir: "{app}"; Flags: ignoreversion
 

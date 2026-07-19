@@ -5,6 +5,44 @@ in plain business language, without going into implementation details.
 
 ---
 
+## Version 0.2.1beta
+
+This release fixes the **"missing Python DLL" error on Windows 7** reported by
+users and modernises the build toolchain.
+
+### Windows 7 / 8 support (legacy build)
+- The standard build now targets **Python 3.14** (Windows 10/11) and uses the
+  native Edge WebView2 backend. Python 3.9+ and WebView2 do not run on Windows
+  7/8, which caused the "system asks for Python dll" failure on those systems.
+- A separate **legacy build** is now produced automatically for Windows 7/8.
+  It is built with **Python 3.8** and bundles the **CEF** (Chromium Embedded
+  Framework) engine (`cefpython3`), so it needs no external browser or runtime.
+  Published as `QSOCapture-Win7-setup-x.y.z.exe` (and a portable
+  `QSOCapture-Win7.exe`) in the same GitHub Release. The portable legacy
+  executable is renamed to avoid clashing with the modern `QSOCapture.exe`.
+- The launcher now detects the Windows version (`sys.getwindowsversion()`):
+  on Windows 7/8 it uses the CEF backend directly (skipping Edge WebView2,
+  which does not exist there); on Windows 10/11 it keeps the Edge-first order.
+
+### Build / CI
+- `.github/workflows/main.yml` now builds **two** artifacts in parallel:
+  modern (Python 3.14, Edge) and legacy (Python 3.8 + CEF). Both are attached
+  to the release.
+- `build.spec` gained a `BUNDLE_CEF=1` switch that forces CEF to be bundled
+  and **fails the legacy build** if `cefpython3` is not importable — so a
+  legacy EXE is never shipped without a working embedded browser.
+- `installer.iss` supports a `MyAppNameSuffix` (CI passes `-Win7`) so the
+  legacy installer gets a distinct filename and does not collide with the
+  modern one. It also accepts `MyExeName` / `MyAppExeName` so the installer
+  bundles the correct `QSOCapture-Win7.exe` produced by the legacy PyInstaller
+  build.
+
+### Documentation
+- README badge updated to Python 3.14+, Requirements note and a new
+  "Windows 7 / 8 (legacy build)" section explain which download to use.
+
+---
+
 ## Version 0.2.0beta
 
 This release focuses on the **audio player** in the dashboard and a few

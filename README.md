@@ -6,9 +6,9 @@
 
 [![Build and Release](https://github.com/sq3rx/QSOCapture/actions/workflows/main.yml/badge.svg)](https://github.com/sq3rx/QSOCapture/actions/workflows/main.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org)
+[![Python](https://img.shields.io/badge/python-3.14%2B-blue.svg)](https://www.python.org)
 
-**Version:** 0.2.0beta
+**Version:** 0.2.1beta
 
 **QSOCapture** is a lightweight contest audio recorder and log player for
 amateur radio operators. It captures audio from your receiver (via the
@@ -73,7 +73,7 @@ clean, color-coded web dashboard.
 
 ## Requirements
 
-- Python **3.10+**
+- Python **3.14+** (Windows 10/11) for the standard build.
 - The following Python packages (see `requirements.txt`):
   - `fastapi`, `uvicorn`
   - `numpy`
@@ -164,6 +164,18 @@ python launcher.py
 
 > Note: the WebView2 runtime ships with modern Windows 10/11. On older systems
 > install it from Microsoft, otherwise the system-browser fallback is used.
+
+### Windows 7 / 8 (legacy build)
+
+**Windows 7 and 8 are NOT supported by the standard build.** Python 3.9+ (and
+therefore the modern 3.14 build) cannot run on those systems, and the Edge
+WebView2 engine does not exist there. For Windows 7/8 download the separate
+**`QSOCapture-Win7-setup-x.y.z.exe`** (or the portable **`QSOCapture-Win7.exe`** from
+the legacy release). That build is produced with **Python 3.8 + CEF**
+(`cefpython3`), which is bundled into the EXE, so no external browser or
+runtime is required. The launcher automatically detects Windows 7/8 and uses
+the CEF backend instead of Edge WebView2. The portable legacy executable is
+named `QSOCapture-Win7.exe` to avoid clashing with the modern `QSOCapture.exe`.
 
 ---
 
