@@ -37,7 +37,7 @@ jobs:
           pyinstaller --noconfirm build.spec
 
       - name: Build Windows installer
-        run: iscc installer.iss /dMyAppVersion="${{ steps.version.outputs.version }}"
+        run: iscc installer.iss /dMyAppVersion="${{ steps.version.outputs.version }}" /dMyExeName="QSOCapture-portable-${{ steps.version.outputs.version }}.exe" /dMyAppExeName="QSOCapture-portable-${{ steps.version.outputs.version }}.exe"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -86,7 +86,8 @@ jobs:
           pyinstaller --noconfirm build.spec
 
       - name: Build Windows installer (legacy)
-        run: iscc installer.iss /dMyAppVersion="${{ steps.version.outputs.version }}" /dMyAppNameSuffix="-Win7" /dMyExeName="QSOCapture-portable-Win7-${{ steps.version.outputs.version }}.exe" /dMyAppExeName="QSOCapture-portable-Win7-${{ steps.version.outputs.version }}.exe"
+        run: |
+          iscc installer.iss /dMyAppVersion="${{ steps.version.outputs.version }}" /dMyAppNameSuffix="-Win7" /dMyExeName="QSOCapture-portable-Win7-${{ steps.version.outputs.version }}.exe" /dMyAppExeName="QSOCapture-portable-Win7-${{ steps.version.outputs.version }}.exe"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
