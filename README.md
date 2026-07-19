@@ -286,13 +286,15 @@ confirmation prompt).
 
 A few views of the **QSOCapture** dashboard in action:
 
-![Dashboard — QSO list with audio player](screenshots/1.png)
+![QSOCapture dashboard — view 1](screenshots/screenshot1.png)
 
-![Dashboard — filters and continuous recordings](screenshots/2.png)
+![QSOCapture dashboard — view 2](screenshots/screenshot2.png)
 
-![Dashboard — live log view](screenshots/3.png)
+![QSOCapture dashboard — view 3](screenshots/screenshot3.png)
 
-![Settings panel](screenshots/4.png)
+![QSOCapture dashboard — view 4](screenshots/screenshot4.png)
+
+![QSOCapture dashboard — view 5](screenshots/screenshot5.png)
 
 ---
 

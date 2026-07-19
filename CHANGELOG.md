@@ -43,7 +43,6 @@ restarting the app.
   detailed trail is available on demand.
 
 ### Dashboard / API
-- The **Settings** modal shows the running **application version** (`v0.3.0beta`).
 - N1MM contact and delete packets are now logged at DEBUG level for easier
   troubleshooting.
 
