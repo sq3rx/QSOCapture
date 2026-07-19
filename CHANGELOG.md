@@ -47,6 +47,19 @@ restarting the app.
 - N1MM contact and delete packets are now logged at DEBUG level for easier
   troubleshooting.
 
+### Dashboard polish (UI)
+- The **installer** no longer ships a Polish language file — the setup is
+  English only (all installer strings and comments are now in English).
+- The dashboard header gained a **"?" (About)** button that opens a small
+  modal with the application description, the running **version** and a link to
+  the project on GitHub (`https://github.com/sq3rx/QSOCapture`).
+- The **Settings** modal no longer shows the version / GitHub icon in its
+  header — the version and project link now live only in the About modal.
+- Fixed the dashboard tables looking **collapsed to the left** when the
+  database is empty: an empty N1MM / Continuous list now renders a
+  full-width placeholder row (instead of a separate paragraph below the
+  table), so column widths stay consistent whether the log is empty or full.
+
 ---
 
 ## Version 0.2.1beta

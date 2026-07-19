@@ -10,6 +10,10 @@
 
 **Version:** 0.3.0beta
 
+> **About / source:** click the **?** button in the dashboard header for the
+> running version and a link to the project on GitHub
+> (`https://github.com/sq3rx/QSOCapture`).
+
 **QSOCapture** is a lightweight contest audio recorder and log player for
 amateur radio operators. It captures audio from your receiver (via the
 **TCI** protocol from ExpertSDR or a regular **soundcard** input), slices out

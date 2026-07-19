@@ -122,11 +122,18 @@
 <body class="bg-slate-950 text-slate-100 min-h-screen antialiased">
   <div class="max-w-6xl mx-auto px-4 py-6">
     <header class="flex flex-wrap items-center justify-between gap-4 mb-6">
-      <div>
-        <h1 class="text-2xl font-bold tracking-tight">
-          QSOCapture <span class="text-brand">by SQ3RX</span>
-        </h1>
-        <p class="text-sm text-slate-400">Contest Log Player & Audio Recorder</p>
+      <div class="flex items-center gap-2">
+        <div>
+          <h1 class="text-2xl font-bold tracking-tight">
+            QSOCapture <span class="text-brand">by SQ3RX</span>
+          </h1>
+          <p class="text-sm text-slate-400">Contest Log Player & Audio Recorder</p>
+        </div>
+        <button id="openHelp"
+                title="About QSOCapture"
+                class="ml-1 w-6 h-6 rounded-full bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-sm font-bold cursor-help leading-none">
+          ?
+        </button>
       </div>
       <div class="flex flex-wrap items-center gap-2 text-xs">
         <span id="status" class="px-3 py-1 rounded-full bg-slate-800 border border-slate-700 text-slate-300">loading&hellip;</span>
@@ -271,13 +278,12 @@
 
   <div id="cfgModal" class="fixed inset-0 bg-black/70 hidden items-center justify-center z-50 p-4">
     <div class="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-3xl max-h-[85vh] overflow-y-auto">
-      <div class="flex items-center justify-between px-5 py-3 border-b border-slate-700 sticky top-0 bg-slate-900">
-        <h2 class="text-lg font-semibold">&#9881; Configuration</h2>
-        <div class="flex items-center gap-3">
-          <span class="text-xs font-normal text-slate-500">v<span id="cfgVersion">…</span></span>
-          <button id="closeCfg" class="text-slate-400 hover:text-white text-xl leading-none">&times;</button>
+        <div class="flex items-center justify-between px-5 py-3 border-b border-slate-700 sticky top-0 bg-slate-900">
+          <h2 class="text-lg font-semibold">&#9881; Configuration</h2>
+          <div class="flex items-center gap-3">
+            <button id="closeCfg" class="text-slate-400 hover:text-white text-xl leading-none">&times;</button>
+          </div>
         </div>
-      </div>
       <div id="cfgForm" class="p-5 grid grid-cols-1 md:grid-cols-2 gap-6"></div>
       <div class="px-5 py-3 border-t border-slate-700 flex items-center justify-between sticky bottom-0 bg-slate-900">
         <button id="factoryReset"
@@ -320,7 +326,35 @@
             <button id="closeLog" class="text-slate-400 hover:text-white text-xl leading-none">&times;</button>
           </div>
       </div>
+
       <pre id="logBody" class="p-4 text-xs text-slate-300 overflow-y-auto flex-1 whitespace-pre-wrap font-mono"></pre>
+    </div>
+  </div>
+
+  <div id="helpModal" class="fixed inset-0 bg-black/70 hidden items-center justify-center z-50 p-4">
+    <div class="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-md max-h-[85vh] overflow-y-auto">
+      <div class="flex items-center justify-between px-5 py-3 border-b border-slate-700 sticky top-0 bg-slate-900">
+        <h2 class="text-lg font-semibold">&#8505; About QSOCapture</h2>
+        <button id="closeHelp" class="text-slate-400 hover:text-white text-xl leading-none">&times;</button>
+      </div>
+      <div class="p-5 text-sm space-y-3">
+        <p class="text-slate-300">
+          QSOCapture by <span class="text-brand font-medium">SQ3RX</span> &mdash; a lightweight contest
+          audio recorder and log player for amateur radio operators.
+        </p>
+        <p class="text-slate-400">
+          Version: <span id="helpVersion" class="text-slate-200 font-medium">…</span>
+        </p>
+        <p class="text-slate-400">
+          Source code, issues and releases:
+          <br />
+          <a id="helpLink" href="https://github.com/sq3rx/QSOCapture"
+             target="_blank" rel="noopener"
+             class="text-brand hover:underline break-all">
+            https://github.com/sq3rx/QSOCapture
+          </a>
+        </p>
+      </div>
     </div>
   </div>
 
@@ -732,9 +766,10 @@
         if (reqId !== qsoReqId) return;
         qsoTotal = d.count;
         $('count').textContent = d.count + (cont === 'true' ? ' recording(s)' : ' QSO(s)');
-        const empty = $('empty');
-        if (d.count > 0) empty.className = 'text-center text-slate-500 py-10 hidden';
-        else empty.className = 'text-center text-slate-500 py-10';
+        // The "no data" hint is rendered as a full-width row inside each table
+        // (see below) so the column widths stay consistent whether the database
+        // is empty or full. Hide the standalone <p> to avoid a duplicate.
+        $('empty').className = 'text-center text-slate-500 py-10 hidden';
 
         const isCont = cont === 'true';
         $('qsoView').className = 'overflow-x-auto rounded-lg border border-slate-800' + (isCont ? ' hidden' : '');
@@ -775,6 +810,11 @@
               tr.appendChild(td);
               $('contRows').appendChild(tr);
             });
+            if (d.qsos.length === 0) {
+              const tr = document.createElement('tr');
+              tr.innerHTML = `<td colspan="5" class="px-4 py-6 text-center text-slate-500">No continuous recordings yet. Start recording from the dashboard.</td>`;
+              $('contRows').appendChild(tr);
+            }
          } else {
            d.qsos.forEach(q => {
              const tr = document.createElement('tr');
@@ -798,6 +838,11 @@
              });
              rows.appendChild(tr);
            });
+           if (d.qsos.length === 0) {
+             const tr = document.createElement('tr');
+             tr.innerHTML = `<td colspan="9" class="px-4 py-6 text-center text-slate-500">No QSOs recorded yet. Start your contest and log a contact in N1MM.</td>`;
+             rows.appendChild(tr);
+           }
          }
 
          qsoOffset += d.qsos.length;
@@ -934,6 +979,24 @@
     $('closeLog').addEventListener('click', hideLog);
     $('refreshLog').addEventListener('click', loadLog);
     $('closeDetail').addEventListener('click', hideDetail);
+
+    function showHelp() {
+      const m = $('helpModal');
+      m.className = 'fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4';
+      // Fill in the running version from the same source the Settings modal uses.
+      const ver = $('helpVersion');
+      if (ver && ver.textContent === '…') {
+        fetch('/api/config').then(r => r.json()).then(d => {
+          ver.textContent = d.version || '';
+        }).catch(() => {});
+      }
+    }
+    function hideHelp() {
+      const m = $('helpModal');
+      m.className = 'fixed inset-0 bg-black/70 hidden items-center justify-center z-50 p-4';
+    }
+    $('openHelp').addEventListener('click', showHelp);
+    $('closeHelp').addEventListener('click', hideHelp);
     // Toggling the Debug checkbox flips verbose logging on the server (so
     // future DEBUG lines are emitted) and immediately reloads the log with
     // the DEBUG filter applied.
@@ -1033,10 +1096,6 @@
         (cr.schema || []).forEach(it => { helpMap[it.field] = it.help; });
         const form = $('cfgForm');
         form.innerHTML = '';
-
-        // Show the application version in the Settings modal header.
-        const verEl = $('cfgVersion');
-        if (verEl) verEl.textContent = cr.version || '';
 
         let general = fieldBlock('Station name', textInput('cfg_station_name', v.station_name), helpMap.station_name)
           + fieldBlock('Recordings directory', textInput('cfg_recordings_dir', v.recordings_dir), helpMap.recordings_dir)
