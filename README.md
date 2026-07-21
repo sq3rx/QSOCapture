@@ -32,6 +32,7 @@ clean, color-coded web dashboard.
 - [Requirements](#requirements)
 - [Quick start](#quick-start)
 - [Desktop EXE & Windows Installer](#desktop-exe--windows-installer)
+- [How to use it](#how-to-use-it)
 - [Configuration](#configuration)
  - [Using the dashboard](#using-the-dashboard)
  - [Screenshots](#screenshots)
@@ -183,6 +184,79 @@ EXE, so no external browser or runtime is required. The launcher automatically
 detects Windows 7/8 and uses the CEF backend instead of Edge WebView2. The
 portable legacy executable is named `QSOCapture-portable-Win7-x.y.z.exe` to
 avoid clashing with the modern `QSOCapture-portable-x.y.z.exe`.
+
+---
+
+## How to use it
+
+Assuming **QSOCapture is already installed** on your machine (desktop EXE /
+installer, or a checked-out source folder with dependencies present), here is
+how to get from zero to your first replayed QSO.
+
+> **Tip:** the shipped default values are sensible for most setups — you can
+> usually leave everything at its default and only tweak what is specific to
+> your station.
+
+### 1. Launch the app
+
+ - **Desktop build:** double-click **QSOCapture** from the Start Menu or
+   desktop shortcut (or run `QSOCapture-portable-x.y.z.exe`). The dashboard
+   opens in the embedded browser.
+ - **From source:** from the project folder run `python main.py`.
+
+### 2. Open the dashboard
+
+The dashboard opens automatically in the embedded browser. If the embedded
+browser fails to initialise, QSOCapture falls back to your default system
+browser and opens the dashboard there.
+
+### 3. Configure your audio source and N1MM
+
+ 1. Click **⚙ Settings** in the dashboard header.
+ 2. Set `audio_mode` to `tci` (ExpertSDR) or `soundcard`.
+    - **TCI:** set `tci_host` / `tci_port` to match ExpertSDR's TCI server
+      (default `127.0.0.1:50001`, enable it in ExpertSDR options).
+    - **Soundcard:** type a `soundcard_device` substring that matches your
+      receiver input.
+ 3. Set `channels` to **1 for SO1R (mono)** or **2 for SO2R (stereo)** —
+    in SO2R the left channel is recorded as RX1 and the right as RX2.
+ 4. Under the **N1MM** section, confirm `n1mm_udp_port` matches the UDP port
+    N1MM Logger+ broadcasts on (default `12060`). This is the only N1MM
+    setting you normally need, and the default is fine in most cases.
+ 5. Click **Save** — the services restart automatically with the new
+    settings. A green buffer badge (`RX1 30s` / `RX2 30s`) in the header
+    confirms audio is flowing.
+
+> **Tip:** from the **⚙ Settings** panel you can also open the
+> **recordings directory** directly to browse the raw audio files on disk
+> without leaving the app.
+
+### 4. Start recording
+
+ - Click **▶ Start recording**, or enable **Continuous recording autostart**
+   so it begins on launch. The header badge fills as audio is buffered.
+
+### 5. Log a contact in N1MM Logger+
+
+Log a QSO in **N1MM Logger+** as usual. The moment it is logged, QSOCapture
+slices the surrounding audio and the row appears in the **N1MM QSOs** view
+with a player ready to use.
+
+### 6. Replay and analyse
+
+ - Switch between **N1MM QSOs** and **Continuous** recordings.
+ - Use the filters (contest, call/prefix with regex, band, mode, RX,
+   date/time) to find the contact.
+ - Play the slice and use the **playback-speed selector** (0.8×–2.0×) to
+   study it; click **Save** to download the file.
+ - Open the **📜 Log** button for a color-coded live view of what the app
+   is doing.
+
+### 7. Stop when done
+
+Click **⏹ Stop recording** to finalise the current chunk. Your QSO log and
+recordings live in `%LOCALAPPDATA%\QSOCapture` (desktop) or the project
+folder (source) and survive restarts.
 
 ---
 
