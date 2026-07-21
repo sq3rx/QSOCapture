@@ -93,7 +93,11 @@ def _init_cef_legacy(app_dir: str) -> bool:
         print(f"CEF not importable for legacy init: {exc}")
         return False
     try:
-        if cef.Initialized():
+        # In some cefpython3 builds (e.g. the CEF 66 legacy wheel) there is no
+        # ``Initialized`` attribute, so guard the call instead of assuming it
+        # exists. When present and already initialised we skip re-init.
+        initialized_fn = getattr(cef, "Initialized", None)
+        if initialized_fn is not None and initialized_fn():
             return True
         cache_path = os.path.join(app_dir, "cef_cache")
         os.makedirs(cache_path, exist_ok=True)

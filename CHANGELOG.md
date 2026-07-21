@@ -19,6 +19,10 @@ in plain business language, without going into implementation details.
   EXE inside read-only `Program Files`).
 - If CEF still fails to initialise, the failure is logged to `cef_debug.log`
   and the app falls back to another browser backend instead of crashing.
+- Fixed an `AttributeError: module 'cefpython3' has no attribute 'Initialized'`
+  on the legacy (CEF 66) wheel, where `cef.Initialized` does not exist. The
+  launcher now guards the call with `getattr` and only skips re-init when the
+  function is present and returns True.
 
 ### CI / build
 - The GitHub Actions pipeline can now be triggered manually from the Actions
