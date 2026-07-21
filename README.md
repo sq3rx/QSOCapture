@@ -8,7 +8,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.14%2B-blue.svg)](https://www.python.org)
 
-**Version:** 0.3.0beta
+**Version:** 0.3.1beta
 
 > **About / source:** click the **?** button in the dashboard header for the
 > running version and a link to the project on GitHub

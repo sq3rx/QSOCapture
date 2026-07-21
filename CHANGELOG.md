@@ -5,6 +5,30 @@ in plain business language, without going into implementation details.
 
 ---
 
+## Version 0.3.1beta
+
+### Fix: crash on Windows 7/8 (APPCRASH in libcef.dll)
+- On Windows 7/8 the app uses the CEF (Chromium Embedded Framework) backend
+  because Edge WebView2 does not exist there. CEF was started with its default
+  settings, whose sandbox (GPU / zygote subprocesses) crashes with an
+  Access Violation inside `libcef.dll` (APPCRASH, exception `c0000005`).
+- The launcher now initialises CEF explicitly before opening the window, with
+  safe flags for legacy Windows: `--no-sandbox`, `--disable-gpu`,
+  `--disable-gpu-sandbox`, `--disable-software-rasterizer`, and a writable
+  `cache_path` in `%LOCALAPPDATA%\QSOCapture\cef_cache` (instead of next to the
+  EXE inside read-only `Program Files`).
+- If CEF still fails to initialise, the failure is logged to `cef_debug.log`
+  and the app falls back to another browser backend instead of crashing.
+
+### CI / build
+- The GitHub Actions pipeline can now be triggered manually from the Actions
+  tab (`workflow_dispatch`), so the EXE files can be built and downloaded as
+  artifacts without publishing a GitHub Release.
+- The Release job now runs only when a `v*` tag is pushed; manual runs build
+  both the modern and Windows 7/8 packages but create no release.
+
+---
+
 ## Version 0.3.0beta
 
 This release makes the recorder **safer to use in TCI mode** and adds
