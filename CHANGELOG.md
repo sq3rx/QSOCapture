@@ -5,7 +5,7 @@ in plain business language, without going into implementation details.
 
 ---
 
-## Version 0.3.1beta
+## Version 0.4.0beta
 
 ### Fix: crash on Windows 7/8 (APPCRASH in libcef.dll)
 - On Windows 7/8 the app uses the CEF (Chromium Embedded Framework) backend
@@ -30,6 +30,40 @@ in plain business language, without going into implementation details.
   artifacts without publishing a GitHub Release.
 - The Release job now runs only when a `v*` tag is pushed; manual runs build
   both the modern and Windows 7/8 packages but create no release.
+
+### Fix: corrupted audio when recording a single stereo channel (SO2R)
+- When recording only one side of a stereo signal (for example the left or
+  right channel in SO2R, or a single receiver pulled out of a stereo stream),
+  the saved audio could come out **wrong / garbled** because the program wrote
+  the raw bytes straight from a non-contiguous in-memory slice of the stereo
+  buffer.
+- The recorder now makes sure every channel it writes (to WAV, MP3, and the
+  continuous-recording buffer) is laid out as a plain, contiguous block of
+  samples before writing it, so the recorded file always matches what was
+  actually received — for both N1MM QSO slices and continuous recordings.
+
+### Fix: SO2R QSO always recorded on RX2 regardless of the radio used
+- In SO2R (two receivers, RX1 = radio 1, RX2 = radio 2) every logged QSO was
+  saved **only from the RX2 channel**, no matter which radio actually made the
+  contact.
+- The cause was that the slicer created one database row per receiver using the
+  same N1MM contact GUID. The unique index on that GUID then kept only the
+  last-written row (RX2), so the dashboard and the audio file always pointed
+  at RX2.
+- The recorder now reads the **`<RadioNr>`** field from the N1MM contact and
+  slices **only the matching receiver's** buffer (RX1 for radio 1, RX2 for
+  radio 2). Each QSO produces a single file and a single database row, so the
+  recording now reflects the radio that was actually used. Continuous recording
+  still captures both receivers independently as before.
+
+### Consistent audio loudness (automatic gain normalisation)
+- Saved recordings (both N1MM QSO slices and continuous chunks) are now
+  normalised to a **consistent perceived loudness** so you no longer jump
+  between very quiet and very loud files.
+- The normaliser targets a fixed RMS level, but **caps the applied gain** so it
+  never amplifies near-silent / noisy audio into a roar, and **hard-clips the
+  peaks** just below full scale to avoid distortion. This applies to WAV and
+  MP3 output alike.
 
 ---
 

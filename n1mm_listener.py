@@ -88,6 +88,7 @@ class N1MMContact:
     n1mm_id: str = ""         # 32-byte GUID identifier for the contact (<ID>)
     is_claimed: str = ""      # IsClaimedQso (1 default, 0 for X-QSO)
     sent_exchange: str = ""   # SentExchange (our sent exchange)
+    radio_nr: str = "1"       # Radio number (1 or 2) from N1MM <RadioNr> (SO2R)
 
 
 # Function signature the listener calls when a contact is received.
@@ -277,6 +278,7 @@ class N1MMListener:
             n1mm_id=g("id").strip(),
             is_claimed=g("isclaimedqso").strip(),
             sent_exchange=g("sentexchange").strip(),
+            radio_nr=(g("radionr") or "1").strip(),
         )
         logger.info("N1MM contact: %s %s %s", contact.call, contact.band, contact.mode)
         logger.debug("N1MM contact fields: freq=%s exch=%s n1mm_id=%s rcv=%s snt=%s section=%s",
@@ -433,6 +435,7 @@ def schedule_qso_slice(contact: N1MMContact, source, cfg) -> None:
         n1mm_id=contact.n1mm_id,
         is_claimed=contact.is_claimed,
         sent_exchange=contact.sent_exchange,
+        radio_nr=contact.radio_nr,
         raw_ts=contact.raw_ts,
     )
     try:

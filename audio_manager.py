@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import os
 import time
 import threading
@@ -149,6 +150,7 @@ class QSORequest:
     n1mm_id: str = ""
     is_claimed: str = ""
     sent_exchange: str = ""
+    radio_nr: str = "1"        # Radio number (1 or 2) from N1MM <RadioNr> (SO2R)
     raw_ts: str = ""
 
 
@@ -188,6 +190,76 @@ def _write_pcm(path: str, frames: np.ndarray, sample_rate: int, channels: int,
 def write_pcm_to_wav(path: str, frames: np.ndarray, sample_rate: int, channels: int) -> None:
     """Write int16 frames to a 16-bit PCM WAV file (legacy alias)."""
     _write_pcm(path, frames, sample_rate, channels, fmt="wav")
+
+
+# --- Audio normalization (hardcoded, always-on, no UI) -------------------
+# Goal: bring every saved file to a consistent perceived loudness so the
+# user is not jumping between very quiet and very loud recordings. We target
+# a fixed RMS level (ReplayGain-style) but cap the applied gain so we never
+# amplify near-silent / noisy audio into a roar, and hard-clip the peaks just
+# below full scale to avoid distortion.
+NORM_TARGET_DBFS = -24.0       # desired RMS level (quieter than -18 to avoid loud files)
+NORM_MAX_GAIN_DB = 18.0        # upper bound on applied gain (protects quiet noise)
+NORM_PEAK_CEIL_DB = -6.0       # peak ceiling, anti-clipping safety margin
+
+
+def _normalize_frames(frames: np.ndarray):
+    """Normalize int16 PCM frames to a consistent level.
+
+    Returns a tuple ``(frames, gain_db)`` where ``gain_db`` is the applied
+    gain in decibels (negative when the audio was attenuated, positive when
+    boosted). The algorithm:
+      1. compute RMS of the float signal in [-1, 1]
+      2. desired gain = target_rms / rms, capped at ``NORM_MAX_GAIN_DB``
+      3. apply gain, then if any peak exceeds ``NORM_PEAK_CEIL_DB`` scale the
+         whole buffer down so the loudest sample sits exactly at the ceiling
+    A silent buffer (rms == 0) is returned untouched with a gain of 0.0 dB.
+    """
+    if frames is None or frames.size == 0:
+        return frames, 0.0
+    x = frames.astype(np.float32) / 32768.0
+    rms = float(np.sqrt(np.mean(x * x)))
+    if rms <= 0.0:
+        return frames, 0.0
+    target_lin = 10.0 ** (NORM_TARGET_DBFS / 20.0)
+    max_gain = 10.0 ** (NORM_MAX_GAIN_DB / 20.0)
+    gain_lin = min(target_lin / rms, max_gain)
+    x *= gain_lin
+    ceil = 10.0 ** (NORM_PEAK_CEIL_DB / 20.0)
+    peak = float(np.max(np.abs(x)))
+    if peak > ceil:
+        x *= ceil / peak
+    gain_db = 20.0 * math.log10(gain_lin) if gain_lin > 0 else 0.0
+    return (np.clip(x, -1.0, 1.0) * 32767.0).astype(np.int16), round(gain_db, 1)
+
+
+def _normalize_wav_inplace(path: str) -> Optional[float]:
+    """Read a WAV file, normalize its samples, and overwrite it in place.
+
+    Used for continuous WAV chunks that are written streaming and can only be
+    normalized once the whole chunk is closed. A failure is silently ignored
+    (the original file is left intact) so recording never breaks on a glitch.
+    Returns the applied gain in dB, or ``None`` if normalization did not run.
+    """
+    try:
+        with wave.open(path, "rb") as wf:
+            ch = wf.getnchannels()
+            sr = wf.getframerate()
+            width = wf.getsampwidth()
+            raw = wf.readframes(wf.getnframes())
+        if width != 2:
+            return None
+        pcm = np.frombuffer(raw, dtype=np.int16).reshape(-1, ch)
+        pcm, gain_db = _normalize_frames(pcm)
+        with wave.open(path, "wb") as wf:
+            wf.setnchannels(ch)
+            wf.setsampwidth(width)
+            wf.setframerate(sr)
+            wf.writeframes(pcm.tobytes())
+        return gain_db
+    except Exception as e:
+        logger.warning("WAV normalization failed for %s: %s", path, e)
+        return None
 
 
 class AudioSource(ABC):
@@ -425,64 +497,82 @@ class AudioSource(ABC):
         contest_dir = f"{year}_{req.contest}" if req.contest else f"{year}_GENERAL"
         out_dir = os.path.join(self.cfg.recordings_dir, contest_dir)
 
+        # In SO2R we capture two independent receivers (RX1 = radio 1,
+        # RX2 = radio 2). N1MM reports which radio made the QSO via <RadioNr>,
+        # so we slice only the matching receiver's buffer instead of blindly
+        # iterating over both (which produced two DB rows sharing the same
+        # n1mm_id; the unique index then kept only the RX2 row, making every
+        # QSO appear as if it were logged on RX2).
+        if len(self.rx_buffers) > 1:
+            want_label = "RX2" if str(req.radio_nr).strip() == "2" else "RX1"
+            target = next((buf for lbl, buf in self.rx_buffers if lbl == want_label),
+                          self.rx_buffers[0][1])
+        else:
+            want_label, target = self.rx_buffers[0]
+
         saved = []
-        for rx_label, buf in self.rx_buffers:
-            frames = buf.get_slice(start_off, end_off)
-            if frames is None or frames.shape[0] == 0:
-                avail = buf.snapshot_all()
-                if avail.shape[0] > 0:
-                    logger.warning("[%s] full window unavailable for %s; saving %d buffered frames",
-                                    rx_label, req.call, avail.shape[0])
-                    frames = avail
-                else:
-                    logger.warning("[%s] insufficient buffer for QSO %s", rx_label, req.call)
-                    continue
-            logger.debug("[%s] sliced %d frames for %s (contest=%s)",
-                         rx_label, frames.shape[0], req.call, contest_dir)
-            fname = f"{stamp}_{safe_call}_{req.band}_{rx_label}.{ext}"
-            out_path = os.path.join(out_dir, fname)
-            _write_pcm(out_path, frames, self.cfg.sample_rate, 1,
-                       fmt=self.cfg.audio_format)
-            logger.info("[%s] saved QSO slice -> %s (%d frames)", rx_label, out_path, frames.shape[0])
-            saved.append((rx_label, out_path))
-            # Persist a DB record so the dashboard can list/filter QSOs.
-            # Forward the rich N1MM metadata (freq, exchange, name, ...) so
-            # the dashboard can display it.
-            try:
-                import db as qso_db
-                superseded = qso_db.insert_qso(
-                    contest=f"{year}_{req.contest}" if req.contest else f"{year}_GENERAL",
-                    call=req.call, band=req.band, mode=req.mode,
-                    freq=req.freq, name=req.name, qth=req.qth, grid=req.grid,
-                    comment=req.comment, exchange=req.exchange,
-                    exchange2=req.exchange2, exchange3=req.exchange3,
-                    rcv=req.rcv, snt=req.snt, rcvnr=req.rcvnr, sntnr=req.sntnr,
-                    section=req.section, mycall=req.mycall,
-                    countryprefix=req.countryprefix, wpxprefix=req.wpxprefix,
-                    continent=req.continent, operator=req.operator, station=req.station,
-                    contest_nr=req.contest_nr, points=req.points,
-                    multiplier=req.multiplier, multiplier2=req.multiplier2,
-                    multiplier3=req.multiplier3, prec=req.prec, ck=req.ck,
-                    power=req.power, n1mm_id=req.n1mm_id, is_claimed=req.is_claimed,
-                    sent_exchange=req.sent_exchange, timestamp=req.timestamp,
-                    raw_ts=req.raw_ts,
-                    file_path=f"{contest_dir}/{fname}",
-                )
-                # If an edited N1MM contact (contactreplace) produced a new
-                # slice filename, the old audio file is now orphaned — remove
-                # it so it does not linger in the recordings folder.
-                if superseded:
-                    old_path = os.path.join(self.cfg.recordings_dir, superseded)
-                    try:
-                        if os.path.isfile(old_path):
-                            os.remove(old_path)
-                            logger.info("[%s] removed superseded audio file: %s",
-                                        rx_label, old_path)
-                    except OSError as e:
-                        logger.warning("Could not remove superseded file %s: %s",
-                                       old_path, e)
-            except Exception as e:
-                logger.debug("qso db insert failed: %s", e)
+        rx_label = want_label
+        buf = target
+        frames = buf.get_slice(start_off, end_off)
+        if frames is None or frames.shape[0] == 0:
+            avail = buf.snapshot_all()
+            if avail.shape[0] > 0:
+                logger.warning("[%s] full window unavailable for %s; saving %d buffered frames",
+                                 rx_label, req.call, avail.shape[0])
+                frames = avail
+            else:
+                logger.warning("[%s] insufficient buffer for QSO %s", rx_label, req.call)
+                return None
+        logger.debug("[%s] sliced %d frames for %s (contest=%s)",
+                      rx_label, frames.shape[0], req.call, contest_dir)
+        # Normalize so every QSO slice has a consistent loudness regardless
+        # of how strong the received signal was (quiet vs loud stations).
+        frames, gain_db = _normalize_frames(frames)
+        fname = f"{stamp}_{safe_call}_{req.band}_{rx_label}.{ext}"
+        out_path = os.path.join(out_dir, fname)
+        _write_pcm(out_path, frames, self.cfg.sample_rate, 1,
+                   fmt=self.cfg.audio_format)
+        logger.info("[%s] saved QSO slice -> %s (%d frames, gain=%+.1f dB)",
+                     rx_label, out_path, frames.shape[0], gain_db)
+        saved.append((rx_label, out_path))
+        # Persist a DB record so the dashboard can list/filter QSOs.
+        # Forward the rich N1MM metadata (freq, exchange, name, ...) so
+        # the dashboard can display it.
+        try:
+            import db as qso_db
+            superseded = qso_db.insert_qso(
+                contest=f"{year}_{req.contest}" if req.contest else f"{year}_GENERAL",
+                call=req.call, band=req.band, mode=req.mode,
+                freq=req.freq, name=req.name, qth=req.qth, grid=req.grid,
+                comment=req.comment, exchange=req.exchange,
+                exchange2=req.exchange2, exchange3=req.exchange3,
+                rcv=req.rcv, snt=req.snt, rcvnr=req.rcvnr, sntnr=req.sntnr,
+                section=req.section, mycall=req.mycall,
+                countryprefix=req.countryprefix, wpxprefix=req.wpxprefix,
+                continent=req.continent, operator=req.operator, station=req.station,
+                contest_nr=req.contest_nr, points=req.points,
+                multiplier=req.multiplier, multiplier2=req.multiplier2,
+                multiplier3=req.multiplier3, prec=req.prec, ck=req.ck,
+                power=req.power, n1mm_id=req.n1mm_id, is_claimed=req.is_claimed,
+                sent_exchange=req.sent_exchange, timestamp=req.timestamp,
+                raw_ts=req.raw_ts,
+                file_path=f"{contest_dir}/{fname}",
+            )
+            # If an edited N1MM contact (contactreplace) produced a new
+            # slice filename, the old audio file is now orphaned — remove
+            # it so it does not linger in the recordings folder.
+            if superseded:
+                old_path = os.path.join(self.cfg.recordings_dir, superseded)
+                try:
+                    if os.path.isfile(old_path):
+                        os.remove(old_path)
+                        logger.info("[%s] removed superseded audio file: %s",
+                                     rx_label, old_path)
+                except OSError as e:
+                    logger.warning("Could not remove superseded file %s: %s",
+                                   old_path, e)
+        except Exception as e:
+            logger.debug("qso db insert failed: %s", e)
         if saved:
             _emit_event("qso_saved")
         return saved[0][1] if saved else None
@@ -689,6 +779,13 @@ class AudioSource(ABC):
             qso_db.update_qso_duration(rel, duration)
         except Exception as e:
             logger.debug("continuous db update failed: %s", e)
+        # WAV chunks are written streaming, so they can only be normalized once
+        # closed. Normalize in place to bring the chunk to a consistent level.
+        if self.cfg.audio_format == "wav":
+            gain_db = _normalize_wav_inplace(path)
+            if gain_db is not None:
+                logger.info("[%s] continuous WAV normalized (gain=%+.1f dB) %s",
+                            rx_label, gain_db, os.path.basename(path))
         # MP3 encoding happens off-thread so it never blocks the writer.
         if self.cfg.audio_format == "mp3":
             # Pass the computed duration so the encoder thread can persist it
@@ -720,6 +817,11 @@ class AudioSource(ABC):
         with wave.open(wav_path, "rb") as wf:
             data = wf.readframes(wf.getnframes())
             ch = wf.getnchannels()
+        # Normalize the PCM to a consistent loudness before encoding to MP3.
+        pcm = np.frombuffer(data, dtype=np.int16).reshape(-1, ch) if ch > 1 \
+            else np.frombuffer(data, dtype=np.int16)
+        pcm, gain_db = _normalize_frames(pcm)
+        data = pcm.tobytes()
         enc = lameenc.Encoder()
         enc.set_bit_rate(128)
         enc.set_in_sample_rate(sample_rate)
@@ -733,6 +835,8 @@ class AudioSource(ABC):
             os.remove(wav_path)
         except OSError:
             pass
+        logger.info("continuous MP3 normalized (gain=%+.1f dB) %s",
+                    gain_db, os.path.basename(out))
         return out
 
 
