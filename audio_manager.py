@@ -156,7 +156,10 @@ def _write_pcm(path: str, frames: np.ndarray, sample_rate: int, channels: int,
                fmt: str = "wav") -> None:
     """Write int16 frames to a WAV or MP3 file at path."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    pcm = frames.astype(np.int16)
+    # Force C-contiguous layout so tobytes() never depends on the strides of a
+    # column slice (e.g. pcm[:, 1:2]) from a stereo buffer. .astype already
+    # yields a contiguous array; this is a defensive guarantee.
+    pcm = np.ascontiguousarray(frames, dtype=np.int16)
     if fmt == "mp3":
         try:
             import lameenc
@@ -534,7 +537,10 @@ class AudioSource(ABC):
         capture callback never blocks on a full queue — live audio keeps
         flowing and only a small tail of continuous recording is skipped.
         """
-        frames = np.asarray(frames, dtype=np.int16).copy()
+        # Force a C-contiguous copy so a column slice from a stereo buffer
+        # (e.g. pcm[:, 1:2]) gets its own physically-sequential memory
+        # before it is written to a WAV via tobytes()/writeframes().
+        frames = np.ascontiguousarray(frames, dtype=np.int16).copy()
         while True:
             try:
                 self._cont_queue.put_nowait((rx_label, frames))
@@ -1037,7 +1043,10 @@ class TCIAudioSource(AudioSource):
             return None
 
         if nchan > 1 and pcm.ndim == 1 and pcm.shape[0] % nchan == 0:
-            pcm = pcm.reshape(-1, nchan)[:, 0]
+            # Force C-contiguous memory for the selected channel before it is
+            # routed to a buffer / written to disk (defensive against any
+            # strides-based copy assumptions downstream).
+            pcm = np.ascontiguousarray(pcm.reshape(-1, nchan)[:, 0], dtype=np.int16)
         return pcm, rx_index
 
     def _push_pcm(self, pcm: np.ndarray, rx_index: int = 0) -> None:
