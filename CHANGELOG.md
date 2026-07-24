@@ -7,6 +7,22 @@ in plain business language, without going into implementation details.
 
 ## Unreleased
 
+### Fix: pagination broken when filtering by RX (RX1/RX2)
+- The RX filter (`rx` query parameter, e.g. `?rx=RX1`) was applied **in Python
+  after** the SQL query had already fetched a limited set of rows with
+  `LIMIT/OFFSET`. When the filter discarded some rows, the response returned
+  fewer records than the page size, breaking pagination and causing gaps or
+  empty pages.
+- **Solution:** A new `rx` column has been added to the `qsos` table.
+  The value (RX1 or RX2) is now extracted from the filename at insert time and
+  stored directly in the database. The dashboard filter pushes the `rx`
+  condition down into SQL **before** `LIMIT/OFFSET`, so `COUNT(*)` and the
+  result set always agree. Existing recordings are back-filled automatically on
+  the first launch after the upgrade.
+- The `label` field in the API response continues to work as before — it is now
+  read directly from the new database column instead of being parsed from the
+  filename on every request.
+
 ### Performance: faster startup by skipping redundant audio file scan
 - The startup scan of the recordings directory (`migrate_existing`) now checks
   if the database already contains records — if it does, the scan is skipped

@@ -26,6 +26,22 @@ _lock = threading.Lock()
 _local = threading.local()
 
 
+def _extract_rx(file_path: Optional[str]) -> str:
+    """Extract the RX label (RX1/RX2) from an audio file path.
+
+    The RX label is always the last filename segment before the extension,
+    which works for both N1MM QSO slices and continuous chunks.
+    Returns ``"RX1"`` as the default when the path is empty or unparseable.
+    """
+    if not file_path:
+        return "RX1"
+    base = os.path.basename(file_path)
+    if not base:
+        return "RX1"
+    parts = base[:-4].split("_")
+    return parts[-1] if parts else "RX1"
+
+
 def _connect() -> sqlite3.Connection:
     """Return a thread-local connection, creating one if necessary.
 
@@ -143,6 +159,15 @@ def init_db() -> None:
         con.execute(
             "CREATE INDEX IF NOT EXISTS idx_qsos_mode ON qsos(mode)"
         )
+        # Backfill the rx column for rows that were created before the column
+        # existed. This runs only once after the ALTER TABLE above adds it.
+        if "rx" not in cols:
+            existing_rows = con.execute(
+                "SELECT id, file_path FROM qsos WHERE rx IS NULL"
+            ).fetchall()
+            for row_id, fp in existing_rows:
+                rx_val = _extract_rx(fp)
+                con.execute("UPDATE qsos SET rx=? WHERE id=?", (rx_val, row_id))
         con.commit()
 
 
@@ -166,6 +191,7 @@ _MIGRATE_COLUMNS = [
     ("is_claimed", "TEXT"),
     ("sent_exchange", "TEXT"),
     ("duration", "REAL"),
+    ("rx", "TEXT"),
 ]
 
 
@@ -255,7 +281,8 @@ def insert_qso(
                             continent=?, operator=?, station=?, contest_nr=?,
                             points=?, multiplier=?, multiplier2=?, multiplier3=?,
                             prec=?, ck=?, power=?, is_claimed=?,
-                            sent_exchange=?, timestamp=?, raw_ts=?, duration=?
+                            sent_exchange=?, timestamp=?, raw_ts=?, duration=?,
+                            rx=?
                         WHERE n1mm_id=?
                         """,
                         (contest, call, band, mode, freq, name, qth, grid,
@@ -264,7 +291,7 @@ def insert_qso(
                          wpxprefix, continent, operator, station, contest_nr,
                          points, multiplier, multiplier2, multiplier3, prec,
                          ck, power, is_claimed, sent_exchange, timestamp,
-                         raw_ts, duration, n1mm_id_val),
+                         raw_ts, duration, _extract_rx(file_path), n1mm_id_val),
                     )
                     return None
                 # Different file (edited timestamp -> new slice filename):
@@ -272,12 +299,13 @@ def insert_qso(
                 # orphaned audio file is reported back to the caller.
                 con.execute("DELETE FROM qsos WHERE n1mm_id=?", (n1mm_id_val,))
                 superseded = old_fp
+        rx_val = _extract_rx(file_path)
         params = (contest, call, band, mode, freq, name, qth, grid, comment,
                   exchange, exchange2, exchange3, rcv, snt, rcvnr, sntnr,
                   section, mycall, countryprefix, wpxprefix, continent,
                   operator, station, contest_nr, points, multiplier,
                   multiplier2, multiplier3, prec, ck, power, n1mm_id_val,
-                  is_claimed, sent_exchange, timestamp, raw_ts, duration, file_path)
+                  is_claimed, sent_exchange, timestamp, raw_ts, duration, file_path, rx_val)
         con.execute(
             "INSERT OR IGNORE INTO qsos ("
             "contest, call, band, mode, freq, name, qth, grid, comment, "
@@ -285,7 +313,7 @@ def insert_qso(
             "section, mycall, countryprefix, wpxprefix, continent, "
             "operator, station, contest_nr, points, multiplier, "
             "multiplier2, multiplier3, prec, ck, power, n1mm_id, "
-            "is_claimed, sent_exchange, timestamp, raw_ts, duration, file_path) "
+            "is_claimed, sent_exchange, timestamp, raw_ts, duration, file_path, rx) "
             "VALUES (" + ",".join("?" for _ in params) + ")",
             params,
         )
@@ -369,7 +397,7 @@ def query_contacts(
         "mycall, countryprefix, wpxprefix, continent, comment, operator, "
         "station, contest_nr, points, multiplier, multiplier2, multiplier3, "
         "prec, ck, power, n1mm_id, is_claimed, sent_exchange, "
-        "file_path, timestamp, duration "
+        "file_path, timestamp, duration, rx "
         "FROM qsos WHERE 1=1"
     )
     args: List = []
@@ -432,6 +460,9 @@ def query_contacts(
     if date_to is not None:
         sql += " AND timestamp <= ?"
         args.append(date_to)
+    if rx:
+        sql += " AND rx=?"
+        args.append(rx)
     # Whitelist the sort column/direction so user input can never inject SQL.
     allowed_cols = {
         "timestamp": "timestamp",
@@ -462,14 +493,7 @@ def query_contacts(
     for r in rows:
         fp = r["file_path"]
         base = os.path.basename(fp) if fp else ""
-        label = "RX1"
-        if base:
-            parts = base[:-4].split("_")
-            # The RX label is always the last filename segment (RX1/RX2),
-            # which works for both N1MM QSO slices and continuous chunks.
-            label = parts[-1] if parts else "RX1"
-        if rx and label != rx:
-            continue
+        label = r["rx"] or "RX1"
         ts = r["timestamp"]
         results.append({
             "id": r["id"],
@@ -649,7 +673,7 @@ def migrate_existing(recordings_dir: str) -> None:
                         )
                     except Exception:
                         ts = 0.0
-                rows.append(("_continuous", "CONTINUOUS", "", ts, fp, dur))
+                rows.append(("_continuous", "CONTINUOUS", "", ts, fp, dur, _extract_rx(fp)))
                 continue
             call, band, ts = "UNKNOWN", "", 0.0
             parts = fname[:-4].split("_")
@@ -662,7 +686,7 @@ def migrate_existing(recordings_dir: str) -> None:
                     ts = 0.0
                 call = parts[2]
                 band = parts[3]
-            rows.append((contest, call, band, ts, fp, dur))
+            rows.append((contest, call, band, ts, fp, dur, _extract_rx(fp)))
 
     if not rows:
         return
@@ -671,8 +695,8 @@ def migrate_existing(recordings_dir: str) -> None:
     with _lock:
         con.executemany(
             "INSERT OR IGNORE INTO qsos "
-            "(contest, call, band, timestamp, file_path, duration) "
-            "VALUES (?,?,?,?,?,?)",
+            "(contest, call, band, timestamp, file_path, duration, rx) "
+            "VALUES (?,?,?,?,?,?,?)",
             rows,
         )
         con.commit()
