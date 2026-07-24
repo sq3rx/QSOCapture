@@ -377,7 +377,7 @@ def list_contests() -> List[str]:
     rows = con.execute(
         "SELECT DISTINCT contest FROM qsos "
         "WHERE contest != '' AND contest IS NOT NULL "
-        "AND contest NOT LIKE '_%' "
+        "AND contest NOT GLOB '_*' "
         "ORDER BY contest"
     ).fetchall()
     return [r[0] for r in rows]

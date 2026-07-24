@@ -147,11 +147,11 @@
     </header>
 
     <section class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
-      <div>
+      <div class="relative">
         <label class="block text-xs uppercase tracking-wide text-slate-400 mb-1">Contest</label>
-        <input id="contest" list="contestList" type="text" placeholder="e.g. CQWW or 2026_CQ"
+        <input id="contest" type="text" placeholder="e.g. CQWW or 2026_CQ" autocomplete="off"
                class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm" />
-        <datalist id="contestList"></datalist>
+        <div id="contestDropdown" class="hidden absolute z-50 w-full bg-slate-900 border border-slate-700 rounded-md mt-1 max-h-48 overflow-y-auto shadow-lg"></div>
       </div>
       <div>
         <label class="block text-xs uppercase tracking-wide text-slate-400 mb-1">Call / Prefix</label>
@@ -374,6 +374,9 @@
     // radio is linked, otherwise we would record silent gap files. In
     // soundcard mode this stays true (the device is always treated as ready).
     let tciConnected = true;
+    // Cached list of contest names from the database, used by the autocomplete
+    // dropdown. Populated once on load and refreshed after factory reset.
+    let contestList = [];
 
     // Pagination state for the QSO dashboard. Only a slice of the matching
     // rows is loaded at once so the UI stays responsive even with tens of
@@ -546,14 +549,63 @@
       try {
         const r = await fetch('/api/contests');
         const d = await r.json();
-        const sel = $('contestList');
-        d.contests.forEach(c => {
-          const o = document.createElement('option');
-          o.value = c;
-          sel.appendChild(o);
-        });
-      } catch (e) {}
+        contestList = d.contests || [];
+        buildContestDropdown('');
+      } catch (e) {
+        contestList = [];
+      }
     }
+
+    // --- Autocomplete helpers for the Contest field ---
+    let contestHighlightIdx = -1;
+
+    function buildContestDropdown(filter) {
+      const dd = $('contestDropdown');
+      const f = (filter || '').toLowerCase().trim();
+      let items = contestList;
+      if (f) {
+        items = items.filter(c => c.toLowerCase().includes(f));
+      }
+      dd.innerHTML = '';
+      if (items.length === 0) {
+        const d = document.createElement('div');
+        d.className = 'px-3 py-2 text-xs text-slate-500';
+        d.textContent = '(no matches)';
+        dd.appendChild(d);
+        return;
+      }
+      items.forEach(c => {
+        const d = document.createElement('div');
+        d.className = 'px-3 py-2 text-sm text-slate-200 hover:bg-slate-700 cursor-pointer';
+        d.textContent = c;
+        d.addEventListener('mousedown', (e) => {
+          e.preventDefault(); // prevent blur from firing on the input
+          selectContest(c);
+        });
+        dd.appendChild(d);
+      });
+    }
+
+    function showContestDropdown() {
+      const dd = $('contestDropdown');
+      dd.className = 'absolute z-50 w-full bg-slate-900 border border-slate-700 rounded-md mt-1 max-h-48 overflow-y-auto shadow-lg';
+    }
+
+    function hideContestDropdown() {
+      const dd = $('contestDropdown');
+      dd.className = 'hidden absolute z-50 w-full bg-slate-900 border border-slate-700 rounded-md mt-1 max-h-48 overflow-y-auto shadow-lg';
+      contestHighlightIdx = -1;
+    }
+
+    function selectContest(value) {
+      const inp = $('contest');
+      inp.value = value;
+      hideContestDropdown();
+      loadQsos();
+    }
+
+    // Make selectContest accessible from the browser console for debugging
+    window.selectContest = selectContest;
 
     function buildPlayer(url, relPath, suggestedName) {
       if (!url) {
@@ -997,8 +1049,72 @@
       return isNaN(t) ? null : String(t / 1000);
     }
 
+    // --- Autocomplete event wiring for the Contest field ---
+    const contestInput = $('contest');
+    contestInput.addEventListener('focus', () => {
+      buildContestDropdown(contestInput.value);
+      showContestDropdown();
+    });
+    contestInput.addEventListener('input', () => {
+      buildContestDropdown(contestInput.value);
+      showContestDropdown();
+    });
+    contestInput.addEventListener('keydown', (e) => {
+      const dd = $('contestDropdown');
+      const items = dd.querySelectorAll('div:not(.text-slate-500)');
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        contestHighlightIdx = Math.min(contestHighlightIdx + 1, items.length - 1);
+        items.forEach((el, i) => {
+          el.className = i === contestHighlightIdx
+            ? 'px-3 py-2 text-sm text-slate-200 bg-slate-700 cursor-pointer'
+            : 'px-3 py-2 text-sm text-slate-200 hover:bg-slate-700 cursor-pointer';
+        });
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        contestHighlightIdx = Math.max(contestHighlightIdx - 1, 0);
+        items.forEach((el, i) => {
+          el.className = i === contestHighlightIdx
+            ? 'px-3 py-2 text-sm text-slate-200 bg-slate-700 cursor-pointer'
+            : 'px-3 py-2 text-sm text-slate-200 hover:bg-slate-700 cursor-pointer';
+        });
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (contestHighlightIdx >= 0 && items[contestHighlightIdx]) {
+          selectContest(items[contestHighlightIdx].textContent);
+        } else if (!contestInput.value.trim()) {
+          // Field is empty — reload QSOs without contest filter
+          hideContestDropdown();
+          loadQsos();
+        } else {
+          // No item highlighted — just hide the dropdown without loading QSOs
+          hideContestDropdown();
+        }
+      } else if (e.key === 'Escape') {
+        hideContestDropdown();
+      }
+    });
+    contestInput.addEventListener('blur', () => {
+      // Delay so click on dropdown item fires before blur
+      setTimeout(() => {
+        hideContestDropdown();
+        // If the field was cleared, reload QSOs without contest filter
+        if (!contestInput.value.trim()) {
+          loadQsos();
+        }
+      }, 150);
+    });
+    // Close dropdown on click outside
+    document.addEventListener('click', (e) => {
+      const wrap = contestInput.closest('.relative');
+      if (wrap && !wrap.contains(e.target)) {
+        hideContestDropdown();
+      }
+    });
+
+    // Other filter fields use the standard debounced input/change pattern.
     let t;
-    ['contest','call','band','mode','rx','date_from','date_to','continuous'].forEach(id => {
+    ['call','band','mode','rx','date_from','date_to','continuous'].forEach(id => {
       $(id).addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => loadQsos(), 200); });
       $(id).addEventListener('change', () => loadQsos());
     });

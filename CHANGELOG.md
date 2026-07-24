@@ -7,93 +7,51 @@ in plain business language, without going into implementation details.
 
 ## Unreleased
 
-### Performance: contest list now served from the database instead of the filesystem
-- The `/api/contests` endpoint previously scanned the recordings directory with
-  `os.listdir()` + `os.path.isdir()` on every request. For 100+ contest folders
-  this added unnecessary filesystem I/O.
-- The list of available contests is now fetched from the SQLite database via
-  `SELECT DISTINCT contest`, which is faster and avoids disk access. A new
-  database index on the `contest` column keeps the query efficient even with
-  tens of thousands of QSO records.
-- Internal entries (like `_continuous`) are excluded from the list — they have
-  their own tab in the dashboard and are not real contests.
+### Performance
+- Contest list is now fetched from the database (`SELECT DISTINCT contest`)
+  instead of scanning the filesystem on every request.
+- QSO list query merged into a single SQL pass using `COUNT(*) OVER()`,
+  roughly halving query time for large result sets.
+- Contest filter changed from `LIKE '%...%'` (full table scan) to an exact
+  index-backed match (`contest = ?`).
+- Startup no longer scans the recordings directory if the database already
+  has records — eliminates multi-second delays on subsequent launches.
+- SQLite connections are now cached per thread instead of opened for every
+  operation, reducing overhead and lock contention.
 
-### Performance: QSO list query now uses a single SQL pass and index-friendly contest filter
-- The `/api/qsos` endpoint previously ran **two separate SQL queries** for every
-  request: one `SELECT COUNT(*)` for the total count and another `SELECT ...`
-  with `LIMIT/OFFSET` for the actual rows. Both scanned the same filtered rows,
-  doubling the work.
-- The two queries have been merged into one using `COUNT(*) OVER()` (a window
-  function), which returns the total count alongside every result row in a
-  single pass. This cuts the query time roughly in half for large result sets.
-- The contest filter was changed from `LIKE '%...%'` (which cannot use an index
-  and always performs a full table scan) to an **exact match** (`contest = ?`).
-  The new database index on `contest` now makes this lookup instant, even with
-  100 000+ QSO records. The frontend provides the full contest name from its
-  datalist, so the user experience is unchanged.
+### Continuous queue monitoring
+- Queue size increased from 600 to 1800 to reduce audio drops under load.
+- Dashboard RX badges show queue fill level and drop count with colour
+  coding (green / orange / red) and tooltips.
+- A `continuous_dropped` Server-Sent Event triggers an immediate status
+  refresh when chunks are dropped.
 
-### Continuous queue monitoring (bounded 1800) with dashboard warning
-- The continuous recording queue size was increased from 600 to 1800 to reduce
-  the chance of audio drops under heavy load.
-- When the queue still overflows and chunks have to be dropped, a counter tracks
-  the number of lost audio fragments. The server status API now exposes the
-  current queue fill level (`cont_queue_fill_pct`) and the drop count
-  (`cont_queue_dropped`).
-- The dashboard RX1/RX2 badges reflect the queue state:
-  - **Green** = normal operation.
-  - **Orange** = queue is 50–80% full or the ring buffer is running low.
-  - **Red** = queue exceeds 80% or audio chunks have been dropped.
-- Hovering over an RX badge shows a tooltip with the exact queue fill
-  percentage and the number of dropped chunks (if any). Queue info only appears
-  while continuous recording is actually active, so a stopped recorder never
-  shows misleading 0% values.
-- A new `continuous_dropped` Server-Sent Event pushes an immediate status
-  refresh to the dashboard when the first chunk is dropped, so the operator is
-  alerted in real time.
-
-### Fix: pagination broken when filtering by RX (RX1/RX2)
-- The RX filter (`rx` query parameter, e.g. `?rx=RX1`) was applied **in Python
-  after** the SQL query had already fetched a limited set of rows with
-  `LIMIT/OFFSET`. When the filter discarded some rows, the response returned
-  fewer records than the page size, breaking pagination and causing gaps or
-  empty pages.
-- **Solution:** A new `rx` column has been added to the `qsos` table.
-  The value (RX1 or RX2) is now extracted from the filename at insert time and
-  stored directly in the database. The dashboard filter pushes the `rx`
-  condition down into SQL **before** `LIMIT/OFFSET`, so `COUNT(*)` and the
-  result set always agree. Existing recordings are back-filled automatically on
-  the first launch after the upgrade.
-- The `label` field in the API response continues to work as before — it is now
-  read directly from the new database column instead of being parsed from the
-  filename on every request.
-
-### Performance: faster startup by skipping redundant audio file scan
-- The startup scan of the recordings directory (`migrate_existing`) now checks
-  if the database already contains records — if it does, the scan is skipped
-  entirely. Since the application always inserts a database record when saving
-  an audio file, this scan was only needed on the very first run after the
-  database was introduced. On subsequent starts the operation is instant,
-  eliminating the multi-second delay that occurred with thousands of recordings.
-- The migration is also now launched in a background thread so it never blocks
-  application startup, even on the first run.
-
-### Performance: SQLite connection cache and reduced lock contention
-- The database layer no longer opens a new SQLite connection for every single
-  operation (insert, query, delete…). Each thread now reuses its own connection
-  via a thread-local cache, which eliminates the overhead of repeated
-  `sqlite3.connect()` calls and REGISTER function registrations.
-- The module-level lock is now held for a shorter time — the cached connection
-  is obtained *before* entering the critical section — and read-only queries
-  bypass the lock entirely, relying on WAL mode for safe concurrent reads.
-- Every write operation now explicitly commits its transaction so data is
-  immediately visible to other threads (the previous pattern relied on the
-  connection being closed, which no longer happens with the cache).
+### Fix: RX filter broke pagination
+- The `rx` filter was applied in Python **after** `LIMIT/OFFSET`, causing
+  gaps and empty pages. A new `rx` database column now pushes the filter
+  down into SQL before pagination. Existing recordings are back-filled
+  automatically on first launch.
 
 ### Normalisation of continuous recordings now optional
-- Continuous WAV/MP3 chunks were always normalised to a consistent loudness
-  level, which used extra CPU and memory on long recordings. A new
-  **"Normalize continuous recordings"** toggle in Settings lets you disable
-  this (QSO slices are always normalised regardless of this setting).
+- New **"Normalize continuous recordings"** toggle in Settings lets you
+  disable loudness normalisation for continuous chunks (QSO slices are
+  always normalised regardless).
+
+### Fix: contest autocomplete dropdown did not work
+- Dropdown items used `click`, but the input's `blur` handler fired first
+  and hid the dropdown. Changed to `mousedown` with `e.preventDefault()`.
+
+### Fix: contest filter cleared the field when typing a partial name
+- Removed the validation function that cleared the input when the typed
+  value was not an exact match against the contest list.
+
+### Fix: clearing the Contest field did not reload all QSOs
+- Both `blur` and `Enter` handlers now detect an empty field and reload
+  QSOs without the contest filter.
+
+### Fix: contest list was always empty
+- `list_contests()` used `NOT LIKE '_%'` where SQLite treats `_` as a
+  wildcard, excluding all rows. Changed to `NOT GLOB '_*'`.
 
 ---
 

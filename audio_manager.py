@@ -281,7 +281,7 @@ class AudioSource(ABC):
         # capture callback block indefinitely (which would stall live audio).
         # When the queue is full the oldest pending chunk is dropped so we
         # always keep the freshest audio.
-        self._cont_queue: "queue.Queue" = queue.Queue(maxsize=1600)
+        self._cont_queue: "queue.Queue" = queue.Queue(maxsize=1800)
         self._cont_files: dict = {}
         self._cont_lock = threading.Lock()
         self._cont_start = 0.0
