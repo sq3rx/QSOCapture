@@ -5,6 +5,16 @@ in plain business language, without going into implementation details.
 
 ---
 
+## Unreleased
+
+### Normalisation of continuous recordings now optional
+- Continuous WAV/MP3 chunks were always normalised to a consistent loudness
+  level, which used extra CPU and memory on long recordings. A new
+  **"Normalize continuous recordings"** toggle in Settings lets you disable
+  this (QSO slices are always normalised regardless of this setting).
+
+---
+
 ## Version 0.4.0beta
 
 ### Fix: crash on Windows 7/8 (APPCRASH in libcef.dll)
