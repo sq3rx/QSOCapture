@@ -25,6 +25,7 @@ class AppConfig:
     continuous_recording: bool = True
     continuous_autostart: bool = False  # begin continuous recording automatically on startup
     continuous_chunk_minutes: int = 60
+    normalize_continuous: bool = True   # normalize continuous WAV chunks to consistent loudness
     max_recordings_gb: float = 0.0  # max disk usage for recordings (0 = unlimited)
 
     # audio
@@ -102,6 +103,7 @@ def load_config(path: str = "config.cfg") -> AppConfig:
         continuous_recording=_get(parser, "general", "continuous_recording", AppConfig.continuous_recording),
         continuous_autostart=_get(parser, "general", "continuous_autostart", AppConfig.continuous_autostart),
         continuous_chunk_minutes=_get(parser, "general", "continuous_chunk_minutes", AppConfig.continuous_chunk_minutes),
+        normalize_continuous=_get(parser, "general", "normalize_continuous", AppConfig.normalize_continuous),
 
         audio_mode=_get(parser, "audio", "mode", AppConfig.audio_mode).lower(),
         audio_format=_get(parser, "audio", "audio_format", AppConfig.audio_format).lower(),
@@ -141,6 +143,8 @@ CONFIG_SCHEMA = [
      "When ON, continuous recording starts automatically on app startup. When OFF, you can still start it anytime from the dashboard (Stop/Start recording button)."),
     ("general", "continuous_chunk_minutes", "Continuous chunk (min)", "int", None,
      "Length of each continuous recording chunk in minutes. Larger values = fewer, bigger files."),
+    ("general", "normalize_continuous", "Normalize continuous recordings", "bool", None,
+     "When ON, continuous WAV chunks are normalized to a consistent loudness level after each chunk is finalized. Disable to save CPU time and memory on long recordings (QSO slices are always normalized regardless of this setting)."),
     ("general", "max_recordings_gb", "Max recordings (GB)", "float", None,
      "Hard cap on total disk usage of the recordings folder. When exceeded, the oldest continuous chunks are deleted automatically (0 = unlimited)."),
     ("audio", "audio_mode", "Audio mode", "text", ["tci", "soundcard"],

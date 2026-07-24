@@ -1113,6 +1113,7 @@
           + fieldBlock('Default contest', textInput('cfg_default_contest', v.default_contest), helpMap.default_contest)
           + fieldBlock('Continuous recording autostart', boolInput('cfg_continuous_autostart', v.continuous_autostart), helpMap.continuous_autostart)
           + fieldBlock('Continuous chunk (min)', numberInput('cfg_continuous_chunk_minutes', v.continuous_chunk_minutes), helpMap.continuous_chunk_minutes)
+          + fieldBlock('Normalize continuous recordings', boolInput('cfg_normalize_continuous', v.normalize_continuous), helpMap.normalize_continuous)
           + fieldBlock('Web address (host:port)', webAddrWidget(`${v.web_host}:${v.web_port}`), helpMap.web_host)
           + fieldBlock('N1MM address (bind_ip:udp_port)', n1mmAddrWidget(`${v.n1mm_bind_ip}:${v.n1mm_udp_port}`), helpMap.n1mm_bind_ip);
         form.innerHTML += group('General', general);

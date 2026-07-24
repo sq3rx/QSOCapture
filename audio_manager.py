@@ -349,7 +349,8 @@ class AudioSource(ABC):
             try:
                 rx_label, wav_path, sample_rate, db_old_rel, duration = item
                 try:
-                    mp3_path = self._encode_mp3(wav_path, sample_rate)
+                    mp3_path = self._encode_mp3(wav_path, sample_rate,
+                                                normalize=self.cfg.normalize_continuous)
                     new_rel = "_continuous/" + os.path.basename(mp3_path)
                     try:
                         import db as qso_db
@@ -780,8 +781,10 @@ class AudioSource(ABC):
         except Exception as e:
             logger.debug("continuous db update failed: %s", e)
         # WAV chunks are written streaming, so they can only be normalized once
-        # closed. Normalize in place to bring the chunk to a consistent level.
-        if self.cfg.audio_format == "wav":
+        # closed. Normalize in place to bring the chunk to a consistent level
+        # (only when the user opted in – disabled for performance on long
+        # recordings where consistent loudness is less critical).
+        if self.cfg.audio_format == "wav" and self.cfg.normalize_continuous:
             gain_db = _normalize_wav_inplace(path)
             if gain_db is not None:
                 logger.info("[%s] continuous WAV normalized (gain=%+.1f dB) %s",
@@ -809,7 +812,7 @@ class AudioSource(ABC):
             self._finalise_cont_file(rx_label, f)
 
     @staticmethod
-    def _encode_mp3(wav_path: str, sample_rate: int) -> str:
+    def _encode_mp3(wav_path: str, sample_rate: int, normalize: bool = True) -> str:
         try:
             import lameenc
         except ImportError:
@@ -817,10 +820,14 @@ class AudioSource(ABC):
         with wave.open(wav_path, "rb") as wf:
             data = wf.readframes(wf.getnframes())
             ch = wf.getnchannels()
-        # Normalize the PCM to a consistent loudness before encoding to MP3.
         pcm = np.frombuffer(data, dtype=np.int16).reshape(-1, ch) if ch > 1 \
             else np.frombuffer(data, dtype=np.int16)
-        pcm, gain_db = _normalize_frames(pcm)
+        gain_db = 0.0
+        # Normalize the PCM to a consistent loudness before encoding to MP3
+        # (only when the user opted in – disabled for performance on long
+        # recordings where consistent loudness is less critical).
+        if normalize:
+            pcm, gain_db = _normalize_frames(pcm)
         data = pcm.tobytes()
         enc = lameenc.Encoder()
         enc.set_bit_rate(128)
@@ -835,8 +842,12 @@ class AudioSource(ABC):
             os.remove(wav_path)
         except OSError:
             pass
-        logger.info("continuous MP3 normalized (gain=%+.1f dB) %s",
-                    gain_db, os.path.basename(out))
+        if normalize:
+            logger.info("continuous MP3 normalized (gain=%+.1f dB) %s",
+                        gain_db, os.path.basename(out))
+        else:
+            logger.info("continuous MP3 encoded (normalization disabled) %s",
+                        os.path.basename(out))
         return out
 
 
