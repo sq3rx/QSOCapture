@@ -270,11 +270,11 @@ with an explanation. The most important options:
 | ------- | ------- | ----------- |
 | general | `station_name` | Your station callsign / label shown in the header. |
 | general | `recordings_dir` | Where audio files are stored. |
-| general | `default_contest` | Contest name used when N1MM does not supply one. |
 | general | `continuous_recording` | ON = the continuous-recording feature is available. |
 | general | `continuous_autostart` | ON = start continuous recording automatically on launch. **OFF by default** — use the dashboard button to start it on demand. |
 | general | `continuous_chunk_minutes` | Length of each continuous chunk. |
 | general | `max_recordings_gb` | Disk cap for the `recordings/` folder in GB. `0` = unlimited; when exceeded, the oldest **continuous** chunks are pruned automatically (N1MM QSO slices are preserved). |
+| tci | `tci_host` / `tci_port` | ExpertSDR TCI server address (default `127.0.0.1:50001`). |
 | audio | `audio_mode` | `tci` (ExpertSDR) or `soundcard`. |
 | audio | `sample_width` | Bytes per sample in the saved file (default `2` = 16-bit, standard for WAV). |
 | audio | `audio_format` | `wav` (lossless) or `mp3` (smaller files). |
@@ -282,9 +282,7 @@ with an explanation. The most important options:
 | audio | `channels` | 1 = SO1R (mono), 2 = SO2R (stereo). |
 | audio | `pre_roll` | Seconds of audio kept **before** the QSO timestamp. |
 | audio | `post_roll` | Seconds waited **after** the N1MM packet before slicing. |
-| audio | `tci_host` / `tci_port` | ExpertSDR TCI server address (default `127.0.0.1:50001`). |
 | audio | `tci_receiver` | Which ExpertSDR receiver to record (0 = main RX). |
-| audio | `tci_version` | TCI protocol version advertised by ExpertSDR (default `2`). |
 | audio | `soundcard_device` | Substring of the input device name (empty = default). |
 | n1mm | `n1mm_udp_port` | UDP port N1MM broadcasts on (default `12060`). |
 | n1mm | `n1mm_bind_ip` | Interface to listen on (`0.0.0.0` = all). |

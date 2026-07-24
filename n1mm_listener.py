@@ -199,7 +199,7 @@ class N1MMListener:
             return
         band = g("band") or "UNK"
         mode = g("mode") or "UNK"
-        contest = g("ContestName") or self.cfg.default_contest
+        contest = g("ContestName") or "GENERAL"
         ts_raw = g("timestamp")
 
         # Frequency: prefer transmitted frequency, fall back to received.
@@ -244,7 +244,7 @@ class N1MMListener:
             call=call.strip().upper(),
             band=self._normalize_band(band),
             mode=mode.strip().upper(),
-            contest=contest.strip() or self.cfg.default_contest,
+            contest=contest.strip() or "GENERAL",
             timestamp=qso_epoch,
             raw_ts=ts_raw,
             receive_ts=receive_ts,

@@ -21,7 +21,6 @@ class AppConfig:
     # general
     station_name: str = "MYSTATION"
     recordings_dir: str = "recordings"
-    default_contest: str = "GENERAL"
     continuous_recording: bool = True
     continuous_autostart: bool = False  # begin continuous recording automatically on startup
     continuous_chunk_minutes: int = 60
@@ -40,7 +39,6 @@ class AppConfig:
     # tci
     tci_host: str = "127.0.0.1"
     tci_port: int = 50001
-    tci_version: int = 2
 
     # soundcard
     soundcard_device: str = ""             # empty = default input device
@@ -99,7 +97,6 @@ def load_config(path: str = "config.cfg") -> AppConfig:
     cfg = AppConfig(
         station_name=_get(parser, "general", "station_name", AppConfig.station_name),
         recordings_dir=_get(parser, "general", "recordings_dir", AppConfig.recordings_dir),
-        default_contest=_get(parser, "general", "default_contest", AppConfig.default_contest),
         continuous_recording=_get(parser, "general", "continuous_recording", AppConfig.continuous_recording),
         continuous_autostart=_get(parser, "general", "continuous_autostart", AppConfig.continuous_autostart),
         continuous_chunk_minutes=_get(parser, "general", "continuous_chunk_minutes", AppConfig.continuous_chunk_minutes),
@@ -113,9 +110,14 @@ def load_config(path: str = "config.cfg") -> AppConfig:
         post_roll=_get(parser, "audio", "post_roll", AppConfig.post_roll),
         sample_width=_get(parser, "audio", "sample_width", AppConfig.sample_width),
 
-        tci_host=_get(parser, "audio", "tci_host", AppConfig.tci_host),
-        tci_port=_get(parser, "audio", "tci_port", AppConfig.tci_port),
-        tci_version=_get(parser, "audio", "tci_version", AppConfig.tci_version),
+        # Backward compatibility: tci_host/tci_port moved from [audio] → [general] → [tci].
+        # Check [tci] first, then [general] (migration), then [audio] (old config).
+        tci_host=_get(parser, "tci", "tci_host",
+                      _get(parser, "general", "tci_host",
+                            _get(parser, "audio", "tci_host", AppConfig.tci_host))),
+        tci_port=_get(parser, "tci", "tci_port",
+                      _get(parser, "general", "tci_port",
+                            _get(parser, "audio", "tci_port", AppConfig.tci_port))),
 
         soundcard_device=_get(parser, "audio", "soundcard_device", AppConfig.soundcard_device),
 
@@ -137,8 +139,6 @@ CONFIG_SCHEMA = [
      "Your station callsign / identifier shown in the header and used as a label in logs."),
     ("general", "recordings_dir", "Recordings directory", "text", None,
      "Folder where recorded QSO slices and continuous chunks are stored. Relative to the app directory."),
-    ("general", "default_contest", "Default contest", "text", None,
-     "Contest name used when N1MM does not supply one (e.g. GENERAL for everyday logging)."),
     ("general", "continuous_autostart", "Continuous recording autostart", "bool", None,
      "When ON, continuous recording starts automatically on app startup. When OFF, you can still start it anytime from the dashboard (Stop/Start recording button)."),
     ("general", "continuous_chunk_minutes", "Continuous chunk (min)", "int", None,
@@ -147,6 +147,10 @@ CONFIG_SCHEMA = [
      "When ON, continuous WAV chunks are normalized to a consistent loudness level after each chunk is finalized. Disable to save CPU time and memory on long recordings (QSO slices are always normalized regardless of this setting)."),
     ("general", "max_recordings_gb", "Max recordings (GB)", "float", None,
      "Hard cap on total disk usage of the recordings folder. When exceeded, the oldest continuous chunks are deleted automatically (0 = unlimited)."),
+    ("tci", "tci_host", "TCI host", "text", None,
+     "IP address of the ExpertSDR TCI server (usually 127.0.0.1 when running on the same PC)."),
+    ("tci", "tci_port", "TCI port", "int", None,
+     "TCP port of the ExpertSDR TCI server (default 50001)."),
     ("audio", "audio_mode", "Audio mode", "text", ["tci", "soundcard"],
      "Source of audio: 'tci' streams from ExpertSDR via the TCI protocol, 'soundcard' captures a system input device."),
     ("audio", "sample_rate", "Sample rate (Hz)", "int", [8000, 16000, 22050, 44100, 48000, 96000],
@@ -161,12 +165,6 @@ CONFIG_SCHEMA = [
      "Bytes per sample in the recorded file (2 = 16-bit, standard for WAV)."),
     ("audio", "audio_format", "Audio format", "text", ["wav", "mp3"],
      "Container for saved audio. WAV is lossless and fast; MP3 saves disk space (requires lameenc)."),
-    ("audio", "tci_host", "TCI host", "text", None,
-     "IP address of the ExpertSDR TCI server (usually 127.0.0.1 when running on the same PC)."),
-    ("audio", "tci_port", "TCI port", "int", None,
-     "TCP port of the ExpertSDR TCI server (default 50001)."),
-    ("audio", "tci_version", "TCI version", "int", [1, 2],
-     "TCI protocol version advertised by ExpertSDR (usually 2)."),
     ("audio", "soundcard_device", "Soundcard device (substr)", "text", None,
      "Substring match of the system input device name to capture (leave empty for the default device)."),
     ("n1mm", "n1mm_udp_port", "N1MM UDP port", "int", None,
@@ -190,6 +188,8 @@ def config_to_dict(cfg: AppConfig) -> dict:
 # save routine falls back to (schema_section, attribute_name) otherwise.
 INI_KEYS = {
     "audio_mode": ("audio", "mode"),
+    "tci_host": ("tci", "tci_host"),
+    "tci_port": ("tci", "tci_port"),
     "n1mm_udp_port": ("n1mm", "udp_port"),
     "n1mm_bind_ip": ("n1mm", "bind_ip"),
     "web_host": ("web", "host"),

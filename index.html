@@ -234,7 +234,7 @@
       <table class="w-full text-sm table-fixed">
     <colgroup>
       <col style="width:160px" /><col style="width:80px" /><col style="width:72px" /><col style="width:72px" />
-      <col style="width:80px" /><col style="width:112px" /><col style="width:56px" /><col style="width:112px" /><col />
+      <col style="width:80px" /><col style="width:70px" /><col style="width:56px" /><col style="width:154px" /><col />
     </colgroup>
     <thead class="bg-slate-900 text-slate-400 text-left">
       <tr>
@@ -253,13 +253,6 @@
     </thead>
         <tbody id="rows" class="divide-y divide-slate-800"></tbody>
       </table>
-    </div>
-
-    <div id="loadMoreWrap" class="flex justify-center mt-4 hidden">
-      <button id="loadMore"
-              class="text-xs px-4 py-2 rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-700">
-        Load more…
-      </button>
     </div>
 
     <div id="contView" class="overflow-x-auto rounded-lg border border-slate-800 hidden">
@@ -282,6 +275,13 @@
         </thead>
         <tbody id="contRows" class="divide-y divide-slate-800"></tbody>
       </table>
+    </div>
+
+    <div id="loadMoreWrap" class="flex justify-center mt-4 hidden">
+      <button id="loadMore"
+              class="text-xs px-4 py-2 rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-700">
+        Load more…
+      </button>
     </div>
 
     <p id="empty" class="text-center text-slate-500 py-10 hidden">
@@ -490,11 +490,11 @@
         // Only show continuous queue info when recording is actually active
         // (not paused). When paused the queue is unused and 0% is misleading.
         const contRecording = !!(s.audio && !s.audio.continuous_paused);
-        const contPct = contRecording && s.audio && s.audio.cont_queue_fill_pct;
-        const contDropped = contRecording && s.audio && s.audio.cont_queue_dropped;
+        const contPct = s.audio && s.audio.cont_queue_fill_pct;
+        const contDropped = s.audio && s.audio.cont_queue_dropped;
         // Build tooltip suffix for continuous queue state.
         let contTip = '';
-        if (contPct !== undefined) {
+        if (contRecording && contPct !== undefined && contPct !== null) {
           contTip = ` | Cont queue: ${contPct}%`;
           if (contDropped > 0) contTip += ` | Drops: ${contDropped} ⚠`;
         }
@@ -1275,11 +1275,11 @@
               <div class="text-xs text-slate-400 break-all flex-1 px-2 py-1.5 bg-slate-950 border border-slate-800 rounded">${pr.recordings_abs || ''}</div>
               <button id="openRecFolder" type="button" class="text-xs px-3 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-700 whitespace-nowrap">&#128193; Open</button>
             </div>`)
-          + fieldBlock('Default contest', textInput('cfg_default_contest', v.default_contest), helpMap.default_contest)
           + fieldBlock('Continuous recording autostart', boolInput('cfg_continuous_autostart', v.continuous_autostart), helpMap.continuous_autostart)
           + fieldBlock('Continuous chunk (min)', numberInput('cfg_continuous_chunk_minutes', v.continuous_chunk_minutes), helpMap.continuous_chunk_minutes)
           + fieldBlock('Normalize continuous recordings', boolInput('cfg_normalize_continuous', v.normalize_continuous), helpMap.normalize_continuous)
           + fieldBlock('Web address (host:port)', webAddrWidget(`${v.web_host}:${v.web_port}`), helpMap.web_host)
+          + fieldBlock('TCI address (host:port)', tciAddrWidget(`${v.tci_host}:${v.tci_port}`), helpMap.tci_host)
           + fieldBlock('N1MM address (bind_ip:udp_port)', n1mmAddrWidget(`${v.n1mm_bind_ip}:${v.n1mm_udp_port}`), helpMap.n1mm_bind_ip);
         form.innerHTML += group('General', general);
 
@@ -1291,10 +1291,6 @@
           + fieldBlock('Post-roll (s)', numberInput('cfg_post_roll', v.post_roll, 'any'), helpMap.post_roll)
           + fieldBlock('Sample width (bytes)', selectInput('cfg_sample_width', v.sample_width, [1,2,4]), helpMap.sample_width);
         form.innerHTML += group('Audio', audio);
-
-        let tci = fieldBlock('TCI address (host:port)', tciAddrWidget(`${v.tci_host}:${v.tci_port}`), helpMap.tci_host)
-          + fieldBlock('TCI version', selectInput('cfg_tci_version', v.tci_version, [1,2]), helpMap.tci_version);
-        form.innerHTML += group('TCI (ExpertSDR)', tci);
 
         let sc = fieldBlock('Soundcard device', soundcardWidget(v.soundcard_device), helpMap.soundcard_device);
         form.innerHTML += group('Soundcard', sc);

@@ -7,6 +7,17 @@ in plain business language, without going into implementation details.
 
 ## Unreleased
 
+### Config cleanup: removed unused `default_contest` and `tci_version` settings
+- Removed the **"Default contest"** setting (`default_contest`) — the contest name
+  is now always `GENERAL` when N1MM does not supply one, instead of being
+  configurable.
+- Removed the **"TCI version"** setting (`tci_version`) — it was not used by any
+  application logic.
+- The **TCI address** (`tci_host` / `tci_port`) now lives in its own `[tci]`
+  section in `config.cfg` (like `[n1mm]` and `[web]`), but remains in the
+  **General** group in the Settings UI for convenience. Old config files with
+  `tci_host`/`tci_port` in `[audio]` or `[general]` are still read correctly.
+
 ### Fix: Date/time filter fields now use a consistent format with auto-formatting mask
 - The dashboard filter fields **Date/time from** and **Date/time to** now accept
   the same format as the table columns — `YYYY-MM-DD HH:mm` — instead of the
