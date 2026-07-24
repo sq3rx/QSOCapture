@@ -166,7 +166,7 @@ def _ensure_assets(app_dir: str) -> None:
     best-effort — if no bundled asset is found we keep whatever is already there
     so the app still starts.
     """
-    for basename in ("index.html", ICON_BASENAME):
+    for basename in ("index.html", "icon.svg", ICON_BASENAME):
         target = os.path.join(app_dir, basename)
         # Look for the asset inside the bundle first, then the source tree.
         candidates = []
@@ -274,6 +274,60 @@ class DownloadApi:
             return {"ok": True, "path": dst}
         except Exception as exc:  # pragma: no cover - defensive
             return {"ok": False, "error": str(exc)}
+
+
+def _set_window_icon_from_thread(icon_path: str) -> None:
+    """Set the application icon on the taskbar using the Windows API.
+
+    pywebview's ``icon`` parameter in ``webview.start()`` does not reliably
+    set the taskbar icon when using the ``edgechromium`` backend on Windows.
+    This function uses ``ctypes`` to call the underlying Win32 API directly
+    on the window handle once the window exists.
+
+    Must be called from a background thread after ``webview.start()`` has
+    created the window (it blocks on the GUI event loop).
+    """
+    import ctypes
+    import time
+
+    # Wait for the pywebview window to appear (it is created asynchronously
+    # inside webview.start()). Poll every 200 ms for up to 10 seconds.
+    deadline = time.time() + 10.0
+    hwnd = None
+    while time.time() < deadline:
+        try:
+            import webview
+            if webview.windows:
+                # Get the native window handle from the first (and only) window.
+                window = webview.windows[0]
+                hwnd = window.get_native_window_handle()
+                if hwnd:
+                    break
+        except Exception:
+            pass
+        time.sleep(0.2)
+
+    if not hwnd:
+        return  # give up; the window will lack a taskbar icon
+
+    # Load the icon from the .ico file using LoadImageW.
+    user32 = ctypes.windll.user32
+    # LR_LOADFROMFILE = 0x10, LR_DEFAULTSIZE = 0x40
+    hicon = user32.LoadImageW(
+        None,                    # hInstance (NULL = load from file)
+        icon_path,               # lpszName (path to .ico)
+        1,                       # IMAGE_ICON = 1
+        0, 0,                    # desired width/height (0 = use default)
+        0x10 | 0x40,             # LR_LOADFROMFILE | LR_DEFAULTSIZE
+    )
+    if not hicon:
+        return  # failed to load the icon
+
+    # Set the icon on the window: WM_SETICON = 0x80
+    # ICON_SMALL = 0, ICON_BIG = 1, ICON_SMALL2 = 2
+    user32.SendMessageW(hwnd, 0x80, 0, hicon)   # small icon (title bar)
+    user32.SendMessageW(hwnd, 0x80, 1, hicon)   # big icon (taskbar / Alt+Tab)
+    user32.SendMessageW(hwnd, 0x80, 2, hicon)   # small2 icon (taskbar)
 
 
 def main() -> None:
@@ -430,6 +484,8 @@ def main() -> None:
                     cef_available = False
                 if cef_available:
                     try:
+                        if icon_path:
+                            threading.Thread(target=_set_window_icon_from_thread, args=(icon_path,), daemon=True).start()
                         webview.start(gui="cef", icon=icon_arg)
                         started = True
                     except Exception as exc:
@@ -441,6 +497,8 @@ def main() -> None:
             # default (last embedded try) then system browser.
             if not started:
                 try:
+                    if icon_path:
+                        threading.Thread(target=_set_window_icon_from_thread, args=(icon_path,), daemon=True).start()
                     webview.start(icon=icon_arg)
                     started = True
                 except Exception as exc:
@@ -450,6 +508,8 @@ def main() -> None:
             # ---- Modern Windows (10/11): Edge WebView2 first ----
             # 1) Edge WebView2 (preferred, zero extra dependency).
             try:
+                if icon_path:
+                    threading.Thread(target=_set_window_icon_from_thread, args=(icon_path,), daemon=True).start()
                 webview.start(gui="edgechromium", icon=icon_arg)
                 started = True
             except Exception as exc:
@@ -459,6 +519,8 @@ def main() -> None:
             # 2) CEF -- only if the package is installed.
             if not started and cef_available:
                 try:
+                    if icon_path:
+                        threading.Thread(target=_set_window_icon_from_thread, args=(icon_path,), daemon=True).start()
                     webview.start(gui="cef", icon=icon_arg)
                     started = True
                 except Exception as exc:
@@ -468,6 +530,8 @@ def main() -> None:
             # 3) Default auto-detected backend.
             if not started:
                 try:
+                    if icon_path:
+                        threading.Thread(target=_set_window_icon_from_thread, args=(icon_path,), daemon=True).start()
                     webview.start(icon=icon_arg)
                     started = True
                 except Exception as exc:

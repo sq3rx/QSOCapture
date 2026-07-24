@@ -62,6 +62,7 @@ block_cipher = None
 # window icon and so main.py can serve it as the dashboard favicon.
 datas = [
     ("index.html", "."),
+    ("icon.svg", "."),
     ("icon.ico", "."),
 ]
 
