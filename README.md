@@ -6,13 +6,9 @@
 
 [![Build and Release](https://github.com/sq3rx/QSOCapture/actions/workflows/main.yml/badge.svg)](https://github.com/sq3rx/QSOCapture/actions/workflows/main.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/python-3.14%2B-blue.svg)](https://www.python.org)
+[![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org)
 
 **Version:** 0.4.0beta
-
-> **About / source:** click the **?** button in the dashboard header for the
-> running version and a link to the project on GitHub
-> (`https://github.com/sq3rx/QSOCapture`).
 
 **QSOCapture** is a lightweight contest audio recorder and log player for
 amateur radio operators. It captures audio from your receiver (via the
@@ -78,7 +74,7 @@ clean, color-coded web dashboard.
 
 ## Requirements
 
-- Python **3.14+** (Windows 10/11) for the standard build.
+- Python **3.9+** (Windows 10/11) for the standard build.
 - The following Python packages (see `requirements.txt`):
   - `fastapi`, `uvicorn`
   - `numpy`
@@ -140,8 +136,7 @@ pip install -r requirements.txt
 pyinstaller build.spec
 ```
 
-The result is ``dist/QSOCapture-portable-x.y.z.exe`` (the version is taken from
-the git tag via the ``APP_VERSION`` environment variable). Double-click it and
+The result is ``dist/QSOCapture-portable-x.y.z.exe``. Double-click it and
 the dashboard opens in its own window. If the embedded WebView2 engine is
 missing, the app automatically falls back to opening your default system
 browser.
@@ -174,16 +169,16 @@ python launcher.py
 
 ### Windows 7 / 8 (legacy build)
 
-**Windows 7 and 8 are NOT supported by the standard build.** Python 3.9+ (and
-therefore the modern 3.14 build) cannot run on those systems, and the Edge
-WebView2 engine does not exist there. For Windows 7/8 download the separate
-**`QSOCapture-Win7-setup-x.y.z.exe`** (or the portable
-**`QSOCapture-portable-Win7-x.y.z.exe`** from the legacy release). That build is
-produced with **Python 3.8 + CEF** (`cefpython3`), which is bundled into the
-EXE, so no external browser or runtime is required. The launcher automatically
-detects Windows 7/8 and uses the CEF backend instead of Edge WebView2. The
-portable legacy executable is named `QSOCapture-portable-Win7-x.y.z.exe` to
-avoid clashing with the modern `QSOCapture-portable-x.y.z.exe`.
+**Windows 7 and 8 are NOT supported by the standard build.** Python 3.9+ cannot
+run on those systems, and the Edge WebView2 engine does not exist there. For
+Windows 7/8 download the separate **`QSOCapture-Win7-setup-x.y.z.exe`** (or the
+portable **`QSOCapture-portable-Win7-x.y.z.exe`** from the legacy release). That
+build is produced with **Python 3.8 + CEF** (`cefpython3`), which is bundled
+into the EXE, so no external browser or runtime is required. The launcher
+automatically detects Windows 7/8 and uses the CEF backend instead of Edge
+WebView2. The portable legacy executable is named
+`QSOCapture-portable-Win7-x.y.z.exe` to avoid clashing with the modern
+`QSOCapture-portable-x.y.z.exe`.
 
 ---
 
@@ -287,8 +282,6 @@ with an explanation. The most important options:
 | n1mm | `n1mm_udp_port` | UDP port N1MM broadcasts on (default `12060`). |
 | n1mm | `n1mm_bind_ip` | Interface to listen on (`0.0.0.0` = all). |
 | web | `web_host` / `web_port` | Dashboard bind address (default `127.0.0.1:8000` — local only; set `0.0.0.0` to expose on the LAN). |
-
-### How QSO slicing works
 
 When N1MM logs a contact, QSOCapture waits `post_roll` seconds (so the tail of
 the QSO is captured), then cuts a slice from the circular audio buffer that
@@ -406,6 +399,9 @@ QSOCapture/
 | GET | `/api/export` | Download all (or one contest's) recordings as a ZIP archive. |
 | GET | `/api/audio_devices` | List available soundcard input devices (for `soundcard_device`). |
 | GET | `/api/paths` | Absolute filesystem paths of `recordings/` and `config.cfg`. |
+| POST | `/api/open_folder` | Open the recordings directory in the system file manager. |
+| GET | `/api/events` | Server-Sent Events stream for live dashboard updates. |
+| POST | `/api/debug` | Enable or disable debug-level logging at runtime. |
 | POST | `/api/factory_reset` | Wipe log + recordings + restore defaults. |
 | GET | `/audio/{contest}/{file}` | Stream a recorded audio file. |
 
@@ -448,22 +444,7 @@ for details. Free to use, modify and share for amateur radio and beyond.
 
 This project was created with an **agentic (AI-assisted) approach** — the code,
 structure and documentation were iteratively developed with the help of an AI
-coding agent. Key characteristics of this workflow:
-
- - **Task-driven iteration** — features were implemented step by step, with the
-   agent proposing changes, applying them to the codebase and verifying the
-   result before moving on.
- - **Single-agent orchestration** — a single autonomous agent handled
-   exploration, editing, testing and documentation rather than a hand-written
-   spec-up-front process.
- - **Documentation as a first-class output** — README, changelog and inline
-   help were generated and kept in sync with the code as part of the same
-   workflow.
- - **Human-in-the-loop review** — the maintainer reviews each change, requests
-   adjustments (e.g. *"add a screenshots section"* or *"mention the agentic
-   approach"*) and the agent applies them.
-
-This keeps the project easy to evolve: new capabilities can be added by
-describing the desired behaviour in natural language.
+coding agent. This workflow keeps the project easy to evolve: new capabilities
+can be added by describing the desired behaviour in natural language.
 
 **73 de SQ3RX**

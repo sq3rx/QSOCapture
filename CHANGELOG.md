@@ -7,74 +7,34 @@ in plain business language, without going into implementation details.
 
 ## Unreleased
 
-### Config cleanup: removed unused `default_contest` and `tci_version` settings
-- Removed the **"Default contest"** setting (`default_contest`) — the contest name
-  is now always `GENERAL` when N1MM does not supply one, instead of being
-  configurable.
-- Removed the **"TCI version"** setting (`tci_version`) — it was not used by any
-  application logic.
-- The **TCI address** (`tci_host` / `tci_port`) now lives in its own `[tci]`
-  section in `config.cfg` (like `[n1mm]` and `[web]`), but remains in the
-  **General** group in the Settings UI for convenience. Old config files with
-  `tci_host`/`tci_port` in `[audio]` or `[general]` are still read correctly.
+### Config cleanup
+- Removed unused `default_contest` and `tci_version` settings. TCI address
+  (`tci_host`/`tci_port`) moved to its own `[tci]` section in config.cfg.
 
-### Fix: Date/time filter fields now use a consistent format with auto-formatting mask
-- The dashboard filter fields **Date/time from** and **Date/time to** now accept
-  the same format as the table columns — `YYYY-MM-DD HH:mm` — instead of the
-  browser-specific `datetime-local` format (`YYYY-MM-DDTHH:mm`), making them
-  consistent with the Timestamp, Start and Stop columns.
-- A live **auto-formatting mask** inserts dashes, spaces and colons as you type,
-  so the correct format is enforced without needing a date picker.
-- Fixed the `date_from=null` bug that caused 422 errors when the date filter was
-  cleared.
-- **RX** filter row moved to the second row of filters together with the
-  date/time fields for a cleaner layout.
+### Date/time filter improvements
+- Date/time fields now use `YYYY-MM-DD HH:mm` format with auto-formatting mask,
+  consistent with table columns. Fixed `date_from=null` 422 error. RX filter
+  moved to the second row for a cleaner layout.
 
 ### Performance
-- Contest list is now fetched from the database (`SELECT DISTINCT contest`)
-  instead of scanning the filesystem on every request.
-- QSO list query merged into a single SQL pass using `COUNT(*) OVER()`,
-  roughly halving query time for large result sets.
-- Contest filter changed from `LIKE '%...%'` (full table scan) to an exact
-  index-backed match (`contest = ?`).
-- Startup no longer scans the recordings directory if the database already
-  has records — eliminates multi-second delays on subsequent launches.
-- SQLite connections are now cached per thread instead of opened for every
-  operation, reducing overhead and lock contention.
+- Contest list fetched from DB instead of filesystem. QSO query merged into
+  single SQL pass (`COUNT(*) OVER()`). Contest filter uses exact index-backed
+  match. Startup no longer scans recordings if DB has records. SQLite
+  connections cached per thread.
 
 ### Continuous queue monitoring
-- Queue size increased from 600 to 1800 to reduce audio drops under load.
-- Dashboard RX badges show queue fill level and drop count with colour
-  coding (green / orange / red) and tooltips.
-- A `continuous_dropped` Server-Sent Event triggers an immediate status
-  refresh when chunks are dropped.
+- Queue size increased to 1800. Dashboard RX badges show queue fill and drop
+  count with colour coding. New `continuous_dropped` SSE event.
 
-### Fix: RX filter broke pagination
-- The `rx` filter was applied in Python **after** `LIMIT/OFFSET`, causing
-  gaps and empty pages. A new `rx` database column now pushes the filter
-  down into SQL before pagination. Existing recordings are back-filled
-  automatically on first launch.
+### Bug fixes
+- RX filter broke pagination (applied after `LIMIT/OFFSET`) — fixed by adding
+  `rx` DB column. Contest autocomplete dropdown now works. Contest filter no
+  longer clears on partial input. Clearing Contest field reloads all QSOs.
+  Contest list was always empty (`_` wildcard in SQLite) — fixed.
 
 ### Normalisation of continuous recordings now optional
-- New **"Normalize continuous recordings"** toggle in Settings lets you
-  disable loudness normalisation for continuous chunks (QSO slices are
-  always normalised regardless).
-
-### Fix: contest autocomplete dropdown did not work
-- Dropdown items used `click`, but the input's `blur` handler fired first
-  and hid the dropdown. Changed to `mousedown` with `e.preventDefault()`.
-
-### Fix: contest filter cleared the field when typing a partial name
-- Removed the validation function that cleared the input when the typed
-  value was not an exact match against the contest list.
-
-### Fix: clearing the Contest field did not reload all QSOs
-- Both `blur` and `Enter` handlers now detect an empty field and reload
-  QSOs without the contest filter.
-
-### Fix: contest list was always empty
-- `list_contests()` used `NOT LIKE '_%'` where SQLite treats `_` as a
-  wildcard, excluding all rows. Changed to `NOT GLOB '_*'`.
+- New toggle in Settings to disable loudness normalisation for continuous
+  chunks (QSO slices are always normalised).
 
 ---
 
