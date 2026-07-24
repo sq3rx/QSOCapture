@@ -375,14 +375,8 @@ def dashboard() -> HTMLResponse:
 
 @app.get("/api/contests")
 def api_contests() -> JSONResponse:
-    """Return the list of available contest groupings."""
-    root = cfg.recordings_dir
-    contests = []
-    if os.path.isdir(root):
-        contests = sorted(
-            d for d in os.listdir(root)
-            if os.path.isdir(os.path.join(root, d)) and not d.startswith("_")
-        )
+    """Return the list of available contest groupings from the database."""
+    contests = qso_db.list_contests()
     return JSONResponse({"contests": contests})
 
 

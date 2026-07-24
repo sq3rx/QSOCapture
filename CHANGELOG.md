@@ -7,6 +7,31 @@ in plain business language, without going into implementation details.
 
 ## Unreleased
 
+### Performance: contest list now served from the database instead of the filesystem
+- The `/api/contests` endpoint previously scanned the recordings directory with
+  `os.listdir()` + `os.path.isdir()` on every request. For 100+ contest folders
+  this added unnecessary filesystem I/O.
+- The list of available contests is now fetched from the SQLite database via
+  `SELECT DISTINCT contest`, which is faster and avoids disk access. A new
+  database index on the `contest` column keeps the query efficient even with
+  tens of thousands of QSO records.
+- Internal entries (like `_continuous`) are excluded from the list — they have
+  their own tab in the dashboard and are not real contests.
+
+### Performance: QSO list query now uses a single SQL pass and index-friendly contest filter
+- The `/api/qsos` endpoint previously ran **two separate SQL queries** for every
+  request: one `SELECT COUNT(*)` for the total count and another `SELECT ...`
+  with `LIMIT/OFFSET` for the actual rows. Both scanned the same filtered rows,
+  doubling the work.
+- The two queries have been merged into one using `COUNT(*) OVER()` (a window
+  function), which returns the total count alongside every result row in a
+  single pass. This cuts the query time roughly in half for large result sets.
+- The contest filter was changed from `LIKE '%...%'` (which cannot use an index
+  and always performs a full table scan) to an **exact match** (`contest = ?`).
+  The new database index on `contest` now makes this lookup instant, even with
+  100 000+ QSO records. The frontend provides the full contest name from its
+  datalist, so the user experience is unchanged.
+
 ### Continuous queue monitoring (bounded 1800) with dashboard warning
 - The continuous recording queue size was increased from 600 to 1800 to reduce
   the chance of audio drops under heavy load.

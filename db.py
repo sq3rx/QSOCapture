@@ -159,6 +159,9 @@ def init_db() -> None:
         con.execute(
             "CREATE INDEX IF NOT EXISTS idx_qsos_mode ON qsos(mode)"
         )
+        con.execute(
+            "CREATE INDEX IF NOT EXISTS idx_qsos_contest ON qsos(contest)"
+        )
         # Backfill the rx column for rows that were created before the column
         # existed. This runs only once after the ALTER TABLE above adds it.
         if "rx" not in cols:
@@ -364,6 +367,22 @@ def insert_contact(contact, file_path: Optional[str] = None) -> None:
     )
 
 
+def list_contests() -> List[str]:
+    """Return sorted list of distinct contest names from the database.
+
+    Excludes internal entries starting with ``_`` (e.g. ``_continuous``)
+    so only real contest names appear in the dashboard filter.
+    """
+    con = _connect()
+    rows = con.execute(
+        "SELECT DISTINCT contest FROM qsos "
+        "WHERE contest != '' AND contest IS NOT NULL "
+        "AND contest NOT LIKE '_%' "
+        "ORDER BY contest"
+    ).fetchall()
+    return [r[0] for r in rows]
+
+
 def query_contacts(
     contest: Optional[str] = None,
     call: Optional[str] = None,
@@ -408,11 +427,12 @@ def query_contacts(
         sql += " AND (file_path IS NULL OR file_path NOT LIKE ?)"
         args.append("_continuous/%")
     if contest:
-        # Partial / fragmentary match (substring) so the dashboard contest
-        # filter accepts e.g. "CQWW" or "2026_CQ" in addition to the
-        # exact directory name. Case-insensitive via lower().
-        sql += " AND lower(contest) LIKE lower(?)"
-        args.append(f"%{contest}%")
+        # Exact match so the database index on ``contest`` is used. The
+        # frontend provides the full contest name (selected from the datalist
+        # or typed exactly), which avoids a full-table scan that the previous
+        # ``LIKE '%...%'`` required.
+        sql += " AND contest = ?"
+        args.append(contest)
     if call:
         # Pushed down into SQL via the REGEXP helper (regex or literal
         # substring fallback handled in Python). This avoids fetching
@@ -482,12 +502,14 @@ def query_contacts(
 
     con = _connect()
     con.row_factory = sqlite3.Row
-    # Total number of matching rows (ignoring the LIMIT/OFFSET) so the UI
-    # can display the real count and offer "load more" pagination instead
-    # of pulling thousands of rows into memory on every request.
-    count_sql = "SELECT COUNT(*) FROM qsos" + sql.split("FROM qsos", 1)[1].split("ORDER BY", 1)[0]
-    total = con.execute(count_sql, args[:-2]).fetchone()[0]
-    rows = con.execute(sql, args).fetchall()
+    # Use a single query with COUNT(*) OVER() to get both the filtered rows
+    # and the total count in one pass, avoiding a separate full-table scan
+    # for the COUNT(*) that the previous two-query approach required.
+    count_col = ", COUNT(*) OVER() AS _total"
+    insert_pos = sql.find("FROM qsos")
+    sql_with_count = sql[:insert_pos] + count_col + " " + sql[insert_pos:]
+    rows = con.execute(sql_with_count, args).fetchall()
+    total = rows[0]["_total"] if rows else 0
 
     results = []
     for r in rows:
