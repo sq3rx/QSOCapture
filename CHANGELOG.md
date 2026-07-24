@@ -7,6 +7,18 @@ in plain business language, without going into implementation details.
 
 ## Unreleased
 
+### Performance: SQLite connection cache and reduced lock contention
+- The database layer no longer opens a new SQLite connection for every single
+  operation (insert, query, delete…). Each thread now reuses its own connection
+  via a thread-local cache, which eliminates the overhead of repeated
+  `sqlite3.connect()` calls and REGISTER function registrations.
+- The module-level lock is now held for a shorter time — the cached connection
+  is obtained *before* entering the critical section — and read-only queries
+  bypass the lock entirely, relying on WAL mode for safe concurrent reads.
+- Every write operation now explicitly commits its transaction so data is
+  immediately visible to other threads (the previous pattern relied on the
+  connection being closed, which no longer happens with the cache).
+
 ### Normalisation of continuous recordings now optional
 - Continuous WAV/MP3 chunks were always normalised to a consistent loudness
   level, which used extra CPU and memory on long recordings. A new

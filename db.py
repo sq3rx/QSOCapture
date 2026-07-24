@@ -6,8 +6,10 @@ filename convention used for the audio slices, so the web UI can offer rich
 filtering (mode, frequency, date range, etc.) and show detailed info.
 
 Standard library :mod:`sqlite3` is used so there are no extra dependencies.
-All access is serialized through a module-level lock since both the N1MM
-listener thread and the FastAPI request handlers may write/read concurrently.
+Write operations are serialized through a module-level lock since both the
+N1MM listener thread and the FastAPI request handlers may write concurrently.
+Read-only queries (e.g. :func:`query_contacts`) bypass the lock entirely,
+relying on WAL mode for safe concurrent reads.
 """
 
 from __future__ import annotations
@@ -21,16 +23,33 @@ from typing import List, Optional
 
 DB_PATH = "qsos.db"
 _lock = threading.Lock()
+_local = threading.local()
 
 
 def _connect() -> sqlite3.Connection:
-    """Open a connection with WAL mode and a REGEXP helper.
+    """Return a thread-local connection, creating one if necessary.
+
+    Each calling thread gets its own :class:`sqlite3.Connection` so there is
+    no cross-thread sharing (SQLite connections are not thread-safe).  The
+    connection is opened with WAL mode and a REGEXP helper registered once.
 
     WAL improves read/write concurrency (the web API can read while the audio
     thread inserts). The REGEXP function lets :func:`query_contacts` push the
     ``call`` filter down into SQL instead of fetching thousands of rows and
     filtering them in Python.
     """
+    con: sqlite3.Connection | None = getattr(_local, "con", None)
+    if con is not None:
+        try:
+            con.execute("SELECT 1")
+            return con
+        except sqlite3.ProgrammingError:
+            # Connection was closed (e.g. after a fork or explicit close).
+            pass
+        except sqlite3.OperationalError:
+            # Database may have been deleted / moved; create a fresh one.
+            pass
+
     con = sqlite3.connect(DB_PATH)
     try:
         con.execute("PRAGMA journal_mode=WAL")
@@ -47,12 +66,14 @@ def _connect() -> sqlite3.Connection:
             return pattern.lower() in value.lower()
 
     con.create_function("REGEXP", 2, _regexp)
+    _local.con = con
     return con
 
 
 def init_db() -> None:
     """Create the ``qsos`` table if it does not yet exist."""
-    with _lock, _connect() as con:
+    con = _connect()
+    with _lock:
         con.execute(
             """
             CREATE TABLE IF NOT EXISTS qsos (
@@ -122,6 +143,7 @@ def init_db() -> None:
         con.execute(
             "CREATE INDEX IF NOT EXISTS idx_qsos_mode ON qsos(mode)"
         )
+        con.commit()
 
 
 # Columns added after the initial schema, with their SQL types, for migration.
@@ -212,7 +234,8 @@ def insert_qso(
     # or a QSO without a GUID) would be silently dropped — leaving only the
     # first recording visible in the dashboard.
     n1mm_id_val = n1mm_id or None
-    with _lock, _connect() as con:
+    con = _connect()
+    with _lock:
         if n1mm_id_val:
             existing = con.execute(
                 "SELECT file_path FROM qsos WHERE n1mm_id=?", (n1mm_id_val,)
@@ -266,6 +289,7 @@ def insert_qso(
             "VALUES (" + ",".join("?" for _ in params) + ")",
             params,
         )
+        con.commit()
     return superseded
 
 
@@ -425,14 +449,14 @@ def query_contacts(
     args.append(limit)
     args.append(offset)
 
-    with _lock, _connect() as con:
-        con.row_factory = sqlite3.Row
-        # Total number of matching rows (ignoring the LIMIT/OFFSET) so the UI
-        # can display the real count and offer "load more" pagination instead
-        # of pulling thousands of rows into memory on every request.
-        count_sql = "SELECT COUNT(*) FROM qsos" + sql.split("FROM qsos", 1)[1].split("ORDER BY", 1)[0]
-        total = con.execute(count_sql, args[:-2]).fetchone()[0]
-        rows = con.execute(sql, args).fetchall()
+    con = _connect()
+    con.row_factory = sqlite3.Row
+    # Total number of matching rows (ignoring the LIMIT/OFFSET) so the UI
+    # can display the real count and offer "load more" pagination instead
+    # of pulling thousands of rows into memory on every request.
+    count_sql = "SELECT COUNT(*) FROM qsos" + sql.split("FROM qsos", 1)[1].split("ORDER BY", 1)[0]
+    total = con.execute(count_sql, args[:-2]).fetchone()[0]
+    rows = con.execute(sql, args).fetchall()
 
     results = []
     for r in rows:
@@ -496,14 +520,18 @@ def query_contacts(
 
 def clear_all() -> None:
     """Remove every QSO record from the database (factory reset)."""
-    with _lock, _connect() as con:
+    con = _connect()
+    with _lock:
         con.execute("DELETE FROM qsos")
+        con.commit()
 
 
 def delete_qso(file_path: str) -> None:
     """Remove a single QSO record matched by its file_path."""
-    with _lock, _connect() as con:
+    con = _connect()
+    with _lock:
         con.execute("DELETE FROM qsos WHERE file_path=?", (file_path,))
+        con.commit()
 
 
 def delete_qso_by_n1mm_id(n1mm_id: str) -> Optional[str]:
@@ -512,7 +540,8 @@ def delete_qso_by_n1mm_id(n1mm_id: str) -> Optional[str]:
     Used by the ``<contactdelete>`` packet handler so the dashboard row and
     the associated audio file can both be removed.
     """
-    with _lock, _connect() as con:
+    con = _connect()
+    with _lock:
         row = con.execute(
             "SELECT file_path FROM qsos WHERE n1mm_id=?", (n1mm_id,)
         ).fetchone()
@@ -520,19 +549,24 @@ def delete_qso_by_n1mm_id(n1mm_id: str) -> Optional[str]:
             return None
         fp = row[0]
         con.execute("DELETE FROM qsos WHERE n1mm_id=?", (n1mm_id,))
+        con.commit()
         return fp
 
 
 def update_qso_duration(file_path: str, duration: float) -> None:
     """Update the duration of an existing QSO record (matched by file_path)."""
-    with _lock, _connect() as con:
+    con = _connect()
+    with _lock:
         con.execute("UPDATE qsos SET duration=? WHERE file_path=?", (duration, file_path))
+        con.commit()
 
 
 def update_qso_file_path(old_path: str, new_path: str) -> None:
     """Update the stored file_path of a QSO record (e.g. after WAV->MP3)."""
-    with _lock, _connect() as con:
+    con = _connect()
+    with _lock:
         con.execute("UPDATE qsos SET file_path=? WHERE file_path=?", (new_path, old_path))
+        con.commit()
 
 
 def _fmt_ts(ts: float) -> str:
@@ -625,10 +659,12 @@ def migrate_existing(recordings_dir: str) -> None:
     if not rows:
         return
 
-    with _lock, _connect() as con:
+    con = _connect()
+    with _lock:
         con.executemany(
             "INSERT OR IGNORE INTO qsos "
             "(contest, call, band, timestamp, file_path, duration) "
             "VALUES (?,?,?,?,?,?)",
             rows,
         )
+        con.commit()
