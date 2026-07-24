@@ -338,6 +338,19 @@ application = _cancel_safe_app
 # ---------------------------------------------------------------------------
 # Web / API routes
 # ---------------------------------------------------------------------------
+@app.get("/icon.svg")
+def icon_svg() -> FileResponse:
+    """Serve the application SVG icon."""
+    candidates = []
+    if INDEX_HTML_OVERRIDE:
+        candidates.append(os.path.join(os.path.dirname(INDEX_HTML_OVERRIDE), "icon.svg"))
+    candidates.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon.svg"))
+    for path in candidates:
+        if os.path.isfile(path):
+            return FileResponse(path, media_type="image/svg+xml", filename="icon.svg")
+    raise HTTPException(status_code=404, detail="icon.svg not found")
+
+
 @app.get("/icon.ico")
 def favicon() -> FileResponse:
     """Serve the application icon (used as the dashboard favicon)."""

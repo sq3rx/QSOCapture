@@ -5,7 +5,11 @@ in plain business language, without going into implementation details.
 
 ---
 
-## Unreleased
+## Version 0.5.0beta
+
+### Dashboard: SVG icon in header
+- The dashboard header now shows the QSOCapture SVG icon next to the title,
+  served via a dedicated `/icon.svg` route.
 
 ### Config cleanup
 - Removed unused `default_contest` and `tci_version` settings. TCI address
