@@ -7,6 +7,16 @@ in plain business language, without going into implementation details.
 
 ## Unreleased
 
+### Performance: faster startup by skipping redundant audio file scan
+- The startup scan of the recordings directory (`migrate_existing`) now checks
+  if the database already contains records — if it does, the scan is skipped
+  entirely. Since the application always inserts a database record when saving
+  an audio file, this scan was only needed on the very first run after the
+  database was introduced. On subsequent starts the operation is instant,
+  eliminating the multi-second delay that occurred with thousands of recordings.
+- The migration is also now launched in a background thread so it never blocks
+  application startup, even on the first run.
+
 ### Performance: SQLite connection cache and reduced lock contention
 - The database layer no longer opens a new SQLite connection for every single
   operation (insert, query, delete…). Each thread now reuses its own connection

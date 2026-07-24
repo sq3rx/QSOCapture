@@ -255,9 +255,18 @@ def on_contact(contact: N1MMContact) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global audio_source, n1mm
-    # Initialize database and seed with any pre-existing recordings.
+    # Initialize database.
     qso_db.init_db()
-    qso_db.migrate_existing(cfg.recordings_dir)
+    # Seed the DB with any pre-existing recordings in a background thread so
+    # startup is not delayed by scanning thousands of audio files (only matters
+    # on the very first run after the DB was introduced — subsequent starts
+    # skip the scan entirely because the DB already has records).
+    threading.Thread(
+        target=qso_db.migrate_existing,
+        args=(cfg.recordings_dir,),
+        daemon=True,
+        name="migrate-existing",
+    ).start()
 
     os.makedirs(cfg.recordings_dir, exist_ok=True)
     audio_source = create_audio_source(cfg, label="RX1")

@@ -619,6 +619,14 @@ def migrate_existing(recordings_dir: str) -> None:
     if not os.path.isdir(recordings_dir):
         return
 
+    # If the database already has records (normal case after first run) there
+    # is nothing to migrate — all files were inserted at recording time.
+    # This avoids scanning thousands of audio files on every startup.
+    con = _connect()
+    row_count = con.execute("SELECT COUNT(*) FROM qsos").fetchone()[0]
+    if row_count > 0:
+        return
+
     rows: List[tuple] = []
     for contest in os.listdir(recordings_dir):
         cdir = os.path.join(recordings_dir, contest)
