@@ -89,7 +89,7 @@
     .flex-wrap { flex-wrap:wrap; } .flex-col { flex-direction:column; }
     .grid-cols-1 { grid-template-columns:repeat(1,minmax(0,1fr)); }
     @media (min-width:768px){ .md\:grid-cols-2 { grid-template-columns:repeat(2,minmax(0,1fr)); } }
-    @media (min-width:1024px){ .lg\:grid-cols-6 { grid-template-columns:repeat(6,minmax(0,1fr)); } }
+    @media (min-width:1024px){ .lg\:grid-cols-8 { grid-template-columns:repeat(8,minmax(0,1fr)); } }
     .w-full { width:100%; } .min-h-screen { min-height:100vh; } .max-h-\[85vh\] { max-height:85vh; }
     .overflow-y-auto { overflow-y:auto; } .overflow-x-auto { overflow-x:auto; }
     .whitespace-nowrap { white-space:nowrap; } .whitespace-pre-wrap { white-space:pre-wrap; }
@@ -117,6 +117,12 @@
        <audio controls> so the progress slider fills the whole row width and
        the native mute/overflow menu never appears. */
     input[type=range].qsoslider { accent-color:#22c55e; }
+    /* White calendar picker icon for dark theme */
+    input[type=date]::-webkit-calendar-picker-indicator,
+    input[type=datetime-local]::-webkit-calendar-picker-indicator {
+      filter: invert(1);
+      cursor: pointer;
+    }
   </style>
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen antialiased">
@@ -146,7 +152,7 @@
       </div>
     </header>
 
-    <section class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
+    <section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
       <div class="relative">
         <label class="block text-xs uppercase tracking-wide text-slate-400 mb-1">Contest</label>
         <input id="contest" type="text" placeholder="e.g. CQWW or 2026_CQ" autocomplete="off"
@@ -185,12 +191,12 @@
       </div>
       <div>
         <label class="block text-xs uppercase tracking-wide text-slate-400 mb-1">Date/time from</label>
-        <input id="date_from" type="datetime-local"
+        <input id="date_from" type="text" placeholder="YYYY-MM-DD HH:mm"
                class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm" />
       </div>
       <div>
         <label class="block text-xs uppercase tracking-wide text-slate-400 mb-1">Date/time to</label>
-        <input id="date_to" type="datetime-local"
+        <input id="date_to" type="text" placeholder="YYYY-MM-DD HH:mm"
                class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm" />
       </div>
       <div>
@@ -836,8 +842,10 @@
       if (mode) params.set('mode', mode);
       if (cont) params.set('continuous', cont);
       if (rxSel) params.set('rx', rxSel);
-      if (df) params.set('date_from', toEpoch(df, false));
-      if (dt) params.set('date_to', toEpoch(dt, true));
+      const dfEpoch = toEpoch(df, false);
+      const dtEpoch = toEpoch(dt, true);
+      if (df && dfEpoch) params.set('date_from', dfEpoch);
+      if (dt && dtEpoch) params.set('date_to', dtEpoch);
       params.set('offset', qsoOffset);
       params.set('limit', PAGE_SIZE);
       params.set('sort_by', sortCol);
@@ -1042,12 +1050,26 @@
 
     function toEpoch(val, endOfDay) {
       if (!val) return null;
-      const s = val.includes('T')
-        ? val
-        : val + (endOfDay ? 'T23:59:59' : 'T00:00:00');
-      const t = new Date(s).getTime();
-      return isNaN(t) ? null : String(t / 1000);
+      // Accept "YYYY-MM-DD HH:mm" or "YYYY-MM-DDTHH:mm" format
+      const s = val.includes('T') ? val : val.replace(' ', 'T') + ':00';
+      const ms = new Date(s).getTime();
+      return isNaN(ms) ? null : String(ms / 1000);
     }
+
+    // Auto-format date/time input as user types: YYYY-MM-DD HH:mm
+    function formatDateTimeInput(el) {
+      el.addEventListener('input', function () {
+        let v = this.value.replace(/[^0-9]/g, ''); // keep only digits
+        if (v.length > 4) v = v.slice(0, 4) + '-' + v.slice(4);
+        if (v.length > 7) v = v.slice(0, 7) + '-' + v.slice(7);
+        if (v.length > 10) v = v.slice(0, 10) + ' ' + v.slice(10);
+        if (v.length > 13) v = v.slice(0, 13) + ':' + v.slice(13);
+        if (v.length > 16) v = v.slice(0, 16);
+        this.value = v;
+      });
+    }
+    formatDateTimeInput($('date_from'));
+    formatDateTimeInput($('date_to'));
 
     // --- Autocomplete event wiring for the Contest field ---
     const contestInput = $('contest');

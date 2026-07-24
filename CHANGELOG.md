@@ -7,6 +7,18 @@ in plain business language, without going into implementation details.
 
 ## Unreleased
 
+### Fix: Date/time filter fields now use a consistent format with auto-formatting mask
+- The dashboard filter fields **Date/time from** and **Date/time to** now accept
+  the same format as the table columns — `YYYY-MM-DD HH:mm` — instead of the
+  browser-specific `datetime-local` format (`YYYY-MM-DDTHH:mm`), making them
+  consistent with the Timestamp, Start and Stop columns.
+- A live **auto-formatting mask** inserts dashes, spaces and colons as you type,
+  so the correct format is enforced without needing a date picker.
+- Fixed the `date_from=null` bug that caused 422 errors when the date filter was
+  cleared.
+- **RX** filter row moved to the second row of filters together with the
+  date/time fields for a cleaner layout.
+
 ### Performance
 - Contest list is now fetched from the database (`SELECT DISTINCT contest`)
   instead of scanning the filesystem on every request.
