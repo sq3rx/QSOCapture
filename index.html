@@ -478,6 +478,17 @@
         const bufContainer = $('bufContainer');
         bufContainer.innerHTML = '';
         const buffers = (s.audio && Array.isArray(s.audio.buffers)) ? s.audio.buffers : [];
+        // Only show continuous queue info when recording is actually active
+        // (not paused). When paused the queue is unused and 0% is misleading.
+        const contRecording = !!(s.audio && !s.audio.continuous_paused);
+        const contPct = contRecording && s.audio && s.audio.cont_queue_fill_pct;
+        const contDropped = contRecording && s.audio && s.audio.cont_queue_dropped;
+        // Build tooltip suffix for continuous queue state.
+        let contTip = '';
+        if (contPct !== undefined) {
+          contTip = ` | Cont queue: ${contPct}%`;
+          if (contDropped > 0) contTip += ` | Drops: ${contDropped} ⚠`;
+        }
         if (buffers.length === 0) {
           const b = document.createElement('span');
           b.className = 'px-3 py-1 rounded-full bg-slate-800/60 border border-slate-700 text-slate-400';
@@ -487,12 +498,28 @@
           buffers.forEach(rx => {
             const secs = Math.round(rx.filled_sec || 0);
             const low = secs < 5;
+            // Determine colour: green = ok, amber = low buffer OR queue 50-80%,
+            // red = queue > 80% or drops.
+            const queueWarn = contPct !== undefined && contPct > 50;
+            const queueCrit = contPct !== undefined && (contPct > 80 || contDropped > 0);
+            let cls, dotCls;
+            if (queueCrit) {
+              cls = 'bg-red-500/10 border-red-500/30 text-red-300';
+              dotCls = 'bg-red-400';
+            } else if (low || queueWarn) {
+              cls = 'bg-amber-500/10 border-amber-500/30 text-amber-300';
+              dotCls = 'bg-amber-400';
+            } else if (secs > 0) {
+              cls = 'bg-brand/10 border-brand/40 text-brand';
+              dotCls = 'bg-brand';
+            } else {
+              cls = 'bg-slate-800/60 border-slate-700 text-slate-400';
+              dotCls = 'bg-slate-500';
+            }
             const b = document.createElement('span');
-            b.className = 'px-3 py-1 rounded-full border flex items-center ' +
-              (secs > 0 ? (low ? 'bg-amber-500/10 border-amber-500/30 text-amber-300'
-                               : 'bg-brand/10 border-brand/40 text-brand')
-                         : 'bg-slate-800/60 border-slate-700 text-slate-400');
-            b.innerHTML = `<span class="inline-block w-2 h-2 rounded-full ${secs > 0 ? (low ? 'bg-amber-400' : 'bg-brand') : 'bg-slate-500'} mr-1.5 align-middle"></span>${rx.label} ${secs}s`;
+            b.className = 'px-3 py-1 rounded-full border flex items-center ' + cls;
+            b.title = `${rx.label} ${secs}s${contTip}`;
+            b.innerHTML = `<span class="inline-block w-2 h-2 rounded-full ${dotCls} mr-1.5 align-middle"></span>${rx.label} ${secs}s`;
             bufContainer.appendChild(b);
           });
         }
@@ -1340,6 +1367,10 @@
       });
       es.addEventListener('continuous_paused', () => {
         recPaused = true; updateRecButton(); updateRecordingBadge(); onDashboardEvent();
+      });
+      es.addEventListener('continuous_dropped', () => {
+        // Refresh status immediately so the queue warning badge appears.
+        loadStatus();
       });
       // The browser auto-reconnects EventSource on connection drop; nothing
       // else is needed here.

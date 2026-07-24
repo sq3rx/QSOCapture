@@ -563,6 +563,8 @@ def api_status() -> JSONResponse:
             "buffer_filled_sec": round(audio_status.get("buffer_filled_sec", 0.0), 1),
             "buffers": audio_status.get("buffers", []),
             "continuous_paused": bool(audio_status.get("continuous_paused", False)),
+            "cont_queue_fill_pct": audio_status.get("cont_queue_fill_pct", 0.0),
+            "cont_queue_dropped": audio_status.get("cont_queue_dropped", 0),
         },
         "n1mm": {
             "running": n1mm_running,

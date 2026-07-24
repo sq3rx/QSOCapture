@@ -281,10 +281,14 @@ class AudioSource(ABC):
         # capture callback block indefinitely (which would stall live audio).
         # When the queue is full the oldest pending chunk is dropped so we
         # always keep the freshest audio.
-        self._cont_queue: "queue.Queue" = queue.Queue(maxsize=600)
+        self._cont_queue: "queue.Queue" = queue.Queue(maxsize=2)
         self._cont_files: dict = {}
         self._cont_lock = threading.Lock()
         self._cont_start = 0.0
+        # Total number of continuous audio chunks dropped because the queue
+        # was full. Exposed via get_status() so the dashboard can warn the
+        # operator.
+        self._cont_dropped = 0
         # Dedicated encoder worker: MP3 encoding of finalized chunks happens
         # here (off the writer thread) so a long encode never blocks draining
         # of the continuous queue during multi-hour sessions.
@@ -592,12 +596,16 @@ class AudioSource(ABC):
 
     def get_status(self) -> dict:
         """Return a generic status dict. Overridden by TCI source."""
+        qsize = getattr(self._cont_queue, 'qsize', lambda: 0)()
+        qmax = self._cont_queue.maxsize
         return {
             "connected": self._running,
             "frames_received": 0,
             "buffer_filled_sec": self._buffer_filled_sec(),
             "buffers": self._buffers_detail(),
             "continuous_paused": getattr(self, "_continuous_paused", False),
+            "cont_queue_fill_pct": round(100.0 * qsize / qmax, 1) if qmax else 0.0,
+            "cont_queue_dropped": getattr(self, "_cont_dropped", 0),
         }
 
     def is_connected(self) -> bool:
@@ -639,6 +647,12 @@ class AudioSource(ABC):
             except queue.Full:
                 try:
                     self._cont_queue.get_nowait()
+                    self._cont_dropped += 1
+                    # Emit an event on the first drop so the dashboard can
+                    # react; subsequent drops in the same burst are counted
+                    # but do not flood the event queue.
+                    if self._cont_dropped == 1:
+                        _emit_event("continuous_dropped", {"dropped": self._cont_dropped})
                 except queue.Empty:
                     return
 
@@ -1184,12 +1198,16 @@ class TCIAudioSource(AudioSource):
             logger.debug("[%s] TCI audio frame (rx=%d): %d samples", self.label, rx_index, n)
 
     def get_status(self) -> dict:
+        qsize = getattr(self._cont_queue, 'qsize', lambda: 0)()
+        qmax = self._cont_queue.maxsize
         return {
             "connected": getattr(self, "_connected", False),
             "frames_received": getattr(self, "_frames_received", 0),
             "buffer_filled_sec": self._buffer_filled_sec(),
             "buffers": self._buffers_detail(),
             "continuous_paused": getattr(self, "_continuous_paused", False),
+            "cont_queue_fill_pct": round(100.0 * qsize / qmax, 1) if qmax else 0.0,
+            "cont_queue_dropped": getattr(self, "_cont_dropped", 0),
         }
 
     def is_connected(self) -> bool:

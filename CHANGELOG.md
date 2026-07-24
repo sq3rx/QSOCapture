@@ -7,6 +7,25 @@ in plain business language, without going into implementation details.
 
 ## Unreleased
 
+### Continuous queue monitoring (bounded 1800) with dashboard warning
+- The continuous recording queue size was increased from 600 to 1800 to reduce
+  the chance of audio drops under heavy load.
+- When the queue still overflows and chunks have to be dropped, a counter tracks
+  the number of lost audio fragments. The server status API now exposes the
+  current queue fill level (`cont_queue_fill_pct`) and the drop count
+  (`cont_queue_dropped`).
+- The dashboard RX1/RX2 badges reflect the queue state:
+  - **Green** = normal operation.
+  - **Orange** = queue is 50–80% full or the ring buffer is running low.
+  - **Red** = queue exceeds 80% or audio chunks have been dropped.
+- Hovering over an RX badge shows a tooltip with the exact queue fill
+  percentage and the number of dropped chunks (if any). Queue info only appears
+  while continuous recording is actually active, so a stopped recorder never
+  shows misleading 0% values.
+- A new `continuous_dropped` Server-Sent Event pushes an immediate status
+  refresh to the dashboard when the first chunk is dropped, so the operator is
+  alerted in real time.
+
 ### Fix: pagination broken when filtering by RX (RX1/RX2)
 - The RX filter (`rx` query parameter, e.g. `?rx=RX1`) was applied **in Python
   after** the SQL query had already fetched a limited set of rows with
