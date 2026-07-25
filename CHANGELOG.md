@@ -7,6 +7,10 @@ in plain business language, without going into implementation details.
 
 ## Unreleased
 
+### Confirm-close dialog
+- Clicking the window close button (X) now shows a confirmation dialog to
+  prevent accidental exit.
+
 ### Version check / update notification
 - The app now checks GitHub for a newer release on every startup. If a new
   version is available, a yellow banner appears under the header with a link

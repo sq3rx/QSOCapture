@@ -424,7 +424,7 @@ def main() -> None:
             height=800,
             min_size=(900, 600),
             text_select=True,
-            confirm_close=False,
+            confirm_close=True,
             js_api=download_api,
         )
 
