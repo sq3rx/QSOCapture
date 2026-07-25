@@ -1,7 +1,7 @@
 # QSOCapture by SQ3RX
 
 <p align="center">
-  <img src="icon.svg" alt="QSOCapture icon" width="128" height="128" />
+  <img src="logo_with_text.png" alt="QSOCapture logo" width="400" />
 </p>
 
 [![Build and Release](https://github.com/sq3rx/QSOCapture/actions/workflows/main.yml/badge.svg)](https://github.com/sq3rx/QSOCapture/actions/workflows/main.yml)
