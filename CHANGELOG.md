@@ -5,6 +5,13 @@ in plain business language, without going into implementation details.
 
 ---
 
+## Unreleased
+
+### Documentation
+- README overhauled and build instructions moved to a new [building.md](building.md).
+
+---
+
 ## Version 0.5.0beta
 
 ### Dashboard: SVG icon in header

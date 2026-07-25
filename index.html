@@ -1368,7 +1368,16 @@
     }
 
     async function factoryReset() {
-      if (!confirm('Factory reset will erase the ENTIRE QSO log, all recorded audio and restore default settings. Continue?')) return;
+      if (!confirm(
+        '⚠ FACTORY RESET — this will permanently delete:\n' +
+        '  • QSO log database (all contacts)\n' +
+        '  • All recorded audio files (WAV/MP3)\n' +
+        '  • Configuration (restored to defaults)\n' +
+        '  • Application log buffer\n\n' +
+        'If you want to keep your recordings, copy them from the\n' +
+        'recordings folder before proceeding.\n\n' +
+        'Continue?'
+      )) return;
       $('cfgMsg').textContent = 'Resetting…';
       try {
         const r = await fetch('/api/factory_reset', { method: 'POST' });

@@ -35,6 +35,9 @@ tests/
 cbr/
 import_cbr.py
 
+# Test data seeder (local helper — not committed)
+seed_test_data.py
+
 # Editor / OS
 .vscode/
 .idea/

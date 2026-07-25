@@ -16,18 +16,12 @@ amateur radio operators. It captures audio from your receiver (via the
 each QSO the moment **N1MM Logger+** logs it, and presents everything in a
 clean, color-coded web dashboard.
 
-> Record every contact automatically, then replay it in the browser with
-> adjustable playback speed — perfect for contest post-analysis and
-> training.
-
 ---
 
 ## Table of Contents
 
 - [Features](#features)
-- [Requirements](#requirements)
-- [Quick start](#quick-start)
-- [Desktop EXE & Windows Installer](#desktop-exe--windows-installer)
+- [Building](building.md)
 - [How to use it](#how-to-use-it)
 - [Configuration](#configuration)
  - [Using the dashboard](#using-the-dashboard)
@@ -50,6 +44,8 @@ clean, color-coded web dashboard.
    autostart** setting and the dashboard **Start/Stop recording** button.
  - **Two audio sources** — ExpertSDR via the TCI WebSocket protocol, or any
    system soundcard input device.
+ - **WAV / MP3 output** — recordings are saved as lossless WAV by default;
+   optionally switch to MP3 (via `lameenc`) for smaller files.
  - **SO2R ready** — in stereo (`channels = 2`) the left channel is recorded as
    **RX1** and the right channel as **RX2**, each into its own buffer and its
    own audio file. In mono (SO1R) only RX1 is used.
@@ -68,117 +64,14 @@ clean, color-coded web dashboard.
  - **Color-coded log** — the live application log and the QSO table use
    friendly color badges (mode, band, RX) for at-a-glance readability.
  - **Factory reset** — one click to wipe the log, recordings and settings
-   (restore defaults, with `continuous_autostart = false`).
+   (restore defaults).
 
 ---
 
-## Requirements
+## Building
 
-- Python **3.9+** (Windows 10/11) for the standard build.
-- The following Python packages (see `requirements.txt`):
-  - `fastapi`, `uvicorn`
-  - `numpy`
-  - `sounddevice` (only needed for soundcard mode)
-  - `websockets` (only needed for TCI mode)
-  - `lameenc` (optional — only if you want MP3 output instead of WAV)
-  - `pywebview` (needed for the desktop EXE / embedded WebView2 launcher — `launcher.py`)
-
-Install everything with:
-
-```bash
-pip install -r requirements.txt
-```
-
----
-
-## Quick start
-
-1. Edit `config.cfg` (or use the in-app **Settings** panel) to match your
-   setup — at minimum set the audio source and the N1MM UDP port.
-2. Start the server:
-
-   ```bash
-   python main.py
-   ```
-
-3. Open the dashboard in your browser:
-
-   ```
-   http://localhost:8000
-   ```
-
-4. Log a contact in N1MM Logger+ and watch it appear in the **QSOCapture**
-   dashboard with its audio slice ready to play.
-
----
-
-## Desktop EXE & Windows Installer
-
-The app can also be shipped as a single standalone ``QSOCapture-portable-x.y.z.exe`` that
-launches the web server and opens the dashboard in an **embedded browser**
-(Edge WebView2 on Windows) — no external browser or Python install required.
-
-### Download ready-made builds
-
-Go to the **[Releases](https://github.com/sq3rx/QSOCapture/releases)** page and
-download either:
-
-- **`QSOCapture-portable-x.y.z.exe`** — a portable, single-file executable
-  (carries the version in its name). Just run it; no installation needed.
-- **`QSOCapture-setup-x.y.z.exe`** — a Windows installer (Inno Setup) that
-  places the app in `Program Files`, adds a Start Menu / desktop shortcut and
-  an uninstall entry. Recommended for most users.
-
-### Build it yourself (Windows)
-
-```bash
-pip install -r requirements.txt
-pyinstaller build.spec
-```
-
-The result is ``dist/QSOCapture-portable-x.y.z.exe``. Double-click it and
-the dashboard opens in its own window. If the embedded WebView2 engine is
-missing, the app automatically falls back to opening your default system
-browser.
-
-> **Where are my data stored?** The executable is installed in ``Program
-> Files`` (read-only for normal users), but all your personal data —
-> ``config.cfg``, ``qsos.db`` (QSO log) and the ``recordings/`` folder — live
-> in ``%LOCALAPPDATA%\QSOCapture`` (e.g.
-> ``C:\Users\<you>\AppData\Local\QSOCapture``). This means the app runs without
-> administrator rights, and your recordings survive an uninstall. On first
-> launch any data left behind in an older ``Program Files`` install is moved
-> automatically into that folder.
-
-To build the **Windows installer** (requires [Inno Setup](https://jrsoftware.org/isinfo.php)):
-
-```bash
-iscc installer.iss
-```
-
-This produces ``installer/QSOCapture-setup-<version>.exe``.
-
-To run the desktop wrapper directly (without building):
-
-```bash
-python launcher.py
-```
-
-> Note: the WebView2 runtime ships with modern Windows 10/11. On older systems
-> install it from Microsoft, otherwise the system-browser fallback is used.
-
-### Windows 7 / 8 (legacy build)
-
-**Windows 7 and 8 are NOT supported by the standard build.** Python 3.9+ cannot
-run on those systems, and the Edge WebView2 engine does not exist there. For
-Windows 7/8 download the separate **`QSOCapture-Win7-setup-x.y.z.exe`** (or the
-portable **`QSOCapture-portable-Win7-x.y.z.exe`** from the legacy release). That
-build is produced with **Python 3.8 + CEF** (`cefpython3`), which is bundled
-into the EXE, so no external browser or runtime is required. The launcher
-automatically detects Windows 7/8 and uses the CEF backend instead of Edge
-WebView2. The portable legacy executable is named
-`QSOCapture-portable-Win7-x.y.z.exe` to avoid clashing with the modern
-`QSOCapture-portable-x.y.z.exe`.
+For system requirements and instructions on building the standalone EXE or
+Windows installer, see [building.md](building.md).
 
 ---
 
@@ -304,8 +197,8 @@ self-contained audio file named like:
    (`^SQ`, `3[A-Z]X$`, `SQ|SP`). Invalid regex is treated as a literal
    substring.
  - **Band / Mode** — exact match (e.g. `20M`, `CW`).
- - **RX** — filter by receiver: **All RX**, **RX1** or **RX2** (only
-   meaningful in SO2R). Applies to both the QSO and Continuous views.
+ - **RX** — filter by receiver: **All RX**, **RX1** or **RX2**. 
+   Applies to both the QSO and Continuous views.
  - **Date/time from – to** — filter by an exact moment, not just a day.
  - **Type** — switch between **N1MM QSOs** and **Continuous** recordings.
 
@@ -341,9 +234,13 @@ application log. Errors are red, warnings amber, info/debug muted.
 ### Settings
 
 The **⚙ Settings** panel lets you change every option live. Hover the **?**
-icon next to any field for an explanation. **⚠ Factory Reset** erases the
-entire QSO log, all recordings and restores default settings (with a
-confirmation prompt).
+icon next to any field for an explanation.
+
+**⚠ Factory Reset** — permanently deletes the entire QSO log database, all
+recorded audio files (WAV/MP3), restores the configuration to defaults and
+clears the application log buffer. If you want to keep your recordings, copy
+them from the recordings folder before proceeding. A confirmation prompt
+lists exactly what will be removed.
 
 ---
 
@@ -376,10 +273,14 @@ QSOCapture/
 ├── index.html         # Tailwind dashboard (served by main.py)
 ├── build.spec         # PyInstaller spec for building the standalone EXE
 ├── installer.iss      # Inno Setup script for the Windows installer
-├── config.cfg         # Your settings (created/updated automatically)
-├── qsos.db            # SQLite database (created on first run)
-├── recordings/        # Recorded audio (created on first run)
-└── requirements.txt
+├── building.md        # Build instructions (requirements, EXE, installer)
+├── gen_icon.py        # Icon generator (SVG → ICO)
+├── CHANGELOG.md       # Release changelog
+├── LICENSE            # MIT license
+├── .gitignore
+├── requirements.txt
+├── screenshots/       # Dashboard screenshots
+└── recordings/        # Recorded audio (created on first run)
 ```
 
 ---
@@ -414,17 +315,17 @@ QSOCapture/
    TCI server (default `127.0.0.1:50001`, enabled in ExpertSDR options); for
    `soundcard` mode pick the correct `soundcard_device` substring and confirm
    the OS is routing receiver audio to that input.
- - **WebView2 window doesn't open** — modern Windows 10/11 ships WebView2. If
-   the embedded browser fails to initialise, QSOCapture automatically falls
-   back to opening your default system browser at the dashboard URL.
+ - **Windows 7 / 8 not supported** — these systems lack the Edge WebView2
+   runtime required by the standard build. Use the dedicated legacy build
+   (`QSOCapture-Win7-setup-x.y.z.exe` or `QSOCapture-portable-Win7-x.y.z.exe`)
+   from the [Releases](https://github.com/sq3rx/QSOCapture/releases) page.
+   See [building.md](building.md) for details.
  - **N1MM contacts not appearing** — ensure N1MM Logger+ broadcasts on the same
    UDP port configured in `n1mm_udp_port` (default `12060`) and that the
    machine's firewall allows the bind on `n1mm_bind_ip` (default `0.0.0.0`).
  - **Broken / unplayable continuous chunks** — if you stop the app while a
    continuous chunk is open it is finalised automatically; empty chunks (no
    audio received) are discarded so the continuous view never shows dead rows.
- - **Rebuilding the EXE** — after changing source, delete `build/` and `dist/`
-   and run `pyinstaller build.spec` again to avoid stale artifacts.
 
 ---
 
