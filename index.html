@@ -1051,10 +1051,27 @@
 
     function toEpoch(val, endOfDay) {
       if (!val) return null;
-      // Accept "YYYY-MM-DD HH:mm" or "YYYY-MM-DDTHH:mm" format
-      const s = val.includes('T') ? val : val.replace(' ', 'T') + ':00';
-      const ms = new Date(s).getTime();
-      return isNaN(ms) ? null : String(ms / 1000);
+      val = val.trim();
+      // Match "YYYY-MM-DD HH:mm" (date with time)
+      const dt = val.match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})$/);
+      if (dt) {
+        const ms = Date.UTC(+dt[1], +dt[2]-1, +dt[3], +dt[4], +dt[5]);
+        return String(ms / 1000);
+      }
+      // Match "YYYY-MM-DD" (date only) — search the whole day in UTC
+      const d = val.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (d) {
+        if (endOfDay) {
+          // end of day: 23:59:59 UTC
+          const ms = Date.UTC(+d[1], +d[2]-1, +d[3], 23, 59, 59);
+          return String(ms / 1000);
+        } else {
+          // start of day: 00:00:00 UTC
+          const ms = Date.UTC(+d[1], +d[2]-1, +d[3]);
+          return String(ms / 1000);
+        }
+      }
+      return null;
     }
 
     // Auto-format date/time input as user types: YYYY-MM-DD HH:mm
@@ -1136,9 +1153,15 @@
     });
 
     // Other filter fields use the standard debounced input/change pattern.
+    // Date fields only trigger on "change" (when the user finishes typing and
+    // moves away or presses Enter) to avoid firing a query on every character
+    // while the user is still typing a partial date like "2026-07-2".
     let t;
-    ['call','band','mode','rx','date_from','date_to','continuous'].forEach(id => {
+    ['call','band','mode','rx','continuous'].forEach(id => {
       $(id).addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => loadQsos(), 200); });
+      $(id).addEventListener('change', () => loadQsos());
+    });
+    ['date_from','date_to'].forEach(id => {
       $(id).addEventListener('change', () => loadQsos());
     });
     $('refresh').addEventListener('click', () => loadQsos());

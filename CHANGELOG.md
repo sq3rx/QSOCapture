@@ -7,6 +7,9 @@ in plain business language, without going into implementation details.
 
 ## Unreleased
 
+### Date/time filter improvements
+- Date fields now accept date-only input (e.g. `2026-07-25`) and search the whole day in UTC. Filtering only triggers when the user finishes typing (change event), not on every keystroke.
+
 ### Documentation
 - README overhauled and build instructions moved to a new [building.md](building.md).
 
