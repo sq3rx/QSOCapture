@@ -7,6 +7,13 @@ in plain business language, without going into implementation details.
 
 ## Unreleased
 
+### Version check / update notification
+- The app now checks GitHub for a newer release on every startup. If a new
+  version is available, a yellow banner appears under the header with a link
+  to download it. The About window shows the update status automatically with
+  links to Download and the Changelog. The check is fully offline-friendly
+  with a 1-hour in-memory cache.
+
 ### Date/time filter improvements
 - Date fields now accept date-only input (e.g. `2026-07-25`) and search the whole day in UTC. Filtering only triggers when the user finishes typing (change event), not on every keystroke.
 
@@ -178,7 +185,7 @@ restarting the app.
 
 ## Version 0.2.1beta
 
-This release fixes the **"missing Python DLL" error on Windows 7** reported by
+This release fixes the **"missing Python DLL" error on Windows 7/8** reported by
 users and modernises the build toolchain.
 
 ### Fix: application did not start on Windows 7/8 (silent crash)

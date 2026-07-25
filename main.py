@@ -51,6 +51,99 @@ logger = logging.getLogger("QSOCapture.main")
 # user-visible.
 APP_VERSION = "0.5.0beta"
 
+# GitHub repo used for the "check for updates" feature.
+GITHUB_REPO = "sq3rx/QSOCapture"
+
+# --- Version parsing / comparison (for update checks) ----------------------
+# Supports the scheme used here: "<major>.<minor>.<patch>[suffix]" where suffix
+# is an optional pre-release tag like "beta", "rc" or "" (release). A release
+# always sorts higher than its beta/rc of the same numbers.
+_SUFFIX_ORDER = {"": 3, "rc": 2, "beta": 1, "alpha": 0}
+
+
+def parse_version(v):
+    """Parse ``"x.y.z<tag>"`` into a comparable tuple.
+
+    Returns ``( [x, y, z], rank )`` where ``rank`` reflects the pre-release
+    suffix (higher = closer to / is a final release). Unparsable parts default
+    to 0 / release so a weird string still compares deterministically.
+    """
+    v = (v or "").strip().lower().lstrip("v")
+    nums = [0, 0, 0]
+    suffix = ""
+    head = v
+    for tag in ("alpha", "beta", "rc"):
+        if tag in v:
+            idx = v.index(tag)
+            head = v[:idx]
+            suffix = tag
+            break
+    parts = [p for p in head.replace("-", ".").split(".") if p != ""]
+    for i, p in enumerate(parts[:3]):
+        try:
+            nums[i] = int(p)
+        except ValueError:
+            try:
+                nums[i] = int(float(p))
+            except ValueError:
+                nums[i] = 0
+    return (nums, _SUFFIX_ORDER.get(suffix, 3))
+
+
+def compare_versions(a, b):
+    """Return -1 / 0 / 1 if version ``a`` is < / == / > ``b``."""
+    pa, pb = parse_version(a), parse_version(b)
+    if pa < pb:
+        return -1
+    if pa > pb:
+        return 1
+    return 0
+
+
+# In-memory cache for the GitHub latest-tag lookup so we do not hit the API on
+# every dashboard load (GitHub's unauthenticated rate limit is 60 req/h per IP,
+# and a self-hosted dashboard may be opened many times per session).
+_VERSION_CACHE_TTL = 3600.0  # 1 hour
+_version_cache = {"value": None, "ts": 0.0}
+
+
+def get_latest_version():
+    """Return ``(latest_tag, release_url)`` from the GitHub tags API.
+
+    Uses only the standard library (``urllib``) so no new dependency is
+    introduced. Returns ``(None, None)`` on any network/parse failure so the
+    caller can treat the check as "unknown / offline" and stay silent.
+    """
+    import urllib.request
+
+    now = time.time()
+    cached = _version_cache["value"]
+    if cached is not None and (now - _version_cache["ts"]) < _VERSION_CACHE_TTL:
+        return cached
+    try:
+        req = urllib.request.Request(
+            "https://api.github.com/repos/%s/tags?per_page=1" % GITHUB_REPO,
+            headers={
+                "User-Agent": "QSOCapture/%s" % APP_VERSION,
+                "Accept": "application/vnd.github+json",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=3.0) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        if not isinstance(data, list) or not data:
+            return (None, None)
+        tag = data[0].get("name", "")
+        if not tag:
+            return (None, None)
+        result = (tag, "https://github.com/%s/releases/tag/%s" % (GITHUB_REPO, tag))
+        _version_cache["value"] = result
+        _version_cache["ts"] = now
+        return result
+    except Exception:
+        # Offline / rate-limited / unexpected shape — stay silent.
+        return (None, None)
+
+
 # ---------------------------------------------------------------------------
 # Global application state (populated in lifespan startup)
 # ---------------------------------------------------------------------------
@@ -657,8 +750,41 @@ async def api_events(request: Request):
 
 
 # ---------------------------------------------------------------------------
-# Configuration API (web-driven settings)
+# Version check API + Configuration API (web-driven settings)
 # ---------------------------------------------------------------------------
+@app.get("/api/version_check")
+def api_version_check() -> JSONResponse:
+    """Compare the running version against the latest GitHub release tag.
+
+    Returns:
+      * ``current``          – the running APP_VERSION.
+      * ``latest``           – the newest tag found on GitHub (or null).
+      * ``update_available`` – True when latest > current.
+      * ``release_url``      – link to the release/tag page (or null).
+      * ``error``            – "offline" when the network lookup failed; else null.
+
+    Network failures (offline, rate-limited, …) are swallowed so the dashboard
+    stays silent and never shows an error banner.
+    """
+    latest, release_url = get_latest_version()
+    if not latest:
+        return JSONResponse({
+            "current": APP_VERSION,
+            "latest": None,
+            "update_available": False,
+            "release_url": None,
+            "error": "offline",
+        })
+    update_available = compare_versions(latest, APP_VERSION) > 0
+    return JSONResponse({
+        "current": APP_VERSION,
+        "latest": latest,
+        "update_available": update_available,
+        "release_url": release_url,
+        "error": None,
+    })
+
+
 @app.get("/api/config")
 def api_get_config() -> JSONResponse:
     """Return the current configuration (values + UI schema + version)."""

@@ -33,6 +33,8 @@
     .bg-red-600\/10 { background:rgba(220,38,38,.1); }
     .bg-brand\/10 { background:rgba(34,197,94,.1); } .bg-brand\/20 { background:rgba(34,197,94,.2); }
     .bg-amber-500\/10 { background:rgba(245,158,11,.1); }
+    .bg-amber-500\/20 { background:rgba(245,158,11,.2); }
+    .hover\:bg-amber-500\/30:hover { background:rgba(245,158,11,.3); }
     .bg-sky-500\/10 { background:rgba(14,165,233,.1); }
     .bg-emerald-500\/10 { background:rgba(16,185,129,.1); }
     .bg-rose-500\/10 { background:rgba(244,63,94,.1); }
@@ -45,7 +47,8 @@
     .text-slate-300 { color:#cbd5e1; } .text-slate-400 { color:#94a3b8; }
     .text-slate-500 { color:#64748b; } .text-slate-950 { color:#020617; }
     .text-brand { color:#22c55e; } .text-red-300 { color:#fca5a5; }
-    .text-red-400 { color:#f87171; } .text-amber-300 { color:#fcd34d; }
+    .text-red-400 { color:#f87171; } .text-amber-200 { color:#fde68a; }
+    .text-amber-300 { color:#fcd34d; }
     .text-amber-400 { color:#fbbf24; } .text-sky-300 { color:#7dd3fc; }
     .text-emerald-300 { color:#6ee7b7; } .text-rose-300 { color:#fda4af; }
     .text-violet-300 { color:#c4b5fd; } .text-fuchsia-300 { color:#f0abfc; }
@@ -152,6 +155,17 @@
         <span id="bufContainer" class="flex items-center gap-2 text-xs"></span>
       </div>
     </header>
+
+    <div id="updateBanner" class="hidden">
+      <div class="mb-4 px-4 py-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-sm flex items-center justify-between gap-3">
+        <span id="updateBannerText">New version available…</span>
+        <span class="flex items-center gap-2">
+          <a id="updateBannerLink" href="#" target="_blank" rel="noopener" class="px-3 py-1 rounded-md bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 font-medium">Download</a>
+          <a id="updateBannerChangelog" href="https://github.com/sq3rx/QSOCapture/blob/main/CHANGELOG.md" target="_blank" rel="noopener" class="px-3 py-1 rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-700 font-medium">Changelog</a>
+          <button id="updateBannerClose" title="Hide" class="text-amber-300 hover:text-white text-lg leading-none px-1">&times;</button>
+        </span>
+      </div>
+    </div>
 
     <section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
       <div class="relative">
@@ -367,6 +381,9 @@
              class="text-brand hover:underline break-all">
             https://github.com/sq3rx/QSOCapture
           </a>
+        </p>
+        <p class="text-slate-400">
+          <span id="updateStatus" class="text-slate-300"></span>
         </p>
       </div>
     </div>
@@ -1186,6 +1203,8 @@
           ver.textContent = d.version || '';
         }).catch(() => {});
       }
+      // Auto-check for updates and show result directly in the About modal.
+      checkForUpdate({ showStatus: true });
     }
     function hideHelp() {
       const m = $('helpModal');
@@ -1193,6 +1212,66 @@
     }
     $('openHelp').addEventListener('click', showHelp);
     $('closeHelp').addEventListener('click', hideHelp);
+
+    // --- Version update check ---------------------------------------------
+    // Auto-checks GitHub for a newer release. On startup a banner is shown
+    // (unless the user dismissed it for that version). From the "?" (About)
+    // modal the user can also trigger a manual check with visible status.
+    function showUpdateBanner(d) {
+      // Respect a per-version dismissal stored in localStorage so the banner
+      // does not re-appear on every launch once the user closes it.
+      try {
+        if (localStorage.getItem('qsocapture_dismissed_' + d.latest) === '1') return;
+      } catch (e) {}
+      window.__latestVersion = d.latest;
+      const b = $('updateBanner');
+      $('updateBannerText').innerHTML =
+        'New version available: <span class="font-semibold text-amber-100">' +
+        esc(d.latest) + '</span> (yours: ' + esc(d.current) + ')';
+      $('updateBannerLink').href = d.release_url || '#';
+      b.className = ''; // wrapper stays in flow; inner div handles styling
+      $('updateBanner').querySelector('div').className =
+        'mb-4 px-4 py-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-sm flex items-center justify-between gap-3';
+    }
+    function hideUpdateBanner() {
+      const b = $('updateBanner');
+      b.className = 'hidden';
+      const inner = b.querySelector('div');
+      if (inner) inner.className = 'hidden';
+    }
+    $('updateBannerClose').addEventListener('click', () => {
+      hideUpdateBanner();
+      const latest = window.__latestVersion || '';
+      try { if (latest) localStorage.setItem('qsocapture_dismissed_' + latest, '1'); } catch (e) {}
+    });
+    async function checkForUpdate(opts) {
+      opts = opts || {};
+      try {
+        const r = await fetch('/api/version_check');
+        const d = await r.json();
+        if (opts.showStatus) {
+          const us = $('updateStatus');
+          if (d.error) {
+            us.textContent = 'Could not reach version server.';
+          } else if (d.update_available) {
+            us.innerHTML = 'New version <span class="text-amber-300 font-medium">' +
+              esc(d.latest) + '</span> — <a class="text-brand hover:underline" href="' +
+              (d.release_url || '#') + '" target="_blank" rel="noopener">Download</a>' +
+              ' · <a class="text-brand hover:underline" href="https://github.com/sq3rx/QSOCapture/blob/main/CHANGELOG.md" target="_blank" rel="noopener">Changelog</a>';
+          } else {
+            us.innerHTML = '✅ You have the latest version (' + esc(d.current) + ')';
+          }
+        }
+        if (d.update_available && d.latest && opts.showBanner) {
+          showUpdateBanner(d);
+        }
+      } catch (e) {
+        if (opts.showStatus) $('updateStatus').textContent = 'Version check failed.';
+      }
+    }
+    // Auto-check once on startup (banner only; silent when offline / none).
+    checkForUpdate({ showBanner: true });
+
     // Toggling the Debug checkbox flips verbose logging on the server (so
     // future DEBUG lines are emitted) and immediately reloads the log with
     // the DEBUG filter applied.

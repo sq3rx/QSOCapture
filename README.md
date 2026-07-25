@@ -301,6 +301,7 @@ QSOCapture/
 | GET | `/api/audio_devices` | List available soundcard input devices (for `soundcard_device`). |
 | GET | `/api/paths` | Absolute filesystem paths of `recordings/` and `config.cfg`. |
 | POST | `/api/open_folder` | Open the recordings directory in the system file manager. |
+| GET | `/api/version_check` | Compare running version against latest GitHub release tag. |
 | GET | `/api/events` | Server-Sent Events stream for live dashboard updates. |
 | POST | `/api/debug` | Enable or disable debug-level logging at runtime. |
 | POST | `/api/factory_reset` | Wipe log + recordings + restore defaults. |
