@@ -8,7 +8,7 @@ on:
 
 jobs:
   build:
-    name: Modern build (Python 3.14, Win10/11)
+    name: Build (Python 3.14)
     runs-on: windows-latest  # Budujemy na Windowsie, aby uzyskać plik .exe
     steps:
       - name: Checkout code
@@ -39,6 +39,7 @@ jobs:
 
       - name: Build Windows installer
         run: iscc installer.iss /dMyAppVersion="${{ steps.version.outputs.version }}" /dMyExeName="QSOCapture-portable-${{ steps.version.outputs.version }}.exe"
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -48,84 +49,25 @@ jobs:
             installer/QSOCapture-setup-${{ steps.version.outputs.version }}.exe
           if-no-files-found: error
 
-  build-win7:
-    name: Legacy build (Python 3.8 + CEF, Windows 7/8)
-    runs-on: windows-latest  # Budujemy na Windowsie, aby uzyskać plik .exe
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.8'
-
-      - name: Install dependencies
-        run: |
-          pip install pyinstaller
-          pip install -r requirements.txt
-          # CEF jest WYMAGANY w legacy buildzie (WebView2 nie istnieje na Win7/8).
-          pip install cefpython3
-
-      - name: Install Inno Setup
-        run: choco install innosetup -y
-
-      - name: Compute clean version (strip leading 'v')
-        id: version
-        shell: bash
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
-
-      - name: Build with PyInstaller (force CEF bundle)
-        # BUNDLE_CEF=1 wymusza dołączenie CEF i przerywa budowę, gdyby
-        # cefpython3 nie było zainstalowane -- nigdy nie wypuszczamy legacy
-        # EXE bez działającej przeglądarki wbudowanej.
-        # APP_VERSION nadaje portable EXE nazwę z numerem wersji.
-        run: |
-          $env:BUNDLE_CEF="1"
-          $env:APP_VERSION="${{ steps.version.outputs.version }}"
-          pyinstaller --noconfirm build.spec
-
-      - name: Build Windows installer (legacy)
-        run: |
-          iscc installer.iss /dMyAppVersion="${{ steps.version.outputs.version }}" /dMyAppNameSuffix="-Win7" /dMyExeName="QSOCapture-portable-Win7-${{ steps.version.outputs.version }}.exe"
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: legacy-win7-build
-          path: |
-            dist/QSOCapture-portable-Win7-*.exe
-            installer/QSOCapture-Win7-setup-${{ steps.version.outputs.version }}.exe
-          if-no-files-found: error
-
   release:
     name: Create Release
-    needs: [build, build-win7]
+    needs: [build]
     # Release powstaje TYLKO przy pushu tagu 'v*'. Przy ręcznym uruchomieniu
     # (workflow_dispatch) buildy się wykonają i zostaną jako artefakty, ale
     # żadna wersja nie zostanie opublikowana.
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
-      - name: Download modern build
+      - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
           name: modern-build
-          path: modern
-
-      - name: Download legacy Win7 build
-        uses: actions/download-artifact@v4
-        with:
-          name: legacy-win7-build
-          path: legacy
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            modern/dist/QSOCapture-portable-*.exe
-            modern/installer/QSOCapture-setup-*.exe
-            legacy/dist/QSOCapture-portable-Win7-*.exe
-            legacy/installer/QSOCapture-Win7-setup-*.exe
+            dist/QSOCapture-portable-*.exe
+            installer/QSOCapture-setup-*.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

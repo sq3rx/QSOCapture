@@ -4,21 +4,5 @@ numpy>=1.24
 sounddevice>=0.4.6
 websockets>=12.0
 lameenc>=1.3
-pywebview>=5.0
-# cefpython3 is OPTIONAL for the modern build. The launcher uses the native
-# Edge WebView2 backend (ships with Windows 10/11, no extra install) by default,
-# and only falls back to CEF when cefpython3 is importable. cefpython3 wheels
-# are not published for every Python version (e.g. 3.10+), so we must NOT
-# hard-require it here or the automated build (pip install -r requirements.txt)
-# would fail on those interpreters. Install it manually only if you want the
-# CEF backend bundled.
-# cefpython3>=66.1
+PySide6>=6.6
 pyinstaller>=6.0
-
-# === Legacy build for Windows 7/8 ===
-# Windows 7/8 cannot run Python 3.9+ and has no Edge WebView2, so the legacy
-# EXE is built with Python 3.8 and MUST bundle CEF. In the CI legacy job this
-# is installed explicitly:
-#     pip install cefpython3
-# The build is then run with BUNDLE_CEF=1 so build.spec fails unless CEF is
-# actually importable (see .github/workflows/main.yml, job "build-win7").

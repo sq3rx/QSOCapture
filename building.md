@@ -6,14 +6,14 @@
 
 ## Requirements
 
-- Python **3.9+** (Windows 10/11) for the standard build.
+- Python **3.9+** (Windows 7+).
 - The following Python packages (see `requirements.txt`):
   - `fastapi`, `uvicorn`
   - `numpy`
   - `sounddevice` (only needed for soundcard mode)
   - `websockets` (only needed for TCI mode)
   - `lameenc` (optional — only if you want MP3 output instead of WAV)
-  - `pywebview` (needed for the desktop EXE / embedded WebView2 launcher — `launcher.py`)
+  - `PySide6` (needed for the desktop EXE / embedded Qt WebEngine browser — `qt_launcher.py`)
 
 Install everything with:
 
@@ -25,7 +25,9 @@ pip install -r requirements.txt
 
 The app can also be shipped as a single standalone ``QSOCapture-portable-x.y.z.exe`` that
 launches the web server and opens the dashboard in an **embedded browser**
-(Edge WebView2 on Windows) — no external browser or Python install required.
+(PySide6 QWebEngineView / Qt WebEngine) — no external browser or Python install
+required. Unlike the old pywebview-based build, this works on all Windows
+versions (7+) with no external WebView2 or CEF dependency.
 
 ### Download ready-made builds
 
@@ -46,9 +48,7 @@ pyinstaller build.spec
 ```
 
 The result is ``dist/QSOCapture-portable-x.y.z.exe``. Double-click it and
-the dashboard opens in its own window. If the embedded WebView2 engine is
-missing, the app automatically falls back to opening your default system
-browser.
+the dashboard opens in its own window with the Qt WebEngine browser.
 
 > **Where are my data stored?** The executable is installed in ``Program
 > Files`` (read-only for normal users), but all your personal data —
@@ -70,21 +70,9 @@ This produces ``installer/QSOCapture-setup-<version>.exe``.
 To run the desktop wrapper directly (without building):
 
 ```bash
-python launcher.py
+python qt_launcher.py
 ```
 
-> Note: the WebView2 runtime ships with modern Windows 10/11. On older systems
-> install it from Microsoft, otherwise the system-browser fallback is used.
-
-### Windows 7 / 8 (legacy build)
-
-**Windows 7 and 8 are NOT supported by the standard build.** Python 3.9+ cannot
-run on those systems, and the Edge WebView2 engine does not exist there. For
-Windows 7/8 download the separate **`QSOCapture-Win7-setup-x.y.z.exe`** (or the
-portable **`QSOCapture-portable-Win7-x.y.z.exe`** from the legacy release). That
-build is produced with **Python 3.8 + CEF** (`cefpython3`), which is bundled
-into the EXE, so no external browser or runtime is required. The launcher
-automatically detects Windows 7/8 and uses the CEF backend instead of Edge
-WebView2. The portable legacy executable is named
-`QSOCapture-portable-Win7-x.y.z.exe` to avoid clashing with the modern
-`QSOCapture-portable-x.y.z.exe`.
+> Note: Qt WebEngine is bundled with PySide6, so no additional runtime is
+> required. The application window supports minimize-to-system-tray and
+> native file dialogs (see [README](README.md#features) for details).

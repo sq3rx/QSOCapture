@@ -132,18 +132,13 @@
   <div class="max-w-6xl mx-auto px-4 py-6">
     <header class="flex flex-wrap items-center justify-between gap-4 mb-6">
       <div class="flex items-center gap-2">
-        <img src="/icon.svg" alt="QSOCapture" class="w-9 h-9 flex-shrink-0" />
+        <img src="/icon.svg" alt="QSOCapture" class="w-9 h-9 flex-shrink-0 self-center mt-0.5" />
         <div>
           <h1 class="text-2xl font-bold tracking-tight">
             QSOCapture <span class="text-brand">by SQ3RX</span>
           </h1>
           <p class="text-sm text-slate-400">Contest Log Player & Audio Recorder</p>
         </div>
-        <button id="openHelp"
-                title="About QSOCapture"
-                class="ml-1 w-6 h-6 rounded-full bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-sm font-bold cursor-help leading-none">
-          ?
-        </button>
       </div>
       <div class="flex flex-wrap items-center gap-2 text-xs">
         <span id="status" class="px-3 py-1 rounded-full bg-slate-800 border border-slate-700 text-slate-300">loading&hellip;</span>
@@ -153,19 +148,17 @@
           <span class="w-2 h-2 rounded-full bg-red-500 mr-1.5 animate-pulse"></span>Recording
         </span>
         <span id="bufContainer" class="flex items-center gap-2 text-xs"></span>
-      </div>
-    </header>
-
-    <div id="updateBanner" class="hidden">
-      <div class="mb-4 px-4 py-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-sm flex items-center justify-between gap-3">
-        <span id="updateBannerText">New version available…</span>
-        <span class="flex items-center gap-2">
-          <a id="updateBannerLink" href="#" target="_blank" rel="noopener" class="px-3 py-1 rounded-md bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 font-medium">Download</a>
-          <a id="updateBannerChangelog" href="https://github.com/sq3rx/QSOCapture/blob/main/CHANGELOG.md" target="_blank" rel="noopener" class="px-3 py-1 rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-700 font-medium">Changelog</a>
-          <button id="updateBannerClose" title="Hide" class="text-amber-300 hover:text-white text-lg leading-none px-1">&times;</button>
+        <button id="openHelp"
+                title="About QSOCapture"
+                class="w-6 h-6 rounded-full bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-sm font-bold cursor-help leading-none">
+          ?
+        </button>
+        <span id="updateBadge" class="hidden px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs cursor-pointer hover:bg-amber-500/20" title="New version available">
+          <a id="updateBadgeLink" href="#" target="_blank" rel="noopener" class="hover:underline"></a>
+          <button id="updateBadgeClose" class="ml-1 text-amber-300 hover:text-white leading-none">&times;</button>
         </span>
       </div>
-    </div>
+    </header>
 
     <section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
       <div class="relative">
@@ -371,9 +364,6 @@
           audio recorder and log player for amateur radio operators.
         </p>
         <p class="text-slate-400">
-          Version: <span id="helpVersion" class="text-slate-200 font-medium">…</span>
-        </p>
-        <p class="text-slate-400">
           Source code, issues and releases:
           <br />
           <a id="helpLink" href="https://github.com/sq3rx/QSOCapture"
@@ -389,9 +379,92 @@
     </div>
   </div>
 
+  <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
   <script>
+    // QWebChannel bridge compatibility layer.
+    // When running inside the PySide6 desktop app, window.pywebview.api is
+    // backed by the QWebChannel bridge object. In a plain browser (dev mode)
+    // the fallback download via <a> tag is used instead.
+    (function() {
+      window.pywebview = window.pywebview || {};
+      window.pywebview.api = window.pywebview.api || {};
+      var _bridge = null;
+      var _ready = false;
+
+      function initChannel() {
+        if (typeof QWebChannel === 'undefined') return;
+        try {
+          new QWebChannel(qt.webChannelTransport, function(channel) {
+            _bridge = channel.objects.bridge;
+            _ready = true;
+            // Override the save_recording stub with the real bridge call.
+            window.pywebview.api.save_recording = function(relPath, suggestedName) {
+              return new Promise(function(resolve, reject) {
+                if (!_bridge) {
+                  reject(new Error('QWebChannel bridge not available'));
+                  return;
+                }
+                try {
+                  var resultJson = _bridge.saveRecording(relPath, suggestedName || '');
+                  var result = JSON.parse(resultJson);
+                  resolve(result);
+                } catch (e) {
+                  reject(e);
+                }
+              });
+            };
+            // Expose open_url via the QWebChannel bridge (Qt launcher).
+            window.pywebview.api.open_url = function(url) {
+              if (!_bridge) {
+                return Promise.reject(new Error('QWebChannel bridge not available'));
+              }
+              try {
+                var resultJson = _bridge.openUrl(url);
+                var result = JSON.parse(resultJson);
+                return Promise.resolve(result);
+              } catch (e) {
+                return Promise.reject(e);
+              }
+            };
+          });
+        } catch (e) {
+          // Not running in Qt WebEngine - plain browser fallback works.
+        }
+      }
+
+      // Wait for qt.webChannelTransport to be available (it is injected by
+      // QWebEnginePage::setWebChannel before the page loads).
+      if (typeof qt !== 'undefined' && qt.webChannelTransport) {
+        initChannel();
+      } else {
+        // Poll briefly for qt object (in case the page loaded before the
+        // Qt injection completed).
+        var _checkQt = setInterval(function() {
+          if (typeof qt !== 'undefined' && qt.webChannelTransport) {
+            clearInterval(_checkQt);
+            initChannel();
+          }
+        }, 50);
+        // Stop polling after 5 seconds (plain browser mode).
+        setTimeout(function() { clearInterval(_checkQt); }, 5000);
+      }
+    })();
+
     const $ = (id) => document.getElementById(id);
     const rows = $('rows');
+
+    // Open an external URL in the system browser. In the desktop app (WebView2)
+    // window.open does not work, so we delegate to the Python API. In a plain
+    // browser we fall back to window.open.
+    function openExternalUrl(url) {
+      const api = window.pywebview && window.pywebview.api;
+      if (api && typeof api.open_url === 'function') {
+        api.open_url(url);
+      } else {
+        window.open(url, '_blank');
+      }
+    }
+
     let recPaused = false;
     // Whether the audio source (TCI radio) is actually connected. In TCI mode
     // the continuous "Start recording" button must be disabled until the
@@ -483,7 +556,7 @@
           `<span class="text-slate-500">·</span> ${s.sample_rate/1000}kHz ` +
           `<span class="text-slate-500">·</span> ${s.channels===2?'SO2R':'SO1R'} ` +
           `<span class="text-slate-500">·</span> ` +
-          `<span class="${s.running ? 'text-brand' : 'text-slate-500'}">${s.running ? '● live' : '○ off'}</span>`;
+          `<span class="${s.running ? 'text-brand' : 'text-slate-500'}">${s.running ? '● active' : '○ off'}</span>`;
         st.className = 'text-xs px-3 py-1 rounded-full border ' +
           (s.running ? 'bg-brand/10 border-brand/40 text-brand' : 'bg-slate-800/60 border-slate-700 text-slate-400');
 
@@ -1196,13 +1269,8 @@
     function showHelp() {
       const m = $('helpModal');
       m.className = 'fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4';
-      // Fill in the running version from the same source the Settings modal uses.
-      const ver = $('helpVersion');
-      if (ver && ver.textContent === '…') {
-        fetch('/api/config').then(r => r.json()).then(d => {
-          ver.textContent = d.version || '';
-        }).catch(() => {});
-      }
+      // Show a loading indicator while the version check runs.
+      $('updateStatus').textContent = 'Version …';
       // Auto-check for updates and show result directly in the About modal.
       checkForUpdate({ showStatus: true });
     }
@@ -1214,33 +1282,36 @@
     $('closeHelp').addEventListener('click', hideHelp);
 
     // --- Version update check ---------------------------------------------
-    // Auto-checks GitHub for a newer release. On startup a banner is shown
-    // (unless the user dismissed it for that version). From the "?" (About)
-    // modal the user can also trigger a manual check with visible status.
-    function showUpdateBanner(d) {
-      // Respect a per-version dismissal stored in localStorage so the banner
+    // Auto-checks GitHub for a newer release. On startup a small badge is
+    // shown in the header (unless the user dismissed it for that version).
+    // From the "?" (About) modal the user can also trigger a manual check
+    // with visible status.
+    function showUpdateBadge(d) {
+      // Respect a per-version dismissal stored in localStorage so the badge
       // does not re-appear on every launch once the user closes it.
       try {
         if (localStorage.getItem('qsocapture_dismissed_' + d.latest) === '1') return;
       } catch (e) {}
       window.__latestVersion = d.latest;
-      const b = $('updateBanner');
-      $('updateBannerText').innerHTML =
-        'New version available: <span class="font-semibold text-amber-100">' +
-        esc(d.latest) + '</span> (yours: ' + esc(d.current) + ')';
-      $('updateBannerLink').href = d.release_url || '#';
-      b.className = ''; // wrapper stays in flow; inner div handles styling
-      $('updateBanner').querySelector('div').className =
-        'mb-4 px-4 py-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-sm flex items-center justify-between gap-3';
+      window.__releaseUrl = d.release_url || '#';
+      const link = $('updateBadgeLink');
+      // Strip leading "v" from version string if present to avoid "New v1.2.3"
+      const ver = (d.latest || '').replace(/^v/i, '');
+      link.textContent = 'New ' + ver;
+      link.href = window.__releaseUrl;
+      $('updateBadge').className = 'px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs cursor-pointer hover:bg-amber-500/20';
+      // Clicking the badge (outside the close button) opens the release URL
+      $('updateBadge').onclick = (e) => {
+        if (e.target.id === 'updateBadgeClose') return;
+        openExternalUrl(window.__releaseUrl);
+      };
     }
-    function hideUpdateBanner() {
-      const b = $('updateBanner');
-      b.className = 'hidden';
-      const inner = b.querySelector('div');
-      if (inner) inner.className = 'hidden';
+    function hideUpdateBadge() {
+      $('updateBadge').className = 'hidden px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs cursor-pointer hover:bg-amber-500/20';
     }
-    $('updateBannerClose').addEventListener('click', () => {
-      hideUpdateBanner();
+    $('updateBadgeClose').addEventListener('click', (e) => {
+      e.stopPropagation();
+      hideUpdateBadge();
       const latest = window.__latestVersion || '';
       try { if (latest) localStorage.setItem('qsocapture_dismissed_' + latest, '1'); } catch (e) {}
     });
@@ -1252,24 +1323,24 @@
         if (opts.showStatus) {
           const us = $('updateStatus');
           if (d.error) {
-            us.textContent = 'Could not reach version server.';
+            us.textContent = 'Version ' + esc(d.current) + ' — Could not reach version server.';
           } else if (d.update_available) {
-            us.innerHTML = 'New version <span class="text-amber-300 font-medium">' +
+            us.innerHTML = 'Version ' + esc(d.current) + ' · New version <span class="text-amber-300 font-medium">' +
               esc(d.latest) + '</span> — <a class="text-brand hover:underline" href="' +
               (d.release_url || '#') + '" target="_blank" rel="noopener">Download</a>' +
               ' · <a class="text-brand hover:underline" href="https://github.com/sq3rx/QSOCapture/blob/main/CHANGELOG.md" target="_blank" rel="noopener">Changelog</a>';
           } else {
-            us.innerHTML = '✅ You have the latest version (' + esc(d.current) + ')';
+            us.innerHTML = 'Version ' + esc(d.current) + ' ✅ You have the latest version';
           }
         }
         if (d.update_available && d.latest && opts.showBanner) {
-          showUpdateBanner(d);
+          showUpdateBadge(d);
         }
       } catch (e) {
         if (opts.showStatus) $('updateStatus').textContent = 'Version check failed.';
       }
     }
-    // Auto-check once on startup (banner only; silent when offline / none).
+    // Auto-check once on startup (badge only; silent when offline / none).
     checkForUpdate({ showBanner: true });
 
     // Toggling the Debug checkbox flips verbose logging on the server (so

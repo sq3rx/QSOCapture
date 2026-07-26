@@ -5,54 +5,14 @@ Build with:
     pyinstaller build.spec
 
 The result is ``dist/QSOCapture.exe`` -- a single file that launches the
-FastAPI server and opens the dashboard in an embedded WebView2 browser.
+FastAPI server and opens the dashboard in an embedded PySide6 QWebEngineView
+browser (Qt WebEngine). Unlike the old pywebview-based build, this works on
+all Windows versions (7+) with no external WebView2 or CEF dependency.
 """
 
 import os
 
 from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
-
-# CEF (cefpython3) wheels are not published for every Python version (e.g.
-# Python 3.10+ on Windows). We only bundle CEF when it is actually installed,
-# so the build succeeds even when it is absent. The launcher treats CEF as an
-# OPTIONAL backend (it prefers the always-available Edge WebView2 engine), so
-# omitting it does not break the standalone window on modern Windows.
-#
-# Legacy builds (Windows 7/8) MUST bundle CEF, because Edge WebView2 does not
-# exist there and the modern Python (3.9+) build cannot run on those systems.
-# Set BUNDLE_CEF=1 in the environment to require CEF and FAIL the build when
-# cefpython3 is not importable -- this prevents shipping a legacy EXE that has
-# no working embedded browser.
-_BUNDLE_CEF = os.environ.get("BUNDLE_CEF", "0") == "1"
-
-
-def _cef_binaries():
-    try:
-        import cefpython3  # noqa: F401
-        return collect_dynamic_libs("cefpython3")
-    except Exception:
-        if _BUNDLE_CEF:
-            raise SystemExit(
-                "BUNDLE_CEF=1 but cefpython3 is not importable. Install "
-                "cefpython3 (e.g. 'pip install cefpython3') before building "
-                "the legacy Windows 7/8 package."
-            )
-        return []
-
-
-def _cef_datas():
-    try:
-        import cefpython3  # noqa: F401
-        return collect_data_files("cefpython3")
-    except Exception:
-        if _BUNDLE_CEF:
-            raise SystemExit(
-                "BUNDLE_CEF=1 but cefpython3 is not importable. Install "
-                "cefpython3 (e.g. 'pip install cefpython3') before building "
-                "the legacy Windows 7/8 package."
-            )
-        return []
-
 
 block_cipher = None
 
@@ -67,10 +27,10 @@ datas = [
 ]
 
 a = Analysis(
-    ["launcher.py"],
+    ["qt_launcher.py"],
     pathex=[os.getcwd()],
-    binaries=_cef_binaries(),
-    datas=datas + _cef_datas(),
+    binaries=[],
+    datas=datas,
     hiddenimports=[
         "main",
         "config",
@@ -87,12 +47,16 @@ a = Analysis(
         "uvicorn.protocols.websockets.auto",
         "uvicorn.lifespan",
         "uvicorn.lifespan.on",
-        "webview",
-        # CEF (Chromium Embedded Framework) backend for pywebview. Ships a
-        # full Chromium engine inside the package so the app opens in its own
-        # window with no external WebView2/system-browser dependency.
-        "cefpython3",
-        "cefpython3.win",
+        # PySide6 (Qt for Python) with WebEngine for the embedded browser.
+        "PySide6",
+        "PySide6.QtCore",
+        "PySide6.QtGui",
+        "PySide6.QtWidgets",
+        "PySide6.QtWebEngineWidgets",
+        "PySide6.QtWebChannel",
+        # shiboken6 is the CPython binding layer for PySide6; PyInstaller
+        # sometimes misses it, so we list it explicitly.
+        "shiboken6",
     ],
     hookspath=[],
     hooksconfig={},
@@ -106,17 +70,12 @@ a = Analysis(
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
-# When building the legacy (Windows 7/8) package with BUNDLE_CEF=1, give the
-# portable EXE a distinct name so it never collides with the modern build's
-# QSOCapture.exe in the same GitHub Release.
-# Portable EXE names carry the "-portable" marker and the app version (when
-# built via CI, APP_VERSION is exported from the git tag). Example:
-#   modern : QSOCapture-portable-0.2.1beta.exe
-#   legacy : QSOCapture-portable-Win7-0.2.1beta.exe
+# The EXE name carries the app version (when built via CI, APP_VERSION is
+# exported from the git tag). Example:
+#   QSOCapture-portable-0.5.0beta.exe
 _APP_VERSION = os.environ.get("APP_VERSION", "")
-_SUFFIX = "-Win7" if _BUNDLE_CEF else ""
 _VER = ("-" + _APP_VERSION) if _APP_VERSION else ""
-_EXE_NAME = f"QSOCapture-portable{_SUFFIX}{_VER}"
+_EXE_NAME = f"QSOCapture-portable{_VER}"
 
 exe = EXE(
     pyz,

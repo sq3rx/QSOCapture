@@ -7,9 +7,19 @@ in plain business language, without going into implementation details.
 
 ## Unreleased
 
-### Confirm-close dialog
-- Clicking the window close button (X) now shows a confirmation dialog to
-  prevent accidental exit.
+### **Single installer for Windows 7+**
+- **Removed the separate legacy build (Python 3.8 + CEF).** Qt WebEngine works on Windows 7+, so one build now covers all supported Windows versions (7 through 11). The installer and portable EXE are unified — no more `-Win7` suffix.
+
+### Migrated from pywebview to PySide6 (Qt WebEngine)
+- Desktop launcher rewritten from **pywebview** to **PySide6** (Qt WebEngine).
+  Single build for all Windows (7+), minimise-to-tray, confirm-close dialog,
+  native file dialogs, no external WebView2/CEF dependency.
+- New entry point: `qt_launcher.py` (old `launcher.py` and `launcher_pywebview.py` removed).
+- JS-Python bridge now uses **QWebChannel** (backward-compatible).
+
+### Dashboard UI polish
+- Icon centred, "?" moved to right, status label "live" → "active",
+  update banner replaced with a compact badge in the header.
 
 ### Version check / update notification
 - The app now checks GitHub for a newer release on every startup. If a new

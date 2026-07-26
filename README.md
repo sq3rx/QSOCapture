@@ -21,7 +21,7 @@ clean, color-coded web dashboard.
 ## Table of Contents
 
 - [Features](#features)
-- [Building](building.md)
+- [Building](BUILDING.md)
 - [How to use it](#how-to-use-it)
 - [Configuration](#configuration)
  - [Using the dashboard](#using-the-dashboard)
@@ -63,15 +63,19 @@ clean, color-coded web dashboard.
    each with the columns that matter.
  - **Color-coded log** — the live application log and the QSO table use
    friendly color badges (mode, band, RX) for at-a-glance readability.
- - **Factory reset** — one click to wipe the log, recordings and settings
-   (restore defaults).
-
+  - **Factory reset** — one click to wipe the log, recordings and settings
+    (restore defaults).
+  - **Desktop app with system tray** — the application runs in its own window
+     and can be minimised to the system tray. Click the tray
+    icon to restore, or use the tray menu to quit.
+  - **Single build for all Windows versions** — no separate legacy build for
+    Windows 7/8 is needed.
 ---
 
 ## Building
 
 For system requirements and instructions on building the standalone EXE or
-Windows installer, see [building.md](building.md).
+Windows installer, see [BUILDING.md](BUILDING.md).
 
 ---
 
@@ -265,7 +269,7 @@ A few views of the **QSOCapture** dashboard in action:
 ```
 QSOCapture/
 ├── main.py            # FastAPI app, web dashboard, orchestration (python main.py)
-├── launcher.py        # Desktop EXE entry point (embedded WebView2 browser)
+├── qt_launcher.py     # Desktop EXE entry point (PySide6 / Qt WebEngine)
 ├── config.py          # Config loading/saving + schema (with help text)
 ├── db.py              # SQLite storage of QSO records
 ├── audio_manager.py   # Audio capture (TCI / soundcard) + circular buffer
@@ -273,7 +277,7 @@ QSOCapture/
 ├── index.html         # Tailwind dashboard (served by main.py)
 ├── build.spec         # PyInstaller spec for building the standalone EXE
 ├── installer.iss      # Inno Setup script for the Windows installer
-├── building.md        # Build instructions (requirements, EXE, installer)
+├── BUILDING.md        # Build instructions (requirements, EXE, installer)
 ├── gen_icon.py        # Icon generator (SVG → ICO)
 ├── CHANGELOG.md       # Release changelog
 ├── LICENSE            # MIT license
@@ -316,11 +320,8 @@ QSOCapture/
    TCI server (default `127.0.0.1:50001`, enabled in ExpertSDR options); for
    `soundcard` mode pick the correct `soundcard_device` substring and confirm
    the OS is routing receiver audio to that input.
- - **Windows 7 / 8 not supported** — these systems lack the Edge WebView2
-   runtime required by the standard build. Use the dedicated legacy build
-   (`QSOCapture-Win7-setup-x.y.z.exe` or `QSOCapture-portable-Win7-x.y.z.exe`)
-   from the [Releases](https://github.com/sq3rx/QSOCapture/releases) page.
-   See [building.md](building.md) for details.
+  - **Windows 7 / 8** — supported by the standard build (Qt WebEngine works on
+    Windows 7+). No separate legacy build is needed.
  - **N1MM contacts not appearing** — ensure N1MM Logger+ broadcasts on the same
    UDP port configured in `n1mm_udp_port` (default `12060`) and that the
    machine's firewall allows the bind on `n1mm_bind_ip` (default `0.0.0.0`).
