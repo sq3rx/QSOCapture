@@ -63,6 +63,9 @@ a = Analysis(
     runtime_hooks=[],
     excludes=[
         # Qt modules we do NOT use — each can be 5-30 MB.
+        # Only modules that are DEFINITELY not needed by QtWebEngine are excluded.
+        # QtNetwork, QtXml, QtSvg, QtOpenGL, QtPositioning, QtQml, QtQuick,
+        # QtWebSockets are kept because QtWebEngine may depend on them internally.
         "PySide6.QtBluetooth",
         "PySide6.Qt3DCore",
         "PySide6.Qt3DInput",
@@ -75,28 +78,15 @@ a = Analysis(
         "PySide6.QtLocation",
         "PySide6.QtMultimedia",
         "PySide6.QtMultimediaWidgets",
-        "PySide6.QtNetwork",
         "PySide6.QtNfc",
-        "PySide6.QtOpenGL",
-        "PySide6.QtOpenGLWidgets",
-        "PySide6.QtPositioning",
         "PySide6.QtPrintSupport",
-        "PySide6.QtQml",
-        "PySide6.QtQuick",
-        "PySide6.QtQuick3D",
-        "PySide6.QtQuickControls2",
-        "PySide6.QtQuickWidgets",
         "PySide6.QtRemoteObjects",
         "PySide6.QtSensors",
         "PySide6.QtSerialPort",
         "PySide6.QtSql",
-        "PySide6.QtSvg",
-        "PySide6.QtSvgWidgets",
         "PySide6.QtTest",
         "PySide6.QtTextToSpeech",
         "PySide6.QtUiTools",
-        "PySide6.QtWebSockets",
-        "PySide6.QtXml",
         # We use QWebEngineWidgets + QWebChannel, NOT QWebEngineQuick.
         "PySide6.QtWebEngineQuick",
     ],
