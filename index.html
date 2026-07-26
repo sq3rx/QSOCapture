@@ -145,7 +145,7 @@
         <span id="tciBadge" class="px-3 py-1 rounded-full bg-slate-800 border border-slate-700 text-slate-300">TCI &hellip;</span>
         <span id="n1mmBadge" class="px-3 py-1 rounded-full bg-slate-800 border border-slate-700 text-slate-300">N1MM &hellip;</span>
         <span id="recBadge" class="hidden items-center px-3 py-1 rounded-full bg-red-600/10 border border-red-500/40 text-red-300">
-          <span class="w-2 h-2 rounded-full bg-red-500 mr-1.5 animate-pulse"></span>Recording
+          <span class="w-2 h-2 rounded-full bg-red-500 mr-1.5 animate-pulse"></span>Rec
         </span>
         <span id="bufContainer" class="flex items-center gap-2 text-xs"></span>
         <button id="openHelp"
@@ -405,9 +405,19 @@
                   return;
                 }
                 try {
-                  var resultJson = _bridge.saveRecording(relPath, suggestedName || '');
-                  var result = JSON.parse(resultJson);
-                  resolve(result);
+                  // QWebChannel @Slot methods return a Promise that resolves
+                  // to the result value (they are inherently async over the
+                  // IPC bridge). We must await the promise before parsing.
+                  _bridge.saveRecording(relPath, suggestedName || '').then(function(resultJson) {
+                    try {
+                      var result = JSON.parse(resultJson);
+                      resolve(result);
+                    } catch (e) {
+                      reject(e);
+                    }
+                  }).catch(function(err) {
+                    reject(err);
+                  });
                 } catch (e) {
                   reject(e);
                 }
@@ -556,7 +566,9 @@
           `<span class="text-slate-500">·</span> ${s.sample_rate/1000}kHz ` +
           `<span class="text-slate-500">·</span> ${s.channels===2?'SO2R':'SO1R'} ` +
           `<span class="text-slate-500">·</span> ` +
-          `<span class="${s.running ? 'text-brand' : 'text-slate-500'}">${s.running ? '● active' : '○ off'}</span>`;
+          `<span class="inline-flex items-center gap-1 ${s.running ? 'text-brand' : 'text-slate-500'}">` +
+            `<span class="inline-block w-2 h-2 rounded-full ${s.running ? 'bg-brand' : 'bg-slate-500'}"></span>active` +
+          `</span>`;
         st.className = 'text-xs px-3 py-1 rounded-full border ' +
           (s.running ? 'bg-brand/10 border-brand/40 text-brand' : 'bg-slate-800/60 border-slate-700 text-slate-400');
 
@@ -1653,7 +1665,7 @@
       const badge = $('recBadge');
       if (!recPaused) {
         // Recording live -> show the badge (remove the `hidden` class).
-        badge.className = 'items-center px-3 py-1 rounded-full bg-red-600/10 border border-red-500/40 text-red-300';
+        badge.className = 'flex items-center px-3 py-1 rounded-full bg-red-600/10 border border-red-500/40 text-red-300';
       } else {
         // Paused -> hide the badge.
         badge.className = 'hidden items-center px-3 py-1 rounded-full bg-red-600/10 border border-red-500/40 text-red-300';

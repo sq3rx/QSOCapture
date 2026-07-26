@@ -29,7 +29,13 @@ datas = [
 a = Analysis(
     ["qt_launcher.py"],
     pathex=[os.getcwd()],
-    binaries=[],
+    binaries=[
+        # QtWebEngineCore is a native DLL, not a pure Python module.
+        # PyInstaller's hook for QtWebEngineWidgets should pick it up
+        # automatically, but in some PySide6 versions it is missed.
+        # We collect it explicitly to avoid ImportError at runtime.
+        *collect_dynamic_libs("PySide6.QtWebEngineCore"),
+    ],
     datas=datas,
     hiddenimports=[
         "main",
@@ -53,6 +59,7 @@ a = Analysis(
         "PySide6.QtGui",
         "PySide6.QtWidgets",
         "PySide6.QtWebEngineWidgets",
+        "PySide6.QtWebEngineCore",
         "PySide6.QtWebChannel",
         # shiboken6 is the CPython binding layer for PySide6; PyInstaller
         # sometimes misses it, so we list it explicitly.
@@ -79,7 +86,6 @@ a = Analysis(
         "PySide6.QtMultimedia",
         "PySide6.QtMultimediaWidgets",
         "PySide6.QtNfc",
-        "PySide6.QtPrintSupport",
         "PySide6.QtRemoteObjects",
         "PySide6.QtSensors",
         "PySide6.QtSerialPort",

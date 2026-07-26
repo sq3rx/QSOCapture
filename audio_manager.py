@@ -431,9 +431,15 @@ class AudioSource(ABC):
 
         The open chunk is closed (and converted to MP3 if configured) so a
         complete, playable file remains. The writer thread stays alive but
-        discards queued audio until :meth:`resume_continuous` is called. The
-        in-memory ring buffers are cleared so no stale audio survives the
-        pause and the next recording starts fresh.
+        discards queued audio until :meth:`resume_continuous` is called.
+
+        NOTE: We do NOT clear the ring buffers here. The ring buffers are
+        shared with slice_qso() for QSO recording — clearing them would
+        destroy the pre-roll audio that QSO slicing depends on, causing
+        "holes" in QSO recordings after a pause/resume cycle. Continuous
+        recording uses its own internal queue (_cont_queue), not the ring
+        buffers, so stale continuous audio is naturally discarded by the
+        writer thread without touching the shared buffers.
         """
         if not self.cfg.continuous_recording or self._continuous_paused:
             return
@@ -445,9 +451,8 @@ class AudioSource(ABC):
         # this the UI could show a transient .wav row or nothing at all until
         # the next app restart re-derived the duration.
         self._drain_encoder()
-        self._clear_buffers()
         for label, _buf in self.rx_buffers:
-            logger.info("[%s] continuous recording paused (chunk finalised, buffers cleared)",
+            logger.info("[%s] continuous recording paused (chunk finalised, buffers kept for QSO slicing)",
                         label)
 
     def _rx_label_str(self) -> str:
@@ -1068,8 +1073,6 @@ class TCIAudioSource(AudioSource):
                     audio_sr = min(max(int(self.cfg.sample_rate), 8000), 48000)
                     await _tci_send(f"AUDIO_SAMPLERATE:{audio_sr};")
                     await _tci_send("AUDIO_STREAM_SAMPLES:1024;")
-                    await _tci_send("MUTE:false;")
-                    await _tci_send("MON_ENABLE:true;")
                     if self.cfg.channels >= 2:
                         # SO2R: capture receiver 0 (RX1) and receiver 1 (RX2).
                         await _tci_send("AUDIO_START:0;")

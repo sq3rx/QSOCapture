@@ -218,19 +218,24 @@ class MainWindow(QMainWindow):
 
     def changeEvent(self, event):
         """Override changeEvent to minimize to tray on window minimize."""
-        if event.type() == QEvent.Type.WindowStateChange:
-            if self.windowState() & Qt.WindowMinimized:
-                event.ignore()
-                self.hide()
-                self.tray_icon.showMessage(
-                    "QSOCapture",
-                    "Application minimized to system tray.\n"
-                    "Click the icon to restore the window.",
-                    QSystemTrayIcon.Information,
-                    3000,
-                )
-                return
-        super().changeEvent(event)
+        try:
+            if event.type() == QEvent.Type.WindowStateChange:
+                if self.windowState() & Qt.WindowMinimized:
+                    event.ignore()
+                    self.hide()
+                    self.tray_icon.showMessage(
+                        "QSOCapture",
+                        "Application minimized to system tray.\n"
+                        "Click the icon to restore the window.",
+                        QSystemTrayIcon.Information,
+                        3000,
+                    )
+                    return
+            super().changeEvent(event)
+        except KeyboardInterrupt:
+            # Ignore KeyboardInterrupt during shutdown — it may be raised
+            # by Python's signal handler when the process is being killed.
+            pass
 
     def toggle_visibility(self) -> None:
         """Show or hide the main window."""
@@ -370,7 +375,7 @@ def _ensure_assets(app_dir: str) -> None:
                 break
 
 
-def _wait_for_server(url: str, timeout: float = 15.0) -> bool:
+def _wait_for_server(url: str, timeout: float = 10.0) -> bool:
     """Block until the local server responds or *timeout* elapses."""
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -379,7 +384,7 @@ def _wait_for_server(url: str, timeout: float = 15.0) -> bool:
                 if resp.status == 200:
                     return True
         except Exception:
-            time.sleep(0.2)
+            time.sleep(0.05)
     return False
 
 
@@ -452,14 +457,6 @@ def main() -> None:
     )
     server = uvicorn.Server(config)
 
-    # Run uvicorn in a daemon thread so the GUI thread can own the process.
-    server_thread = threading.Thread(target=server.run, daemon=True)
-    server_thread.start()
-
-    if not _wait_for_server(base_url, timeout=20.0):
-        print("ERROR: QSOCapture server failed to start.", file=sys.stderr)
-        return
-
     # Locate the application icon BEFORE creating the Qt application.
     icon_path = ""
     for cand in (
@@ -471,7 +468,8 @@ def main() -> None:
             icon_path = cand
             break
 
-    # Create the Qt application
+    # Create the Qt application BEFORE starting the server so that Qt
+    # WebEngine's Chromium sub-process starts in parallel with uvicorn.
     app = QApplication(sys.argv)
     app.setApplicationName("QSOCapture")
     app.setOrganizationName("SQ3RX")
@@ -492,7 +490,19 @@ def main() -> None:
         except Exception:
             pass
 
-    # Create and show the main window
+    # Start the server in a background thread.
+    server_thread = threading.Thread(target=server.run, daemon=True)
+    server_thread.start()
+
+    # Wait for the server to be ready (this takes ~0.5-1s while Qt WebEngine
+    # is also initialising in the background).
+    if not _wait_for_server(base_url, timeout=10.0):
+        print("ERROR: QSOCapture server failed to start.", file=sys.stderr)
+        return
+
+    # Create and show the main window. By this point Qt WebEngine's Chromium
+    # process has already started (via QApplication), so the window appears
+    # faster.
     window = MainWindow(app_dir, base_url, icon_path)
     window.show()
 
@@ -502,7 +512,7 @@ def main() -> None:
     # Window closed -> shut the server down cleanly.
     server.should_exit = True
     try:
-        server_thread.join(timeout=5.0)
+        server_thread.join(timeout=2.0)
     except Exception:
         pass
 
