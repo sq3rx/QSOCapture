@@ -35,7 +35,7 @@ jobs:
       - name: Build with PyInstaller
         run: |
           $env:APP_VERSION="${{ steps.version.outputs.version }}"
-          pyinstaller --noconfirm build.spec
+          pyinstaller --noconfirm --onedir build.spec
 
       - name: Build Windows installer
         run: iscc installer.iss /dMyAppVersion="${{ steps.version.outputs.version }}" /dMyExeName="QSOCapture-portable-${{ steps.version.outputs.version }}.exe"
