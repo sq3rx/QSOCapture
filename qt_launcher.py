@@ -485,7 +485,7 @@ def main() -> None:
         # correctly and uses our icon instead of the Python default.
         try:
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
-                "SQ3RX.QSOCapture"
+                "QSOCapture"
             )
         except Exception:
             pass
