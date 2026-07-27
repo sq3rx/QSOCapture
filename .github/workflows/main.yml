@@ -37,15 +37,22 @@ jobs:
           $env:APP_VERSION="${{ steps.version.outputs.version }}"
           pyinstaller --noconfirm --onedir build.spec
 
+      - name: Create portable ZIP (onedir)
+        shell: bash
+        run: |
+          cd dist
+          7z a -tzip "QSOCapture-portable-${{ steps.version.outputs.version }}.zip" "QSOCapture-portable-${{ steps.version.outputs.version }}/"
+          cd ..
+
       - name: Build Windows installer
-        run: iscc installer.iss /dMyAppVersion="${{ steps.version.outputs.version }}" /dMyExeName="QSOCapture-portable-${{ steps.version.outputs.version }}.exe"
+        run: iscc installer.iss /dMyAppVersion="${{ steps.version.outputs.version }}" /dMyExeName="QSOCapture-portable-${{ steps.version.outputs.version }}"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: modern-build
           path: |
-            dist/QSOCapture-portable-*.exe
+            dist/QSOCapture-portable-${{ steps.version.outputs.version }}.zip
             installer/QSOCapture-setup-${{ steps.version.outputs.version }}.exe
           if-no-files-found: error
 
@@ -67,7 +74,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/QSOCapture-portable-*.exe
+            dist/QSOCapture-portable-*.zip
             installer/QSOCapture-setup-*.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

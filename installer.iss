@@ -15,11 +15,11 @@
   #define MyAppNameSuffix ""
 #endif
 
-; Application EXE filename. For the legacy build (BUNDLE_CEF) PyInstaller
-; produces "QSOCapture-Win7.exe", so CI must pass
-; /dMyExeName="QSOCapture-Win7.exe" so the installer copies the right file.
+; Application folder name (without .exe). PyInstaller onedir produces a folder
+; named e.g. "QSOCapture-portable-0.5.0beta" containing the EXE and all
+; supporting DLLs. CI must pass /dMyExeName="QSOCapture-portable-0.5.0beta".
 #ifndef MyExeName
-  #define MyExeName "QSOCapture.exe"
+  #define MyExeName "QSOCapture"
 #endif
 
 [Setup]
@@ -48,11 +48,10 @@ PrivilegesRequired=admin
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Files]
-; The portable build in dist/ carries the version (e.g.
-; QSOCapture-portable-0.3.0beta.exe), but the installed copy is always named
-; QSOCapture.exe so the Start Menu / desktop shortcuts and the "run after
-; install" step point at a stable name regardless of the downloaded version.
-Source: "dist\{#MyExeName}"; DestDir: "{app}"; DestName: "QSOCapture.exe"; Flags: ignoreversion
+; The portable build in dist/ is now a folder (onedir) carrying the version
+; (e.g. QSOCapture-portable-0.5.0beta/). The EXE inside is always named
+; QSOCapture.exe (stable name), so we copy the entire folder contents.
+Source: "dist\{#MyExeName}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion isreadme
 Source: "icon.ico"; DestDir: "{app}"; Flags: ignoreversion
 

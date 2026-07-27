@@ -111,6 +111,13 @@ _APP_VERSION = os.environ.get("APP_VERSION", "")
 _VER = ("-" + _APP_VERSION) if _APP_VERSION else ""
 _EXE_NAME = f"QSOCapture-portable{_VER}"
 
+# ── onedir build ──────────────────────────────────────────────────────────────
+# The EXE itself (without binaries/zipfiles/datas — those go into COLLECT).
+# This produces a folder instead of a single-file EXE, which eliminates the
+# long startup delay caused by PyInstaller extracting everything to %TEMP%.
+# The EXE is named "QSOCapture.exe" (no version suffix) so that the Inno Setup
+# installer and shortcuts always point to a stable filename. The version is
+# carried only in the parent folder name (set via COLLECT name=).
 exe = EXE(
     pyz,
     a.scripts,
@@ -118,7 +125,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name=_EXE_NAME,
+    name="QSOCapture",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -131,4 +138,18 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon="icon.ico",
+)
+
+# COLLECT gathers all the supporting files (DLLs, Python libs, Qt resources)
+# into the same output directory, producing a fully self-contained folder.
+# The folder name carries the version (e.g. QSOCapture-portable-0.5.0beta/).
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    name=_EXE_NAME,
 )

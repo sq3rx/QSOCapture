@@ -7,6 +7,21 @@ in plain business language, without going into implementation details.
 
 ## Unreleased
 
+### Switched from onefile to onedir build (faster startup)
+- **Build type changed from onefile to onedir.** Previously PyInstaller produced
+  a single `QSOCapture-portable-x.y.z.exe` that extracted ~200–400 MB to a
+  temporary folder on every launch, causing a 15–30 second startup delay. Now
+  the build produces a folder (`QSOCapture-portable-x.y.z/`) with the EXE and
+  all supporting DLLs already on disk, reducing startup time to 2–5 seconds.
+- **Portable distribution is now a ZIP archive** instead of a single `.exe`.
+  Download `QSOCapture-portable-x.y.z.zip`, extract anywhere, and run
+  `QSOCapture.exe` inside.
+- **Installer unchanged** — Inno Setup still produces a single
+  `QSOCapture-setup-x.y.z.exe` that installs the app to `Program Files`.
+- **CI pipeline updated** — the GitHub Actions workflow now passes `--onedir`
+  to PyInstaller, creates a ZIP of the output folder, and uploads the ZIP
+  (instead of the standalone EXE) to the release.
+
 ### Migrated from pywebview to PySide6 (Qt WebEngine)
 - Desktop launcher rewritten from **pywebview** to **PySide6** (Qt WebEngine).
   Single build for all Windows (7+), minimise-to-tray, confirm-close dialog,
@@ -65,7 +80,7 @@ in plain business language, without going into implementation details.
   with a 1-hour in-memory cache.
 
 ### Documentation
-- README overhauled and build instructions moved to a new [building.md](building.md).
+- README overhauled and build instructions moved to a new [BUILDING.md](BUILDING.md).
 - README logo updated — replaced the SVG icon with a larger `logo_with_text.png`
   for a cleaner, more recognisable header image.
 
