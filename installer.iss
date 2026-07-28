@@ -6,7 +6,7 @@
 ; If a version is passed on the command line (e.g. iscc installer.iss /dMyAppVersion=1.2.3),
 ; it overrides the default value below.
 #ifndef MyAppVersion
-  #define MyAppVersion "0.5.0beta"
+  #define MyAppVersion "0.6.0beta"
 #endif
 
 ; Optional suffix in the output filename to tell builds apart (e.g.
@@ -57,7 +57,6 @@ Source: "icon.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
-Name: "{group}\{#MyAppName} (WebView2)"; Filename: "{app}\{#MyAppExeName}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Tasks]

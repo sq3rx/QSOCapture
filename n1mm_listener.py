@@ -33,6 +33,8 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from typing import Callable, Optional
 
+from config import RECORDINGS_DIR
+
 logger = logging.getLogger("QSOCapture.n1mm")
 
 
@@ -300,7 +302,7 @@ class N1MMListener:
             import db as qso_db
             fp = qso_db.delete_qso_by_n1mm_id(n1mm_id)
             if fp:
-                full = os.path.join(self.cfg.recordings_dir, fp)
+                full = os.path.join(RECORDINGS_DIR, fp)
                 try:
                     if os.path.isfile(full):
                         os.remove(full)

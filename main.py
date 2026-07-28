@@ -32,7 +32,7 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 
 import config as config_module
-from config import AppConfig, load_config, config_to_dict, save_config, CONFIG_SCHEMA
+from config import AppConfig, load_config, config_to_dict, save_config, CONFIG_SCHEMA, RECORDINGS_DIR
 from audio_manager import create_audio_source
 from n1mm_listener import N1MMListener, N1MMContact
 import db as qso_db
@@ -49,7 +49,7 @@ logger = logging.getLogger("QSOCapture.main")
 # PyInstaller build pick up the real release version from CI (installer.iss
 # MyAppVersion / build.spec APP_VERSION), so only bump this when the change is
 # user-visible.
-APP_VERSION = "0.5.0beta"
+APP_VERSION = "0.6.0beta"
 
 # GitHub repo used for the "check for updates" feature.
 GITHUB_REPO = "sq3rx/QSOCapture"
@@ -315,7 +315,7 @@ def _apply_and_restart() -> None:
     if audio_source:
         audio_source.stop()
     # Recreate with updated cfg.
-    os.makedirs(cfg.recordings_dir, exist_ok=True)
+    os.makedirs(RECORDINGS_DIR, exist_ok=True)
     audio_source = create_audio_source(cfg, label="RX1")
     audio_source.start()
     n1mm = N1MMListener(cfg, on_contact=on_contact)
@@ -356,12 +356,12 @@ async def lifespan(app: FastAPI):
     # skip the scan entirely because the DB already has records).
     threading.Thread(
         target=qso_db.migrate_existing,
-        args=(cfg.recordings_dir,),
+        args=(RECORDINGS_DIR,),
         daemon=True,
         name="migrate-existing",
     ).start()
 
-    os.makedirs(cfg.recordings_dir, exist_ok=True)
+    os.makedirs(RECORDINGS_DIR, exist_ok=True)
     audio_source = create_audio_source(cfg, label="RX1")
     audio_source.start()
     n1mm = N1MMListener(cfg, on_contact=on_contact)
@@ -531,7 +531,7 @@ def serve_audio(contest: str, filename: str) -> FileResponse:
     # ``contest`` may itself contain subpaths (e.g. "_continuous") – re-join
     # safely after stripping any traversal components.
     rel = os.path.normpath(os.path.join(contest, filename)).lstrip("./\\")
-    path = os.path.join(cfg.recordings_dir, rel)
+    path = os.path.join(RECORDINGS_DIR, rel)
     if not os.path.isfile(path):
         raise HTTPException(status_code=404, detail="file not found")
     media = "audio/wav" if filename.endswith(".wav") else "audio/mpeg"
@@ -568,7 +568,7 @@ def api_export(contest: Optional[str] = Query(None)) -> FileResponse:
     The archive is built in memory and streamed back, so the dashboard can
     download the whole log for backup or off-machine analysis.
     """
-    root = cfg.recordings_dir
+    root = RECORDINGS_DIR
     if not os.path.isdir(root):
         raise HTTPException(status_code=404, detail="no recordings")
     base = root if not contest else os.path.join(root, contest)
@@ -612,7 +612,7 @@ def api_audio_devices() -> JSONResponse:
 def api_paths() -> JSONResponse:
     """Return absolute filesystem paths used by the app (for the UI)."""
     return JSONResponse({
-        "recordings_abs": os.path.abspath(cfg.recordings_dir),
+        "recordings_abs": os.path.abspath(RECORDINGS_DIR),
         "config_abs": os.path.abspath("config.cfg"),
     })
 
@@ -625,7 +625,7 @@ def api_open_folder() -> JSONResponse:
     server host is the expected behaviour. The folder is created if it does
     not exist yet so the button works even before the first recording.
     """
-    abs_path = os.path.abspath(cfg.recordings_dir)
+    abs_path = os.path.abspath(RECORDINGS_DIR)
     try:
         os.makedirs(abs_path, exist_ok=True)
         if os.name == "nt":
@@ -845,7 +845,7 @@ def api_factory_reset() -> JSONResponse:
         # 1. Clear the QSO log database.
         qso_db.clear_all()
         # 2. Remove all recorded audio files.
-        rec_dir = cfg.recordings_dir
+        rec_dir = RECORDINGS_DIR
         if os.path.isdir(rec_dir):
             for entry in os.listdir(rec_dir):
                 p = os.path.join(rec_dir, entry)
@@ -904,7 +904,7 @@ def enforce_disk_limit() -> int:
     limit_gb = getattr(cfg, "max_recordings_gb", 0.0) or 0.0
     if limit_gb <= 0:
         return 0
-    rec_dir = cfg.recordings_dir
+    rec_dir = RECORDINGS_DIR
     cont_dir = os.path.join(rec_dir, "_continuous")
     if not os.path.isdir(cont_dir):
         return 0

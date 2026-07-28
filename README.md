@@ -8,7 +8,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org)
 
-**Version:** 0.5.0beta
+**Version:** 0.6.0beta
 
 **QSOCapture** is a lightweight contest audio recorder and log player for
 amateur radio operators. It captures audio from your receiver (via the
@@ -147,8 +147,8 @@ with a player ready to use.
 ### 7. Stop when done
 
 Click **⏹ Stop recording** to finalise the current chunk. Your QSO log and
-recordings live in `%LOCALAPPDATA%\QSOCapture` (desktop) or the project
-folder (source) and survive restarts.
+recordings live in `%LOCALAPPDATA%\QSOCapture` (desktop) or
+`./recordings` (source) and survive restarts.
 
 ---
 
@@ -161,7 +161,7 @@ with an explanation. The most important options:
 | Section | Setting | Description |
 | ------- | ------- | ----------- |
 | general | `station_name` | Your station callsign / label shown in the header. |
-| general | `recordings_dir` | Where audio files are stored. |
+| general | — | Recordings location (hard-coded): `%LOCALAPPDATA%\QSOCapture\recordings` |
 | general | `continuous_recording` | ON = the continuous-recording feature is available. |
 | general | `continuous_autostart` | ON = start continuous recording automatically on launch. **OFF by default** — use the dashboard button to start it on demand. |
 | general | `continuous_chunk_minutes` | Length of each continuous chunk. |
@@ -177,7 +177,7 @@ with an explanation. The most important options:
 | audio | `tci_receiver` | Which ExpertSDR receiver to record (0 = main RX). |
 | audio | `soundcard_device` | Substring of the input device name (empty = default). |
 | n1mm | `n1mm_udp_port` | UDP port N1MM broadcasts on (default `12060`). |
-| n1mm | `n1mm_bind_ip` | Interface to listen on (`0.0.0.0` = all). |
+| n1mm | `n1mm_bind_ip` | Interface to listen on (default `127.0.0.1` — local only). |
 | web | `web_host` / `web_port` | Dashboard bind address (default `127.0.0.1:8000` — local only; set `0.0.0.0` to expose on the LAN). |
 
 When N1MM logs a contact, QSOCapture waits `post_roll` seconds (so the tail of
@@ -324,7 +324,7 @@ QSOCapture/
     Windows 7+). No separate legacy build is needed.
  - **N1MM contacts not appearing** — ensure N1MM Logger+ broadcasts on the same
    UDP port configured in `n1mm_udp_port` (default `12060`) and that the
-   machine's firewall allows the bind on `n1mm_bind_ip` (default `0.0.0.0`).
+   machine's firewall allows the bind on `n1mm_bind_ip` (default `127.0.0.1`).
  - **Broken / unplayable continuous chunks** — if you stop the app while a
    continuous chunk is open it is finalised automatically; empty chunks (no
    audio received) are discarded so the continuous view never shows dead rows.

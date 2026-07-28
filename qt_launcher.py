@@ -43,6 +43,8 @@ if sys.stderr is None:
 
 import uvicorn
 
+import config as config_module
+
 import ctypes
 from PySide6.QtCore import QUrl, QObject, Slot, Signal, Qt, QEvent
 from PySide6.QtGui import QIcon, QAction, QCloseEvent, QPixmap
@@ -63,9 +65,9 @@ class Bridge(QObject):
     decorated with ``@Slot`` are callable from JavaScript.
     """
 
-    def __init__(self, recordings_dir: str, parent=None):
+    def __init__(self, parent=None):
         super().__init__(parent)
-        self.recordings_dir = recordings_dir
+        self.recordings_dir = config_module.RECORDINGS_DIR
 
     @Slot(str, result=str)
     def openUrl(self, url: str) -> str:
@@ -166,7 +168,7 @@ class MainWindow(QMainWindow):
 
         # Set up QWebChannel for JS-Python bridge
         self.channel = QWebChannel()
-        self.bridge = Bridge(os.path.join(app_dir, "recordings"))
+        self.bridge = Bridge()
         self.channel.registerObject("bridge", self.bridge)
         self.web_view.page().setWebChannel(self.channel)
 

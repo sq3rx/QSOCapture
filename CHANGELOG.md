@@ -5,7 +5,16 @@ in plain business language, without going into implementation details.
 
 ---
 
-## Unreleased
+## Version 0.6.0beta
+
+### Recordings directory is no longer configurable
+- The `recordings_dir` setting has been removed. Recordings are now always stored
+  in `%LOCALAPPDATA%\QSOCapture\recordings` (Windows) — no more clutter from
+  scattered folders. The field no longer appears in the Settings panel.
+
+### Settings UI: toggle switches for boolean options
+- "Continuous recording autostart" and "Normalize continuous recordings" now use
+  a clean on/off toggle switch instead of a plain checkbox.
 
 ### Date/time filter: datetime picker
 - Date/time fields now have a calendar icon with a flatpickr datetime picker.
@@ -27,6 +36,7 @@ in plain business language, without going into implementation details.
 - Removed `MUTE:false` / `MON_ENABLE:true` TCI commands that could override
   the user's radio settings.
 - Fixed `KeyboardInterrupt` on window close.
+- Fixed incorrect default for `n1mm_bind_ip` in documentation (`127.0.0.1`).
 
 ### Dashboard UI polish
 - Status badge sizing, recording badge alignment, icon and layout tweaks.
@@ -39,6 +49,8 @@ in plain business language, without going into implementation details.
 ### Documentation
 - README overhauled; build instructions moved to BUILDING.md.
 - New logo image.
+- README — removed `recordings_dir` from settings table, clarified that
+  recordings are now stored in a fixed location.
 
 ---
 

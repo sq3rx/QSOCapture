@@ -14,13 +14,34 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 
+# ---------------------------------------------------------------------------
+# Path helpers (no longer user-configurable)
+# ---------------------------------------------------------------------------
+def _get_base_dir() -> str:
+    """Return the writable application data directory.
+    
+    On Windows this is ``%LOCALAPPDATA%\\QSOCapture``, with a fallback to
+    ``~/QSOCapture`` when the environment variable is not set.
+    """
+    return os.path.join(
+        os.environ.get("LOCALAPPDATA", os.path.expanduser("~")),
+        "QSOCapture",
+    )
+
+
+BASE_DIR = _get_base_dir()
+"""Root application data directory (under ``%LOCALAPPDATA%``)."""
+
+RECORDINGS_DIR = os.path.join(BASE_DIR, "recordings")
+"""Hard-coded path for all recorded audio files (not user-configurable)."""
+
+
 @dataclass
 class AppConfig:
     """Strongly-typed, fully defaulted application configuration."""
 
     # general
     station_name: str = "MYSTATION"
-    recordings_dir: str = "recordings"
     continuous_recording: bool = True
     continuous_autostart: bool = False  # begin continuous recording automatically on startup
     continuous_chunk_minutes: int = 60
@@ -96,7 +117,6 @@ def load_config(path: str = "config.cfg") -> AppConfig:
 
     cfg = AppConfig(
         station_name=_get(parser, "general", "station_name", AppConfig.station_name),
-        recordings_dir=_get(parser, "general", "recordings_dir", AppConfig.recordings_dir),
         continuous_recording=_get(parser, "general", "continuous_recording", AppConfig.continuous_recording),
         continuous_autostart=_get(parser, "general", "continuous_autostart", AppConfig.continuous_autostart),
         continuous_chunk_minutes=_get(parser, "general", "continuous_chunk_minutes", AppConfig.continuous_chunk_minutes),
@@ -137,8 +157,6 @@ def load_config(path: str = "config.cfg") -> AppConfig:
 CONFIG_SCHEMA = [
     ("general", "station_name", "Station name", "text", None,
      "Your station callsign / identifier shown in the header and used as a label in logs."),
-    ("general", "recordings_dir", "Recordings directory", "text", None,
-     "Folder where recorded QSO slices and continuous chunks are stored. Relative to the app directory."),
     ("general", "continuous_autostart", "Continuous recording autostart", "bool", None,
      "When ON, continuous recording starts automatically on app startup. When OFF, you can still start it anytime from the dashboard (Stop/Start recording button)."),
     ("general", "continuous_chunk_minutes", "Continuous chunk (min)", "int", None,

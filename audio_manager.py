@@ -16,6 +16,8 @@ from typing import Optional
 
 import numpy as np
 
+from config import RECORDINGS_DIR
+
 logger = logging.getLogger("QSOCapture.audio")
 
 
@@ -505,7 +507,7 @@ class AudioSource(ABC):
         # different years (e.g. CQWW 2025 vs 2026) does not mix recordings.
         year = time.strftime("%Y", time.localtime(req.timestamp))
         contest_dir = f"{year}_{req.contest}" if req.contest else f"{year}_GENERAL"
-        out_dir = os.path.join(self.cfg.recordings_dir, contest_dir)
+        out_dir = os.path.join(RECORDINGS_DIR, contest_dir)
 
         # In SO2R we capture two independent receivers (RX1 = radio 1,
         # RX2 = radio 2). N1MM reports which radio made the QSO via <RadioNr>,
@@ -572,7 +574,7 @@ class AudioSource(ABC):
             # slice filename, the old audio file is now orphaned — remove
             # it so it does not linger in the recordings folder.
             if superseded:
-                old_path = os.path.join(self.cfg.recordings_dir, superseded)
+                old_path = os.path.join(RECORDINGS_DIR, superseded)
                 try:
                     if os.path.isfile(old_path):
                         os.remove(old_path)
@@ -726,7 +728,7 @@ class AudioSource(ABC):
         # appeared in the dashboard.
         stamp = time.strftime("%Y%m%d_%H%M%S", time.localtime()) + \
                 f"{int(time.time() * 1000) % 100000:05d}"
-        out_dir = os.path.join(self.cfg.recordings_dir, "_continuous")
+        out_dir = os.path.join(RECORDINGS_DIR, "_continuous")
         os.makedirs(out_dir, exist_ok=True)
         with self._cont_lock:
             for rx_label, _buf in self.rx_buffers:

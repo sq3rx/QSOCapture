@@ -1457,7 +1457,10 @@
                       class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-sm">`;
     }
     function boolInput(id, val) {
-      return `<input type="checkbox" id="${id}" ${val ? 'checked' : ''} class="w-4 h-4 accent-brand">`;
+      return `<label class="relative inline-flex items-center cursor-pointer">
+        <input type="checkbox" id="${id}" ${val ? 'checked' : ''} class="sr-only peer">
+        <div class="w-9 h-5 bg-slate-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-brand/30 rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand"></div>
+      </label>`;
     }
     function selectInput(id, val, choices) {
       const opts = (choices || []).map(c => {
@@ -1470,6 +1473,15 @@
       const tip = help
         ? `<span class="ml-1 inline-flex items-center justify-center w-4 h-4 rounded-full bg-slate-700 text-slate-200 text-[10px] cursor-help align-middle" title="${esc(help)}">?</span>`
         : '';
+      // Toggle switches (bool) are rendered inline with their label instead of
+      // stacked vertically, so the label text sits next to the switch rather
+      // than above it — this looks much cleaner.
+      if (inputHtml.includes('peer-checked:bg-brand')) {
+        return `<div class="flex items-center justify-between gap-2">
+                  <label class="text-xs uppercase tracking-wide text-slate-400">${label}${tip}</label>
+                  ${inputHtml}
+                </div>`;
+      }
       return `<div class="flex flex-col gap-1">
                 <label class="text-xs uppercase tracking-wide text-slate-400">${label}${tip}</label>
                 ${inputHtml}
@@ -1523,7 +1535,6 @@
         form.innerHTML = '';
 
         let general = fieldBlock('Station name', textInput('cfg_station_name', v.station_name), helpMap.station_name)
-          + fieldBlock('Recordings directory', textInput('cfg_recordings_dir', v.recordings_dir), helpMap.recordings_dir)
           + fieldBlock('Saved to', `<div class="flex items-center gap-2">
               <div class="text-xs text-slate-400 break-all flex-1 px-2 py-1.5 bg-slate-950 border border-slate-800 rounded">${pr.recordings_abs || ''}</div>
               <button id="openRecFolder" type="button" class="text-xs px-3 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-700 whitespace-nowrap">&#128193; Open</button>
