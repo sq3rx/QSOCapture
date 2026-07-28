@@ -111,13 +111,22 @@ _APP_VERSION = os.environ.get("APP_VERSION", "")
 _VER = ("-" + _APP_VERSION) if _APP_VERSION else ""
 _EXE_NAME = f"QSOCapture-portable{_VER}"
 
-# ── onedir build ──────────────────────────────────────────────────────────────
-# The EXE itself (without binaries/zipfiles/datas — those go into COLLECT).
-# This produces a folder instead of a single-file EXE, which eliminates the
-# long startup delay caused by PyInstaller extracting everything to %TEMP%.
-# The EXE is named "QSOCapture.exe" (no version suffix) so that the Inno Setup
-# installer and shortcuts always point to a stable filename. The version is
-# carried only in the parent folder name (set via COLLECT name=).
+# ── Build mode ────────────────────────────────────────────────────────────────
+# BUILD_MODE env var selects the output format:
+#   "onefile"  → single .exe (portable, fast download)
+#   "onedir"   → folder with EXE + DLLs (used by Inno Setup installer)
+# Default is "onedir" (for local builds and CI installer step).
+_BUILD_MODE = os.environ.get("BUILD_MODE", "onedir").strip().lower()
+
+# The EXE is always named "QSOCapture.exe" (no version suffix) so that the
+# Inno Setup installer and shortcuts always point to a stable filename.
+# The version is carried only in the parent folder name (for onedir) or in
+# the EXE filename itself (for onefile).
+if _BUILD_MODE == "onefile":
+    _EXE_NAME_FINAL = _EXE_NAME  # e.g. QSOCapture-portable-0.5.0beta
+else:
+    _EXE_NAME_FINAL = "QSOCapture"
+
 exe = EXE(
     pyz,
     a.scripts,
@@ -125,7 +134,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name="QSOCapture",
+    name=_EXE_NAME_FINAL,
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -140,16 +149,17 @@ exe = EXE(
     icon="icon.ico",
 )
 
-# COLLECT gathers all the supporting files (DLLs, Python libs, Qt resources)
-# into the same output directory, producing a fully self-contained folder.
-# The folder name carries the version (e.g. QSOCapture-portable-0.5.0beta/).
-coll = COLLECT(
-    exe,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
-    strip=False,
-    upx=True,
-    upx_exclude=[],
-    name=_EXE_NAME,
-)
+# In onedir mode, COLLECT gathers all supporting files (DLLs, Python libs,
+# Qt resources) into the same output directory, producing a fully
+# self-contained folder. The folder name carries the version.
+if _BUILD_MODE != "onefile":
+    coll = COLLECT(
+        exe,
+        a.binaries,
+        a.zipfiles,
+        a.datas,
+        strip=False,
+        upx=True,
+        upx_exclude=[],
+        name=_EXE_NAME,
+    )

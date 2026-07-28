@@ -32,17 +32,17 @@ jobs:
         shell: bash
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
-      - name: Build with PyInstaller
+      - name: Build portable (onefile)
         run: |
           $env:APP_VERSION="${{ steps.version.outputs.version }}"
-          pyinstaller --noconfirm --onedir build.spec
+          $env:BUILD_MODE="onefile"
+          pyinstaller --noconfirm build.spec
 
-      - name: Create portable ZIP (onedir)
-        shell: bash
+      - name: Build installer source (onedir)
         run: |
-          cd dist
-          7z a -tzip "QSOCapture-portable-${{ steps.version.outputs.version }}.zip" "QSOCapture-portable-${{ steps.version.outputs.version }}/"
-          cd ..
+          $env:APP_VERSION="${{ steps.version.outputs.version }}"
+          $env:BUILD_MODE="onedir"
+          pyinstaller --noconfirm build.spec
 
       - name: Build Windows installer
         run: iscc installer.iss /dMyAppVersion="${{ steps.version.outputs.version }}" /dMyExeName="QSOCapture-portable-${{ steps.version.outputs.version }}"
@@ -52,7 +52,7 @@ jobs:
         with:
           name: modern-build
           path: |
-            dist/QSOCapture-portable-${{ steps.version.outputs.version }}.zip
+            dist/QSOCapture-portable-${{ steps.version.outputs.version }}.exe
             installer/QSOCapture-setup-${{ steps.version.outputs.version }}.exe
           if-no-files-found: error
 
@@ -74,7 +74,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/QSOCapture-portable-*.zip
+            dist/QSOCapture-portable-*.exe
             installer/QSOCapture-setup-*.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -7,20 +7,17 @@ in plain business language, without going into implementation details.
 
 ## Unreleased
 
-### Switched from onefile to onedir build (faster startup)
-- **Build type changed from onefile to onedir.** Previously PyInstaller produced
-  a single `QSOCapture-portable-x.y.z.exe` that extracted ~200–400 MB to a
-  temporary folder on every launch, causing a 15–30 second startup delay. Now
-  the build produces a folder (`QSOCapture-portable-x.y.z/`) with the EXE and
-  all supporting DLLs already on disk, reducing startup time to 2–5 seconds.
-- **Portable distribution is now a ZIP archive** instead of a single `.exe`.
-  Download `QSOCapture-portable-x.y.z.zip`, extract anywhere, and run
-  `QSOCapture.exe` inside.
-- **Installer unchanged** — Inno Setup still produces a single
-  `QSOCapture-setup-x.y.z.exe` that installs the app to `Program Files`.
-- **CI pipeline updated** — the GitHub Actions workflow now passes `--onedir`
-  to PyInstaller, creates a ZIP of the output folder, and uploads the ZIP
-  (instead of the standalone EXE) to the release.
+### Build: portable as onefile, installer as onedir
+- **Portable build** (`QSOCapture-portable-x.y.z.exe`) is now a **single-file
+  EXE** (onefile) for easy download and portability. First launch extracts the
+  bundle to a temporary folder, which takes a few seconds.
+- **Installer build** (`QSOCapture-setup-x.y.z.exe`) uses a **folder** (onedir)
+  as its source, so the installed app starts faster (no extraction on every
+  launch).
+- **`BUILD_MODE` environment variable** — `build.spec` now reads
+  `BUILD_MODE=onefile` or `BUILD_MODE=onedir` to select the output format.
+- **CI pipeline updated** — GitHub Actions builds both variants: onefile for
+  the portable artifact, onedir for the Inno Setup installer.
 
 ### Migrated from pywebview to PySide6 (Qt WebEngine)
 - Desktop launcher rewritten from **pywebview** to **PySide6** (Qt WebEngine).
