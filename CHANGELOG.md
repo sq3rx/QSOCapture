@@ -7,6 +7,26 @@ in plain business language, without going into implementation details.
 
 ## Version 0.6.0beta
 
+### Band filter: multi-select widget with checkboxes
+- The old plain-text band input has been replaced with a dropdown containing
+  checkboxes for the most common ham bands (160M–2M), a custom text field for
+  arbitrary bands, and Apply/Clear buttons. Multiple bands can be selected at
+  once. The hidden input holds comma-separated values that the backend
+  interprets as `LIKE '%pattern%'` queries.
+
+### Dashboard: "no audio file" badge
+- QSO rows without a recording now show a yellow warning badge (⚠️ no audio
+  file) instead of the plain text "no audio", matching the style of the other
+  mode/band/RX badges.
+
+### Bug fixes
+- Fixed the band dropdown toggle not working correctly — `className.includes()`
+  incorrectly matched `overflow-hidden`, preventing the dropdown from closing
+  and re-opening. Switched to `classList.contains()`.
+- Fixed a crash when rendering the QSO list for rows without an audio file
+  (`q.url` is `null`). Calling `.replace()` on `null` threw a TypeError that
+  halted the entire row rendering loop.
+
 ### Recordings directory is no longer configurable
 - The `recordings_dir` setting has been removed. Recordings are now always stored
   in `%LOCALAPPDATA%\QSOCapture\recordings` (Windows) — no more clutter from

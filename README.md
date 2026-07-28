@@ -200,7 +200,10 @@ self-contained audio file named like:
    (`SQ3RX`), a country prefix (`SQ`), or a **regular expression**
    (`^SQ`, `3[A-Z]X$`, `SQ|SP`). Invalid regex is treated as a literal
    substring.
- - **Band / Mode** — exact match (e.g. `20M`, `CW`).
+  - **Band** — multi-select dropdown with checkboxes for common ham bands
+    (160M–2M) plus a custom text field for arbitrary bands; multiple bands
+    can be selected at once.
+  - **Mode** — exact match (e.g. `CW`, `SSB`).
  - **RX** — filter by receiver: **All RX**, **RX1** or **RX2**. 
    Applies to both the QSO and Continuous views.
  - **Date/time from – to** — filter by an exact moment, not just a day.

@@ -440,37 +440,41 @@ def query_contacts(
         sql += " AND call REGEXP ?"
         args.append(call.strip())
     if band:
-        # Flexible band match. The user may type either the band *label*
-        # (e.g. "20M" = 20 metres = 14 MHz) or the *frequency* in MHz
-        # (e.g. "14", "14MHz"). Stored values can be any of these forms.
-        # We expand the input into every equivalent form and OR them together
-        # so "20M" finds a stored "14MHz" and "14" finds a stored "20M".
+        # Support multiple band values separated by commas (e.g. "20M,40M").
+        # Each value is expanded into every equivalent form (label, frequency,
+        # MHz) and all patterns are OR-ed together so "20M" finds stored
+        # "20M", "14", "14MHz", "14.0" etc.
         import re
-        b = band.strip().upper()
-        m = re.search(r'(\d+(?:\.\d+)?)', b)
-        patterns = set()
-        if m:
-            num = m.group(1)
-            patterns.add(f"%{num}%")          # bare number (14 or 20)
-            patterns.add(f"%{num}M%")         # label form (20M)
-            patterns.add(f"%{num}MHZ%")      # explicit MHz (14MHZ)
-            # If the number looks like a band *label* (20, 40, 80, 15, 10...),
-            # also test the corresponding centre frequency in MHz.
-            try:
-                label_mhz = {
-                    160: 1.8, 80: 3.5, 40: 7.0, 30: 10.0, 20: 14.0,
-                    17: 18.0, 15: 21.0, 12: 24.0, 10: 28.0, 6: 50.0,
-                    2: 144.0,
-                }.get(int(float(num)))
-                if label_mhz is not None:
-                    patterns.add(f"%{label_mhz:g}%")
-                    patterns.add(f"%{label_mhz:g}MHZ%")
-            except (ValueError, TypeError):
-                pass
-        else:
-            patterns.add(f"%{b}%")
-        sql += " AND (" + " OR ".join("band LIKE ?" for _ in patterns) + ")"
-        args.extend(patterns)
+        band_parts = [b.strip() for b in band.split(',') if b.strip()]
+        all_patterns = []
+        for bp in band_parts:
+            b = bp.upper()
+            m = re.search(r'(\d+(?:\.\d+)?)', b)
+            patterns = set()
+            if m:
+                num = m.group(1)
+                patterns.add(f"%{num}%")          # bare number (14 or 20)
+                patterns.add(f"%{num}M%")         # label form (20M)
+                patterns.add(f"%{num}MHZ%")      # explicit MHz (14MHZ)
+                # If the number looks like a band *label* (20, 40, 80, 15, 10...),
+                # also test the corresponding centre frequency in MHz.
+                try:
+                    label_mhz = {
+                        160: 1.8, 80: 3.5, 40: 7.0, 30: 10.0, 20: 14.0,
+                        17: 18.0, 15: 21.0, 12: 24.0, 10: 28.0, 6: 50.0,
+                        2: 144.0,
+                    }.get(int(float(num)))
+                    if label_mhz is not None:
+                        patterns.add(f"%{label_mhz:g}%")
+                        patterns.add(f"%{label_mhz:g}MHZ%")
+                except (ValueError, TypeError):
+                    pass
+            else:
+                patterns.add(f"%{b}%")
+            all_patterns.extend(patterns)
+        if all_patterns:
+            sql += " AND (" + " OR ".join("band LIKE ?" for _ in all_patterns) + ")"
+            args.extend(all_patterns)
     if mode:
         sql += " AND mode=?"
         args.append(mode.upper())

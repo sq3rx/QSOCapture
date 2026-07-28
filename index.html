@@ -201,10 +201,66 @@
         <input id="call" type="text" placeholder="e.g. SQ3RX or ^SQ or regex"
                class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm" />
       </div>
-      <div>
+      <div class="relative">
         <label class="block text-xs uppercase tracking-wide text-slate-400 mb-1">Band</label>
-        <input id="band" type="text" placeholder="e.g. 20M"
-               class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm" />
+        <div id="bandDisplay" class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm cursor-pointer flex items-center justify-between select-none"
+             tabindex="0" role="combobox" aria-haspopup="listbox" aria-expanded="false">
+          <span id="bandLabel" class="text-slate-400">All bands</span>
+          <span id="bandArrow" class="text-slate-500 text-xs">&#9660;</span>
+        </div>
+        <div id="bandDropdown" class="hidden absolute z-50 w-full bg-slate-900 border border-slate-700 rounded-md mt-1 shadow-lg overflow-hidden">
+          <div class="p-3">
+            <div class="text-xs uppercase tracking-wide text-slate-500 mb-2 font-semibold">Ham bands</div>
+            <div class="grid grid-cols-3 gap-x-2 gap-y-1">
+              <label class="band-check flex items-center gap-2 text-sm text-slate-200 cursor-pointer hover:text-brand py-0.5">
+                <input type="checkbox" value="160M" class="accent-brand" /> 160M
+              </label>
+              <label class="band-check flex items-center gap-2 text-sm text-slate-200 cursor-pointer hover:text-brand py-0.5">
+                <input type="checkbox" value="80M" class="accent-brand" /> 80M
+              </label>
+              <label class="band-check flex items-center gap-2 text-sm text-slate-200 cursor-pointer hover:text-brand py-0.5">
+                <input type="checkbox" value="40M" class="accent-brand" /> 40M
+              </label>
+              <label class="band-check flex items-center gap-2 text-sm text-slate-200 cursor-pointer hover:text-brand py-0.5">
+                <input type="checkbox" value="30M" class="accent-brand" /> 30M
+              </label>
+              <label class="band-check flex items-center gap-2 text-sm text-slate-200 cursor-pointer hover:text-brand py-0.5">
+                <input type="checkbox" value="20M" class="accent-brand" /> 20M
+              </label>
+              <label class="band-check flex items-center gap-2 text-sm text-slate-200 cursor-pointer hover:text-brand py-0.5">
+                <input type="checkbox" value="17M" class="accent-brand" /> 17M
+              </label>
+              <label class="band-check flex items-center gap-2 text-sm text-slate-200 cursor-pointer hover:text-brand py-0.5">
+                <input type="checkbox" value="15M" class="accent-brand" /> 15M
+              </label>
+              <label class="band-check flex items-center gap-2 text-sm text-slate-200 cursor-pointer hover:text-brand py-0.5">
+                <input type="checkbox" value="12M" class="accent-brand" /> 12M
+              </label>
+              <label class="band-check flex items-center gap-2 text-sm text-slate-200 cursor-pointer hover:text-brand py-0.5">
+                <input type="checkbox" value="10M" class="accent-brand" /> 10M
+              </label>
+              <label class="band-check flex items-center gap-2 text-sm text-slate-200 cursor-pointer hover:text-brand py-0.5">
+                <input type="checkbox" value="6M" class="accent-brand" /> 6M
+              </label>
+              <label class="band-check flex items-center gap-2 text-sm text-slate-200 cursor-pointer hover:text-brand py-0.5">
+                <input type="checkbox" value="2M" class="accent-brand" /> 2M
+              </label>
+            </div>
+            <hr class="border-slate-700 my-2" />
+            <div class="text-xs uppercase tracking-wide text-slate-500 mb-1 font-semibold">Custom</div>
+            <input id="bandCustom" type="text" placeholder="e.g. 70CM, 23CM or 14.2"
+                   class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-sm mb-2" />
+            <div class="flex items-center justify-between gap-2">
+              <button id="bandClear" class="text-xs px-3 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300">
+                &#10005; Clear
+              </button>
+              <button id="bandApply" class="text-xs px-4 py-1.5 rounded-md bg-brand text-slate-950 font-semibold hover:opacity-90">
+                &#10003; Apply
+              </button>
+            </div>
+          </div>
+        </div>
+        <input id="band" type="hidden" value="" />
       </div>
       <div>
         <label class="block text-xs uppercase tracking-wide text-slate-400 mb-1">Mode</label>
@@ -768,8 +824,8 @@
     function buildPlayer(url, relPath, suggestedName) {
       if (!url) {
         const wrap = document.createElement('div');
-        wrap.className = 'px-4 py-2 text-xs text-slate-500';
-        wrap.textContent = 'no audio';
+        wrap.className = 'px-4 py-2 flex items-center';
+        wrap.innerHTML = '<span class="px-2 py-0.5 rounded border text-xs font-medium bg-amber-500/10 text-amber-300 border-amber-500/20">&#9888; No audio file</span>';
         return wrap;
       }
       const wrap = document.createElement('div');
@@ -1052,7 +1108,7 @@
                 <td class="px-4 py-2">${rxBadge(q.label)}</td>`;
               const td = document.createElement('td');
               td.className = 'px-0 py-0';
-              td.appendChild(buildPlayer(q.url, q.url.replace('/audio/', ''), q.file));
+              td.appendChild(buildPlayer(q.url, q.url ? q.url.replace('/audio/', '') : '', q.file));
               tr.appendChild(td);
               $('contRows').appendChild(tr);
             });
@@ -1076,7 +1132,7 @@
                <td class="px-4 py-2 text-slate-500">${q.contest}</td>`;
              const td = document.createElement('td');
              td.className = 'px-0 py-0';
-             td.appendChild(buildPlayer(q.url, q.url.replace('/audio/', ''), q.file));
+             td.appendChild(buildPlayer(q.url, q.url ? q.url.replace('/audio/', '') : '', q.file));
              tr.appendChild(td);
              tr.addEventListener('click', (e) => {
                if (e.target.tagName === 'AUDIO' || e.target.tagName === 'SELECT') return;
@@ -1323,12 +1379,101 @@
       }
     });
 
+    // --- Band multi-select widget -----------------------------------------
+    // Replaces the old plain-text band input with a dropdown of checkboxes
+    // (ham bands 160M-2M) plus a custom text field. The hidden <input id="band">
+    // holds the comma-separated value(s) used by loadQsos().
+    function getBandValue() {
+      const checks = document.querySelectorAll('#bandDropdown input[type="checkbox"]:checked');
+      const checked = Array.from(checks).map(cb => cb.value);
+      const custom = $('bandCustom').value.trim();
+      const parts = [];
+      if (checked.length) parts.push(checked.join(','));
+      if (custom) parts.push(custom);
+      return parts.join(',');
+    }
+
+    function updateBandLabel() {
+      const val = getBandValue();
+      $('band').value = val;
+      const label = $('bandLabel');
+      if (!val) {
+        label.textContent = 'All bands';
+        label.className = 'text-slate-400';
+      } else {
+        // Show a compact summary: first few items + "…" if too long
+        const items = val.split(',');
+        if (items.length <= 3) {
+          label.textContent = val;
+        } else {
+          label.textContent = items.slice(0, 3).join(', ') + ' …';
+        }
+        label.className = 'text-slate-100';
+      }
+    }
+
+    function showBandDropdown() {
+      const dd = $('bandDropdown');
+      dd.classList.remove('hidden');
+      $('bandDisplay').setAttribute('aria-expanded', 'true');
+      $('bandArrow').textContent = '▲';
+    }
+
+    function hideBandDropdown() {
+      const dd = $('bandDropdown');
+      dd.classList.add('hidden');
+      $('bandDisplay').setAttribute('aria-expanded', 'false');
+      $('bandArrow').textContent = '▼';
+    }
+
+    function toggleBandDropdown() {
+      const dd = $('bandDropdown');
+      if (dd.classList.contains('hidden')) {
+        showBandDropdown();
+      } else {
+        hideBandDropdown();
+      }
+    }
+
+    // Open/close on click
+    $('bandDisplay').addEventListener('click', toggleBandDropdown);
+
+    // Close on Escape
+    $('bandDisplay').addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') hideBandDropdown();
+      if (e.key === 'Enter') { e.preventDefault(); toggleBandDropdown(); }
+    });
+
+    // Apply button: read state, update hidden input, close dropdown, reload
+    $('bandApply').addEventListener('click', () => {
+      updateBandLabel();
+      hideBandDropdown();
+      loadQsos();
+    });
+
+    // Clear button: uncheck all, clear custom text, update, reload
+    $('bandClear').addEventListener('click', () => {
+      document.querySelectorAll('#bandDropdown input[type="checkbox"]').forEach(cb => cb.checked = false);
+      $('bandCustom').value = '';
+      updateBandLabel();
+      hideBandDropdown();
+      loadQsos();
+    });
+
+    // Close dropdown on click outside
+    document.addEventListener('click', (e) => {
+      const wrap = $('bandDisplay').closest('.relative');
+      if (wrap && !wrap.contains(e.target)) {
+        hideBandDropdown();
+      }
+    });
+
     // Other filter fields use the standard debounced input/change pattern.
     // Date fields only trigger on "change" (when the user finishes typing and
     // moves away or presses Enter) to avoid firing a query on every character
     // while the user is still typing a partial date like "2026-07-2".
     let t;
-    ['call','band','mode','rx','continuous'].forEach(id => {
+    ['call','mode','rx','continuous'].forEach(id => {
       $(id).addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => loadQsos(), 200); });
       $(id).addEventListener('change', () => loadQsos());
     });
