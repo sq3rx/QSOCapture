@@ -7,79 +7,38 @@ in plain business language, without going into implementation details.
 
 ## Unreleased
 
+### Date/time filter: datetime picker
+- Date/time fields now have a calendar icon with a flatpickr datetime picker.
+  The user can still type manually; clicking the icon toggles the picker.
+  The picker closes automatically when clicking outside.
+
 ### Build: portable as onefile, installer as onedir
-- **Portable build** (`QSOCapture-portable-x.y.z.exe`) is now a **single-file
-  EXE** (onefile) for easy download and portability. First launch extracts the
-  bundle to a temporary folder, which takes a few seconds.
-- **Installer build** (`QSOCapture-setup-x.y.z.exe`) uses a **folder** (onedir)
-  as its source, so the installed app starts faster (no extraction on every
-  launch).
-- **`BUILD_MODE` environment variable** — `build.spec` now reads
-  `BUILD_MODE=onefile` or `BUILD_MODE=onedir` to select the output format.
-- **CI pipeline updated** — GitHub Actions builds both variants: onefile for
-  the portable artifact, onedir for the Inno Setup installer.
+- Portable build is now a single-file EXE; installer uses a folder for faster
+  startup. Controlled by `BUILD_MODE=onefile` / `BUILD_MODE=onedir`.
 
 ### Migrated from pywebview to PySide6 (Qt WebEngine)
-- Desktop launcher rewritten from **pywebview** to **PySide6** (Qt WebEngine).
-  Single build for all Windows (7+), minimise-to-tray, confirm-close dialog,
-  native file dialogs, no external WebView2/CEF dependency.
-- **Single installer for Windows 7+** — Qt WebEngine works on Windows 7+, so
-  one build now covers all supported Windows versions (7 through 11). The
-  installer and portable EXE are unified; no more `-Win7` suffix.
-- **File size note:** The portable EXE is ~350–450 MB (up from ~120 MB in the
-  legacy build) because Qt WebEngine bundles a full Chromium renderer. The Inno
-  Setup installer compresses this to ~120–150 MB. This is the unavoidable cost
-  of embedding a modern browser engine — the same Chromium that WebView2 and
-  CEF also ship.
-- **Smaller EXE size** — ~30 unused PySide6 modules (QtBluetooth, Qt3D*,
-  QtCharts, QtMultimedia, etc.) are now excluded from the build, saving
-  approximately 50–100 MB in the final executable.
-- **Confirm-close dialog** — closing the window now shows a confirmation prompt
-  to prevent accidental exit. The app minimises to the system tray instead of
-  quitting when the dialog is dismissed.
-- **Faster startup:** QApplication is now created before the backend server
-  starts, so Qt WebEngine (Chromium) initialises in parallel with uvicorn
-  instead of sequentially. Server polling interval reduced from 0.2s to 0.05s,
-  startup timeout reduced from 20s to 10s.
-- **Faster shutdown:** Thread join timeout reduced from 5s to 2s — uvicorn
-  finishes in under a second.
+- Desktop launcher rewritten to PySide6 — single build for all Windows (7+),
+  minimise-to-tray, confirm-close dialog, native file dialogs, no external
+  WebView2/CEF dependency. Unused Qt modules excluded to save ~50–100 MB.
 
 ### Bug fixes
-- **No more audio holes in QSO recordings after pause/resume.** Previously,
-  pausing continuous recording cleared the shared ring buffers (`_clear_buffers()`),
-  which also destroyed the pre-roll audio that QSO slicing (`slice_qso()`)
-  depends on. Continuous recording uses its own internal queue, so clearing the
-  shared buffers was unnecessary and harmful.
-- **Removed MUTE:false and MON_ENABLE:true commands from the TCI setup.** These
-  commands controlled the radio's mute and monitor state, which QSOCapture
-  should never touch — they could override the user's deliberate radio settings.
-  QSOCapture only needs `AUDIO_START` to receive the audio stream.
-- **Fixed `KeyboardInterrupt` on window close.** The `changeEvent` handler in
-  `qt_launcher.py` now wraps the shutdown logic in `try/except KeyboardInterrupt`,
-  preventing an unhandled exception when the user closes the window while the
-  backend is still shutting down.
+- No more audio holes in QSO recordings after pause/resume (clearing shared
+  ring buffers was unnecessary and broke QSO slicing).
+- Removed `MUTE:false` / `MON_ENABLE:true` TCI commands that could override
+  the user's radio settings.
+- Fixed `KeyboardInterrupt` on window close.
 
 ### Dashboard UI polish
-- **Status badge "active" is now the same size as other badges.**
-- **Recording badge now displays correctly** — missing `flex` class fixed, so
-  the badge text is properly centred when continuous recording is active.
-- Icon centred, "?" moved to right, status label "live" → "active",
-  update banner replaced with a compact badge in the header.
-- **Date/time filter improvements** — date fields now accept date-only input
-  (e.g. `2026-07-25`) and search the whole day in UTC. Filtering only triggers
-  when the user finishes typing (change event), not on every keystroke.
+- Status badge sizing, recording badge alignment, icon and layout tweaks.
+- Filtering triggers on change, not on every keystroke.
 
 ### Version check / update notification
-- The app now checks GitHub for a newer release on every startup. If a new
-  version is available, a yellow banner appears under the header with a link
-  to download it. The About window shows the update status automatically with
-  links to Download and the Changelog. The check is fully offline-friendly
-  with a 1-hour in-memory cache.
+- Checks GitHub for a newer release on startup; shows a compact badge in the
+  header. About window shows update status with download links.
 
 ### Documentation
-- README overhauled and build instructions moved to a new [BUILDING.md](BUILDING.md).
-- README logo updated — replaced the SVG icon with a larger `logo_with_text.png`
-  for a cleaner, more recognisable header image.
+- README overhauled; build instructions moved to BUILDING.md.
+- New logo image.
 
 ---
 

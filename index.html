@@ -7,6 +7,9 @@
   <link rel="shortcut icon" type="image/x-icon" href="/icon.ico" />
   <title>QSOCapture by SQ3RX &middot; Contest Log Player</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/dark.css">
+  <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
   <script>
     tailwind.config = {
       darkMode: 'class',
@@ -126,6 +129,32 @@
       filter: invert(1);
       cursor: pointer;
     }
+    /* Offline-safe flatpickr dark theme fallback (when CDN is unavailable) */
+    .flatpickr-calendar { background: #0f172a; border: 1px solid #334155; border-radius: 0.5rem; box-shadow: 0 4px 6px -1px rgba(0,0,0,.3); }
+    .flatpickr-months .flatpickr-month, .flatpickr-current-month .flatpickr-monthDropdown-months { background: #0f172a; color: #e2e8f0; }
+    .flatpickr-weekdays { background: #0f172a; }
+    span.flatpickr-weekday { color: #64748b; }
+    .flatpickr-day { color: #cbd5e1; border-radius: 0.25rem; }
+    .flatpickr-day:hover { background: #1e293b; color: #f1f5f9; }
+    .flatpickr-day.today { border-color: #22c55e; }
+    .flatpickr-day.selected, .flatpickr-day.startRange, .flatpickr-day.endRange, .flatpickr-day.inRange { background: #22c55e; color: #020617; border-color: #22c55e; }
+    .flatpickr-day.inRange { box-shadow: -5px 0 0 #22c55e, 5px 0 0 #22c55e; }
+    .flatpickr-day.flatpickr-disabled, .flatpickr-day.flatpickr-disabled:hover { color: #475569; }
+    .flatpickr-day.prevMonthDay, .flatpickr-day.nextMonthDay { color: #475569; }
+    .flatpickr-day.prevMonthDay:hover, .flatpickr-day.nextMonthDay:hover { background: #1e293b; }
+    .flatpickr-current-month input.cur-year { color: #e2e8f0; }
+    .flatpickr-time { border-top: 1px solid #334155; }
+    .flatpickr-time input { color: #e2e8f0; background: #0f172a; }
+    .flatpickr-time .flatpickr-am-pm { color: #cbd5e1; }
+    .flatpickr-time .flatpickr-am-pm:hover { background: #1e293b; }
+    .flatpickr-calendar.arrowTop:before { border-bottom-color: #334155; }
+    .flatpickr-calendar.arrowTop:after { border-bottom-color: #0f172a; }
+    .flatpickr-calendar.arrowBottom:before { border-top-color: #334155; }
+    .flatpickr-calendar.arrowBottom:after { border-top-color: #0f172a; }
+    .numInputWrapper span { border-color: #334155; }
+    .numInputWrapper span:hover { background: #1e293b; }
+    .numInputWrapper span.arrowUp { border-bottom-color: #334155; }
+    .numInputWrapper span.arrowDown { border-top-color: #334155; }
   </style>
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen antialiased">
@@ -199,13 +228,29 @@
       </div>
       <div>
         <label class="block text-xs uppercase tracking-wide text-slate-400 mb-1">Date/time from</label>
-        <input id="date_from" type="text" placeholder="YYYY-MM-DD HH:mm"
-               class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm" />
+        <div class="relative">
+          <input id="date_from" type="text" placeholder="YYYY-MM-DD HH:mm"
+                 class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm pr-8" />
+          <button type="button" id="date_from_btn"
+                  class="absolute right-1 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-brand cursor-pointer">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+          </button>
+        </div>
       </div>
       <div>
         <label class="block text-xs uppercase tracking-wide text-slate-400 mb-1">Date/time to</label>
-        <input id="date_to" type="text" placeholder="YYYY-MM-DD HH:mm"
-               class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm" />
+        <div class="relative">
+          <input id="date_to" type="text" placeholder="YYYY-MM-DD HH:mm"
+                 class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm pr-8" />
+          <button type="button" id="date_to_btn"
+                  class="absolute right-1 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-brand cursor-pointer">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+          </button>
+        </div>
       </div>
       <div>
         <label class="block text-xs uppercase tracking-wide text-slate-400 mb-1">Type</label>
@@ -1180,20 +1225,40 @@
       return null;
     }
 
-    // Auto-format date/time input as user types: YYYY-MM-DD HH:mm
-    function formatDateTimeInput(el) {
-      el.addEventListener('input', function () {
-        let v = this.value.replace(/[^0-9]/g, ''); // keep only digits
-        if (v.length > 4) v = v.slice(0, 4) + '-' + v.slice(4);
-        if (v.length > 7) v = v.slice(0, 7) + '-' + v.slice(7);
-        if (v.length > 10) v = v.slice(0, 10) + ' ' + v.slice(10);
-        if (v.length > 13) v = v.slice(0, 13) + ':' + v.slice(13);
-        if (v.length > 16) v = v.slice(0, 16);
-        this.value = v;
-      });
-    }
-    formatDateTimeInput($('date_from'));
-    formatDateTimeInput($('date_to'));
+    // Initialize flatpickr datetime pickers on date_from and date_to fields.
+    // The user can still type manually (allowInput: true) or pick from the
+    // calendar. The format matches the backend expectation: YYYY-MM-DD HH:mm.
+    const dateFromPicker = flatpickr('#date_from', {
+      enableTime: true,
+      dateFormat: 'Y-m-d H:i',
+      allowInput: true,
+      minuteIncrement: 1,
+      onChange: () => loadQsos(),
+    });
+    const dateToPicker = flatpickr('#date_to', {
+      enableTime: true,
+      dateFormat: 'Y-m-d H:i',
+      allowInput: true,
+      minuteIncrement: 1,
+      onChange: () => loadQsos(),
+    });
+
+    // Toggle flatpickr when the calendar icon button is clicked.
+    // Clicking the icon again while the picker is open closes it.
+    // Use mousedown with stopImmediatePropagation so flatpickr's own
+    // mousedown handler (which would re-open after close) is blocked.
+    $('date_from_btn').addEventListener('mousedown', (e) => {
+      e.stopImmediatePropagation();
+      if (dateFromPicker.isOpen) dateFromPicker.close();
+      else dateFromPicker.open();
+    });
+    $('date_to_btn').addEventListener('mousedown', (e) => {
+      e.stopImmediatePropagation();
+      if (dateToPicker.isOpen) dateToPicker.close();
+      else dateToPicker.open();
+    });
+    // Flatpickr automatically closes when clicking outside the calendar
+    // container, so no additional document listener is needed.
 
     // --- Autocomplete event wiring for the Contest field ---
     const contestInput = $('contest');
@@ -1267,9 +1332,7 @@
       $(id).addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => loadQsos(), 200); });
       $(id).addEventListener('change', () => loadQsos());
     });
-    ['date_from','date_to'].forEach(id => {
-      $(id).addEventListener('change', () => loadQsos());
-    });
+    // Date fields are handled by flatpickr's onChange callback above.
     $('refresh').addEventListener('click', () => loadQsos());
     $('loadMore').addEventListener('click', () => loadQsos(true));
 
