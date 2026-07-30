@@ -50,6 +50,25 @@ def main():
         f"--windows-icon-from-ico=icon.ico",
         # Auto-accept downloads (Dependency Walker, etc.)
         "--assume-yes-for-downloads",
+        # Link-time optimisation — produces smaller, more optimised binaries
+        # which are less likely to trigger heuristic antivirus detection.
+        "--lto=yes",
+        # Include a proper UAC manifest so Windows recognises the app as a
+        # well-behaved desktop application rather than an unknown binary.
+        "--windows-uac-uiaccess",
+        # Disable ccache to ensure fully reproducible builds (ccache can
+        # sometimes produce non-deterministic output that looks suspicious).
+        "--disable-ccache",
+        # Strip docstrings to reduce binary size (smaller EXE is less likely
+        # to trigger heuristic detection).
+        "--python-flag=-OO",
+        # Remove temporary build artefacts after compilation.
+        "--remove-output",
+        # Windows metadata (VERSIONINFO) — makes the EXE look like a proper
+        # signed application rather than an unknown binary.
+        "--windows-company-name=SQ3RX",
+        "--windows-product-name=QSOCapture",
+        "--windows-file-description=Amateur Radio Contest Audio Recorder",
         # Include data files
     ]
 

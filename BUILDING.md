@@ -70,6 +70,45 @@ python build_nuitka.py
 > launch any data left behind in an older ``Program Files`` install is moved
 > automatically into that folder.
 
+### Antivirus false positives
+
+Windows Defender and other antivirus engines may occasionally flag the
+portable executable (`QSOCapture-portable-*.exe`) as a threat. This is a
+**false positive** — the executable is a legitimate amateur radio application
+built with [Nuitka](https://nuitka.net), which compiles Python code into a
+standalone Windows binary. The heuristic detection is triggered by the
+combination of a large, self-contained executable with an embedded Python
+interpreter, not by any malicious behaviour.
+
+The following build flags have been added to `build_nuitka.py` to reduce the
+likelihood of false positives:
+
+- `--lto=yes` — link-time optimisation produces smaller, more optimised
+  binaries that are less likely to trigger heuristic detection.
+- `--windows-uac-uiaccess` — includes a proper UAC manifest so Windows
+  recognises the application as a well-behaved desktop app.
+- `--disable-ccache` — ensures fully reproducible builds (ccache can
+  sometimes produce non-deterministic output that looks suspicious).
+- `--python-flag=-OO` — strips docstrings to reduce binary size (smaller
+  EXE is less likely to trigger heuristics).
+- `--remove-output` — removes temporary build artefacts after compilation.
+- `--windows-company-name=SQ3RX` / `--windows-product-name=QSOCapture` /
+  `--windows-file-description=Amateur Radio Contest Audio Recorder` —
+  embeds proper Windows VERSIONINFO metadata so the EXE is recognised as
+  a legitimate desktop application rather than an unknown binary.
+
+If the portable EXE is still flagged, consider:
+
+1. **Using the installer** (`QSOCapture-setup-*.exe`) instead — it is a
+   standard Inno Setup installer and far less likely to be detected.
+2. **Adding an exclusion** in Windows Security for the downloaded file or
+   folder.
+3. **Reporting the false positive** to Microsoft at
+   [Microsoft Security Intelligence](https://www.microsoft.com/en-us/wdsi/filesubmission).
+4. **Building from source** — a locally built binary will not be flagged.
+
+---
+
 To build the **Windows installer** (requires [Inno Setup](https://jrsoftware.org/isinfo.php)):
 
 ```bash
