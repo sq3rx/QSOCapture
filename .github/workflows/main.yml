@@ -8,7 +8,7 @@ on:
 
 jobs:
   build:
-    name: Build (Python 3.14)
+    name: Build (Python 3.13)
     runs-on: windows-latest  # Budujemy na Windowsie, aby uzyskać plik .exe
     steps:
       - name: Checkout code
@@ -17,11 +17,10 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.14'
+          python-version: '3.13'  # Nuitka najlepiej wspiera Python 3.13
 
       - name: Install dependencies
         run: |
-          pip install pyinstaller
           pip install -r requirements.txt
 
       - name: Install Inno Setup
@@ -35,24 +34,22 @@ jobs:
       - name: Build portable (onefile)
         run: |
           $env:APP_VERSION="${{ steps.version.outputs.version }}"
-          $env:BUILD_MODE="onefile"
-          pyinstaller --noconfirm build.spec
+          python build_nuitka.py --onefile
 
       - name: Build installer source (onedir)
         run: |
           $env:APP_VERSION="${{ steps.version.outputs.version }}"
-          $env:BUILD_MODE="onedir"
-          pyinstaller --noconfirm build.spec
+          python build_nuitka.py
 
       - name: Build Windows installer
-        run: iscc installer.iss /dMyAppVersion="${{ steps.version.outputs.version }}" /dMyExeName="QSOCapture-portable-${{ steps.version.outputs.version }}"
+        run: iscc installer.iss /dMyAppVersion="${{ steps.version.outputs.version }}"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: modern-build
+          name: nuitka-build
           path: |
-            dist/QSOCapture-portable-${{ steps.version.outputs.version }}.exe
+            QSOCapture-portable-${{ steps.version.outputs.version }}.exe
             installer/QSOCapture-setup-${{ steps.version.outputs.version }}.exe
           if-no-files-found: error
 
@@ -68,13 +65,13 @@ jobs:
       - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
-          name: modern-build
+          name: nuitka-build
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/QSOCapture-portable-*.exe
+            QSOCapture-portable-*.exe
             installer/QSOCapture-setup-*.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

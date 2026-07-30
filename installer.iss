@@ -15,9 +15,8 @@
   #define MyAppNameSuffix ""
 #endif
 
-; Application folder name (without .exe). PyInstaller onedir produces a folder
-; named e.g. "QSOCapture-portable-0.5.0beta" containing the EXE and all
-; supporting DLLs. CI must pass /dMyExeName="QSOCapture-portable-0.5.0beta".
+; Application folder name (without .exe) — used only for the installer output
+; filename. The source folder is always qt_launcher.dist/ (from Nuitka).
 #ifndef MyExeName
   #define MyExeName "QSOCapture"
 #endif
@@ -48,10 +47,9 @@ PrivilegesRequired=admin
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Files]
-; The portable build in dist/ is now a folder (onedir) carrying the version
-; (e.g. QSOCapture-portable-0.5.0beta/). The EXE inside is always named
-; QSOCapture.exe (stable name), so we copy the entire folder contents.
-Source: "dist\{#MyExeName}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+; The Nuitka onedir build produces qt_launcher.dist/ in the project root.
+; The EXE inside is named QSOCapture.exe, so we copy the entire folder.
+Source: "qt_launcher.dist\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion isreadme
 Source: "icon.ico"; DestDir: "{app}"; Flags: ignoreversion
 

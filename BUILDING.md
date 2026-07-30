@@ -6,7 +6,9 @@
 
 ## Requirements
 
-- Python **3.9+** (Windows 7+).
+- Python **3.13** (Windows 7+). Nuitka works best with Python 3.13.
+- A C compiler (MSVC or MinGW). On Windows with Python 3.13, MSVC is included
+  in the Python installer (Build Tools for Visual Studio).
 - The following Python packages (see `requirements.txt`):
   - `fastapi`, `uvicorn`
   - `numpy`
@@ -14,6 +16,7 @@
   - `websockets` (only needed for TCI mode)
   - `lameenc` (optional — only if you want MP3 output instead of WAV)
   - `PySide6` (needed for the desktop EXE / embedded Qt WebEngine browser — `qt_launcher.py`)
+  - `nuitka` (compiler for building the standalone EXE)
 
 Install everything with:
 
@@ -35,8 +38,7 @@ Go to the **[Releases](https://github.com/sq3rx/QSOCapture/releases)** page and
 download either:
 
 - **`QSOCapture-portable-x.y.z.exe`** — a single-file portable executable.
-  Just run it; no installation needed. Note: the first launch takes a few
-  seconds longer because PyInstaller extracts the bundle to a temporary folder.
+  Just run it; no installation needed.
 - **`QSOCapture-setup-x.y.z.exe`** — a Windows installer (Inno Setup) that
   places the app in `Program Files`, adds a Start Menu / desktop shortcut and
   an uninstall entry. Recommended for most users.
@@ -47,15 +49,17 @@ download either:
 pip install -r requirements.txt
 
 # Portable single-file EXE
-$env:BUILD_MODE="onefile"
-pyinstaller build.spec
-# Result: dist/QSOCapture-portable-x.y.z.exe
+python build_nuitka.py --onefile
+# Result: QSOCapture-portable-x.y.z.exe
 
 # Installer source (folder, used by Inno Setup)
-$env:BUILD_MODE="onedir"
-pyinstaller build.spec
-# Result: dist/QSOCapture-portable-x.y.z/ (folder with EXE + DLLs)
+python build_nuitka.py
+# Result: qt_launcher.dist/ (folder with EXE + DLLs)
 ```
+
+> **Note:** The first Nuitka build can take a while (15–30 minutes) because it
+> compiles all Python code to C++. Subsequent builds are faster thanks to
+> caching.
 
 > **Where are my data stored?** The executable is installed in ``Program
 > Files`` (read-only for normal users), but all your personal data —

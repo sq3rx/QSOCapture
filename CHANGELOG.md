@@ -5,7 +5,15 @@ in plain business language, without going into implementation details.
 
 ---
 
+> **Note:** It is recommended to uninstall any previous version before
+> installing this release, as the build system has changed from PyInstaller
+> to Nuitka.
+
 ## Version 0.6.0beta
+
+- Migrated from PyInstaller to **Nuitka** for building the desktop EXE.
+- Dashboard UI overhaul: multi-select band filter, datetime picker, toggle
+  switches, and a warning badge for QSOs without audio.
 
 ### Band filter: multi-select widget with checkboxes
 - The old plain-text band input has been replaced with a dropdown containing
@@ -16,8 +24,7 @@ in plain business language, without going into implementation details.
 
 ### Dashboard: "no audio file" badge
 - QSO rows without a recording now show a yellow warning badge (⚠️ no audio
-  file) instead of the plain text "no audio", matching the style of the other
-  mode/band/RX badges.
+  file).
 
 ### Bug fixes
 - Fixed the band dropdown toggle not working correctly — `className.includes()`
@@ -42,8 +49,8 @@ in plain business language, without going into implementation details.
   The picker closes automatically when clicking outside.
 
 ### Build: portable as onefile, installer as onedir
-- Portable build is now a single-file EXE; installer uses a folder for faster
-  startup. Controlled by `BUILD_MODE=onefile` / `BUILD_MODE=onedir`.
+- Switched from PyInstaller to **Nuitka** for building the desktop EXE.
+- Portable build is now a single-file EXE; installer uses a folder.
 
 ### Migrated from pywebview to PySide6 (Qt WebEngine)
 - Desktop launcher rewritten to PySide6 — single build for all Windows (7+),
