@@ -226,7 +226,7 @@ class _DaemonThreadPoolExecutor(ThreadPoolExecutor):
         num_threads = len(self._threads)
         if num_threads < self._max_workers:
             thread_name = "%s_%d" % (self._thread_name_prefix or self, num_threads)
-            if _sys.version_info >= (3, 9):
+            if _sys.version_info >= (3, 9) and hasattr(self, '_create_worker_context'):
                 # Modern Python: pass the worker context object.
                 t = threading.Thread(
                     name=thread_name,
