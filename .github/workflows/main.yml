@@ -12,10 +12,10 @@ jobs:
     runs-on: windows-latest  # Budujemy na Windowsie, aby uzyskać plik .exe
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.13'  # Nuitka najlepiej wspiera Python 3.13
 
@@ -45,7 +45,7 @@ jobs:
         run: iscc installer.iss /dMyAppVersion="${{ steps.version.outputs.version }}"
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: nuitka-build
           path: |
@@ -63,12 +63,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: nuitka-build
 
       - name: Create Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             QSOCapture-portable-*.exe

@@ -35,6 +35,16 @@ tests/
 cbr/
 import_cbr.py
 
+# Nuitka build artifacts
+qt_launcher.dist/
+qt_launcher.build/
+
+# Installer output
+installer/*.exe
+
+# Nuitka crash reports
+nuitka-crash-report.xml
+
 # Test data seeder (local helper — not committed)
 seed_test_data.py
 
