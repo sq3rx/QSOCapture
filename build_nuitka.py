@@ -69,6 +69,10 @@ def main():
         "--windows-company-name=SQ3RX",
         "--windows-product-name=QSOCapture",
         "--windows-file-description=Amateur Radio Contest Audio Recorder",
+        # File/product version is required when any VERSIONINFO is given.
+        # Use APP_VERSION env var, or fall back to "0.6.0".
+        f"--windows-file-version={app_version or '0.6.0'}",
+        f"--windows-product-version={app_version or '0.6.0'}",
         # Include data files
     ]
 
