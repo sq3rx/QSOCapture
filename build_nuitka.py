@@ -30,10 +30,10 @@ def main():
     app_version = os.environ.get("APP_VERSION", "")
     version_suffix = f"-{app_version}" if app_version else ""
 
-    # Nuitka requires a purely numeric version for VERSIONINFO (e.g. "0.6.0").
+    # Nuitka requires a purely numeric version for VERSIONINFO (e.g. "0.6.1").
     # Strip any non-numeric suffix like "beta", "rc1", etc.
     import re
-    numeric_version = re.sub(r"[^0-9.]", "", app_version) or "0.6.0"
+    numeric_version = re.sub(r"[^0-9.]", "", app_version) or "0.6.1"
 
     # The main entry point
     main_script = "qt_launcher.py"
@@ -81,7 +81,7 @@ def main():
         "--windows-file-description=Amateur Radio Contest Audio Recorder",
         # File/product version is required when any VERSIONINFO is given.
         # Use numeric_version (stripped of non-numeric suffixes like "beta"),
-        # or fall back to "0.6.0".
+        # or fall back to "0.6.1".
         f"--windows-file-version={numeric_version}",
         f"--windows-product-version={numeric_version}",
         # Include data files

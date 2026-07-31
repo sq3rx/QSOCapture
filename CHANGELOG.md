@@ -8,7 +8,7 @@ in plain business language, without going into implementation details.
 > * Starting with Windows 7 and newer, there is now **a single unified release** package.
 > * A **portable version will not be released**, as Windows Defender / Antivirus incorrectly flags single-file builds as a false positive.
 
-## Unreleased
+## Version 0.6.1beta
 
 ### 🐛 Bug Fixes
 * **QSO recordings not saving in installed version:** Fixed a compatibility issue with the compiled application (Nuitka) that prevented QSO recordings from being saved after installation. The application now correctly records and saves QSO slices in both the installed and source versions.

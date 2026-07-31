@@ -49,7 +49,7 @@ logger = logging.getLogger("QSOCapture.main")
 # PyInstaller build pick up the real release version from CI (installer.iss
 # MyAppVersion / build.spec APP_VERSION), so only bump this when the change is
 # user-visible.
-APP_VERSION = "0.6.0beta"
+APP_VERSION = "0.6.1beta"
 
 # GitHub repo used for the "check for updates" feature.
 GITHUB_REPO = "sq3rx/QSOCapture"

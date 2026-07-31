@@ -6,7 +6,7 @@
 ; If a version is passed on the command line (e.g. iscc installer.iss /dMyAppVersion=1.2.3),
 ; it overrides the default value below.
 #ifndef MyAppVersion
-  #define MyAppVersion "0.6.0beta"
+  #define MyAppVersion "0.6.1beta"
 #endif
 
 ; Optional suffix in the output filename to tell builds apart (e.g.
