@@ -8,6 +8,11 @@ in plain business language, without going into implementation details.
 > * Starting with Windows 7 and newer, there is now **a single unified release** package.
 > * A **portable version will not be released**, as Windows Defender / Antivirus incorrectly flags single-file builds as a false positive.
 
+## Unreleased
+
+### 🐛 Bug Fixes
+* **QSO Slicing in compiled (Nuitka) builds:** Replaced the custom `_DaemonThreadPoolExecutor` (which relied on internal CPython threading APIs incompatible with Nuitka) with the standard `ThreadPoolExecutor`. This fixes QSO recordings not being saved in the installed/compiled version of the application while running correctly when launched via `qt_launcher.py` from source.
+
 ## Version 0.6.0beta
 
 ### 🚀 Major Improvements & Architecture

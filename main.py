@@ -188,73 +188,7 @@ LOG_BUFFER: "deque" = deque(maxlen=2000)
 # which makes shutdown hang for a long time. Making them daemon lets the
 # interpreter exit immediately; we also shut the pool down (without waiting)
 # in the lifespan ``finally`` so in-flight tasks are dropped cleanly.
-import concurrent.futures.thread as _cf_thread
-import weakref as _weakref
-import sys as _sys
-
-
-class _DaemonThreadPoolExecutor(ThreadPoolExecutor):
-    """ThreadPoolExecutor whose worker threads are daemon threads.
-
-    Newer Python (3.9+) creates the worker threads directly inside
-    ``_adjust_thread_count`` (there is no ``_make_worker_thread`` hook), so we
-    override that method and mirror its body but set ``daemon=True`` on the
-    ``threading.Thread`` *before* it is started (setting daemon after start()
-    raises RuntimeError).
-
-    With daemon workers the interpreter can exit immediately on Ctrl+C instead
-    of blocking until every in-flight post-roll QSO slice finishes.
-
-    NOTE: the worker-thread API differs between Python versions:
-      * 3.9+  : ``_worker(weakref, worker_context, work_queue)`` and the
-                executor exposes ``_create_worker_context()``.
-      * < 3.9 (e.g. the legacy Windows 7 build, Python 3.8): only
-                ``_worker(weakref, work_queue)`` exists and there is no
-                ``_create_worker_context()``. Calling it on 3.8 raised
-                AttributeError at import time, which silently killed the app
-                (frozen console=False build has no visible stderr).
-    """
-
-    def _adjust_thread_count(self):
-        # if idle threads are available, don't spin new threads
-        if self._idle_semaphore.acquire(timeout=0):
-            return
-
-        def weakref_cb(_, q=self._work_queue):
-            q.put(None)
-
-        num_threads = len(self._threads)
-        if num_threads < self._max_workers:
-            thread_name = "%s_%d" % (self._thread_name_prefix or self, num_threads)
-            if _sys.version_info >= (3, 9) and hasattr(self, '_create_worker_context'):
-                # Modern Python: pass the worker context object.
-                t = threading.Thread(
-                    name=thread_name,
-                    target=_cf_thread._worker,
-                    daemon=True,
-                    args=(
-                        _weakref.ref(self, weakref_cb),
-                        self._create_worker_context(),
-                        self._work_queue,
-                    ),
-                )
-            else:
-                # Legacy Python 3.8 (Windows 7/8 build): 2-arg worker, no ctx.
-                t = threading.Thread(
-                    name=thread_name,
-                    target=_cf_thread._worker,
-                    daemon=True,
-                    args=(
-                        _weakref.ref(self, weakref_cb),
-                        self._work_queue,
-                    ),
-                )
-            t.start()
-            self._threads.add(t)
-            _cf_thread._threads_queues[t] = self._work_queue
-
-
-SLICE_POOL = _DaemonThreadPoolExecutor(max_workers=4, thread_name_prefix="qso-slice")
+SLICE_POOL = ThreadPoolExecutor(max_workers=8, thread_name_prefix="qso-slice")
 
 
 class _LogCaptureHandler(logging.Handler):
