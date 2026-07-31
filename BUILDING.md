@@ -81,8 +81,6 @@ likelihood of false positives:
 
 - `--lto=yes` — link-time optimisation produces smaller, more optimised
   binaries that are less likely to trigger heuristic detection.
-- `--windows-uac-uiaccess` — includes a proper UAC manifest so Windows
-  recognises the application as a well-behaved desktop app.
 - `--disable-ccache` — ensures fully reproducible builds (ccache can
   sometimes produce non-deterministic output that looks suspicious).
 - `--python-flag=-OO` — strips docstrings to reduce binary size (smaller

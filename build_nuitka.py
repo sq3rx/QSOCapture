@@ -62,9 +62,10 @@ def main():
         # Link-time optimisation — produces smaller, more optimised binaries
         # which are less likely to trigger heuristic antivirus detection.
         "--lto=yes",
-        # Include a proper UAC manifest so Windows recognises the app as a
-        # well-behaved desktop application rather than an unknown binary.
-        "--windows-uac-uiaccess",
+        # NOTE: --windows-uac-uiaccess is intentionally NOT used here.
+        # It adds a requireAdministrator manifest which causes error 740
+        # (elevation required) on launch. The app stores all data in
+        # %LOCALAPPDATA% and does not need admin rights.
         # Disable ccache to ensure fully reproducible builds (ccache can
         # sometimes produce non-deterministic output that looks suspicious).
         "--disable-ccache",
