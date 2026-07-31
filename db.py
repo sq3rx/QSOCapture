@@ -455,7 +455,7 @@ def query_contacts(
                 num = m.group(1)
                 patterns.add(f"%{num}%")          # bare number (14 or 20)
                 patterns.add(f"%{num}M%")         # label form (20M)
-                patterns.add(f"%{num}MHZ%")      # explicit MHz (14MHZ)
+                patterns.add(f"%{num}MHz%")      # explicit MHz (14MHz)
                 # If the number looks like a band *label* (20, 40, 80, 15, 10...),
                 # also test the corresponding centre frequency in MHz.
                 try:
@@ -466,7 +466,7 @@ def query_contacts(
                     }.get(int(float(num)))
                     if label_mhz is not None:
                         patterns.add(f"%{label_mhz:g}%")
-                        patterns.add(f"%{label_mhz:g}MHZ%")
+                        patterns.add(f"%{label_mhz:g}MHz%")
                 except (ValueError, TypeError):
                     pass
             else:

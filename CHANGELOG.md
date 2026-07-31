@@ -3,83 +3,40 @@
 All notable changes to QSOCapture are documented here. This file is written
 in plain business language, without going into implementation details.
 
----
-
-> **Note:** It is recommended to uninstall any previous version before
-> installing this release, as the build system has changed from PyInstaller
-> to Nuitka.
+> **Note:** ⚠️
+> * It is recommended to **uninstall any previous version** before installing this release, as the build system has changed from PyInstaller to Nuitka.
+> * Starting with Windows 7 and newer, there is now **a single unified release** package.
+> * A **portable version will not be released**, as Windows Defender / Antivirus incorrectly flags single-file builds as a false positive.
 
 ## Version 0.6.0beta
 
-- Migrated from PyInstaller to **Nuitka** for building the desktop EXE.
-- Dashboard UI overhaul: multi-select band filter, datetime picker, toggle
-  switches, and a warning badge for QSOs without audio.
+### 🚀 Major Improvements & Architecture
+* **Migrated from pywebview to PySide6 (Qt WebEngine):** Desktop launcher has been completely rewritten in PySide6. It provides a single build for Windows 7+, minimize-to-tray support, a confirm-close dialog, and native file dialogs without any external WebView2/CEF dependencies.
+* **New Build System (Nuitka):** Replaced PyInstaller with **Nuitka** for desktop EXE compilation. The installer is now built using a directory layout (`onedir`).
 
-### Band filter: multi-select widget with checkboxes
-- The old plain-text band input has been replaced with a dropdown containing
-  checkboxes for the most common ham bands (160M–2M), a custom text field for
-  arbitrary bands, and Apply/Clear buttons. Multiple bands can be selected at
-  once. The hidden input holds comma-separated values that the backend
-  interprets as `LIKE '%pattern%'` queries.
+### 🎨 Dashboard & UI Overhaul
+* **Multi-Select Band Filter:** Replaced the plain-text input with a new dropdown featuring checkboxes for common ham bands (160M–2M), a custom band input field, and Apply/Clear buttons. Multiple bands can now be filtered simultaneously using `LIKE` pattern queries.
+* **Date/Time Picker:** Added a calendar icon with an integrated `flatpickr` datetime picker. Supports both manual typing and interactive selection, with auto-close on click-outside.
+* **Missing Audio Warning Badge:** QSO rows without an associated recording now display a prominent warning badge (⚠️ *no audio file*).
+* **Settings UI Improvements:** Modernized "Continuous recording autostart" and "Normalize continuous recordings" options with clean ON/OFF toggle switches instead of standard checkboxes.
+* **UI Polish & Quality of Life:** 
+  * Improved status badge sizing, recording badge alignment, icons, and general layout.
+  * Search/filter inputs now trigger on change instead of firing on every keystroke.
 
-### Dashboard: "no audio file" badge
-- QSO rows without a recording now show a yellow warning badge (⚠️ no audio
-  file).
+### ⚙️ Core & Storage Changes
+* **Fixed Recordings Directory:** Removed the `recordings_dir` setting. Recordings are now strictly stored in `%LOCALAPPDATA%\QSOCapture\recordings` on Windows to eliminate folder clutter. The setting has been removed from the Settings panel.
+* **Update Checker:** Added an automatic startup check against GitHub Releases. Displays a compact badge in the header and detailed status with download links in the *About* window.
 
-### Bug fixes
-- Fixed the band dropdown toggle not working correctly — `className.includes()`
-  incorrectly matched `overflow-hidden`, preventing the dropdown from closing
-  and re-opening. Switched to `classList.contains()`.
-- Fixed a crash when rendering the QSO list for rows without an audio file
-  (`q.url` is `null`). Calling `.replace()` on `null` threw a TypeError that
-  halted the entire row rendering loop.
+### 🐛 Bug Fixes
+* **Audio Slicing:** Fixed audio gaps/holes in QSO recordings after pause/resume cycles (removed unnecessary shared ring buffer clearing).
+* **TCI Integration:** Removed `MUTE:false` and `MON_ENABLE:true` TCI commands that were overriding user radio configurations.
+* **Band Filter Dropdown:** Fixed an issue where `className.includes()` incorrectly matched `overflow-hidden`, preventing the dropdown menu from closing and reopening.
+* **Crash Fix:** Fixed a `TypeError` crash when rendering QSO list rows missing an audio file (`q.url` is `null`).
+* **App Lifecycle:** Resolved `KeyboardInterrupt` exception thrown upon closing the application window.
 
-### Recordings directory is no longer configurable
-- The `recordings_dir` setting has been removed. Recordings are now always stored
-  in `%LOCALAPPDATA%\QSOCapture\recordings` (Windows) — no more clutter from
-  scattered folders. The field no longer appears in the Settings panel.
-
-### Settings UI: toggle switches for boolean options
-- "Continuous recording autostart" and "Normalize continuous recordings" now use
-  a clean on/off toggle switch instead of a plain checkbox.
-
-### Date/time filter: datetime picker
-- Date/time fields now have a calendar icon with a flatpickr datetime picker.
-  The user can still type manually; clicking the icon toggles the picker.
-  The picker closes automatically when clicking outside.
-
-### Build: portable as onefile, installer as onedir
-- Switched from PyInstaller to **Nuitka** for building the desktop EXE.
-- Portable build is now a single-file EXE; installer uses a folder.
-
-### Migrated from pywebview to PySide6 (Qt WebEngine)
-- Desktop launcher rewritten to PySide6 — single build for all Windows (7+),
-  minimise-to-tray, confirm-close dialog, native file dialogs, no external
-  WebView2/CEF dependency. Unused Qt modules excluded to save ~50–100 MB.
-
-### Bug fixes
-- No more audio holes in QSO recordings after pause/resume (clearing shared
-  ring buffers was unnecessary and broke QSO slicing).
-- Removed `MUTE:false` / `MON_ENABLE:true` TCI commands that could override
-  the user's radio settings.
-- Fixed `KeyboardInterrupt` on window close.
-- Fixed incorrect default for `n1mm_bind_ip` in documentation (`127.0.0.1`).
-
-### Dashboard UI polish
-- Status badge sizing, recording badge alignment, icon and layout tweaks.
-- Filtering triggers on change, not on every keystroke.
-
-### Version check / update notification
-- Checks GitHub for a newer release on startup; shows a compact badge in the
-  header. About window shows update status with download links.
-
-### Documentation
-- README overhauled; build instructions moved to BUILDING.md.
-- New logo image.
-- README — removed `recordings_dir` from settings table, clarified that
-  recordings are now stored in a fixed location.
-
----
+### 📚 Documentation
+* Overhauled `README.md` and relocated developer build instructions to `BUILDING.md`.
+* Added a new logo image.
 
 ## Version 0.5.0beta
 
