@@ -4,9 +4,13 @@ Nuitka build script for QSOCapture.
 Builds a standalone Windows EXE with an embedded Qt WebEngine browser
 (PySide6 / QWebEngineView). No external browser or Python required.
 
+Produces a onedir folder (qt_launcher.dist/) suitable for the Inno Setup
+installer. For a portable single-file EXE, run with --onefile:
+
+    python build_nuitka.py --onefile
+
 Usage:
     python build_nuitka.py                  # onedir (folder for installer)
-    python build_nuitka.py --onefile        # single-file portable EXE
 """
 import argparse
 import os
@@ -19,7 +23,7 @@ def main():
     parser.add_argument(
         "--onefile",
         action="store_true",
-        help="Build a single-file portable EXE (default: onedir folder)",
+        help="Build a single-file portable EXE (default: onedir folder for installer)",
     )
     args = parser.parse_args()
 

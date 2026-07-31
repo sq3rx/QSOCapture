@@ -35,26 +35,22 @@ dependency.
 ### Download ready-made builds
 
 Go to the **[Releases](https://github.com/sq3rx/QSOCapture/releases)** page and
-download either:
-
-- **`QSOCapture-portable-x.y.z.exe`** — a single-file portable executable.
-  Just run it; no installation needed.
-- **`QSOCapture-setup-x.y.z.exe`** — a Windows installer (Inno Setup) that
-  places the app in `Program Files`, adds a Start Menu / desktop shortcut and
-  an uninstall entry. Recommended for most users.
+download the latest `QSOCapture-setup-x.y.z.exe` — a Windows installer (Inno
+Setup) that places the app in `Program Files`, adds a Start Menu / desktop
+shortcut and an uninstall entry.
 
 ### Build it yourself (Windows)
 
 ```bash
 pip install -r requirements.txt
 
-# Portable single-file EXE
-python build_nuitka.py --onefile
-# Result: QSOCapture-portable-x.y.z.exe
-
 # Installer source (folder, used by Inno Setup)
 python build_nuitka.py
 # Result: qt_launcher.dist/ (folder with EXE + DLLs)
+
+# Portable single-file EXE (optional)
+python build_nuitka.py --onefile
+# Result: QSOCapture-portable-x.y.z.exe
 ```
 
 > **Note:** The first Nuitka build can take a while (15–30 minutes) because it

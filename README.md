@@ -92,8 +92,7 @@ how to get from zero to your first replayed QSO.
 ### 1. Launch the app
 
  - **Desktop build:** double-click **QSOCapture** from the Start Menu or
-   desktop shortcut (or run `QSOCapture-portable-x.y.z.exe`). The dashboard
-   opens in the embedded browser.
+   desktop shortcut. The dashboard opens in the embedded browser.
  - **From source:** from the project folder run `python main.py`.
 
 ### 2. Open the dashboard
@@ -319,27 +318,22 @@ QSOCapture/
 ## Antivirus false positives
 
 Windows Defender and other antivirus engines may occasionally flag the
-portable executable (`QSOCapture-portable-*.exe`) as a threat. This is a
-**false positive** — the executable is a legitimate amateur radio application
-built with [Nuitka](https://nuitka.net), which compiles Python code into a
-standalone Windows binary. The heuristic detection is triggered by the
-combination of a large, self-contained executable with an embedded Python
-interpreter, not by any malicious behaviour.
+executable as a threat. This is a **false positive** — the executable is a
+legitimate amateur radio application built with [Nuitka](https://nuitka.net),
+which compiles Python code into a standalone Windows binary. The heuristic
+detection is triggered by the combination of a large, self-contained executable
+with an embedded Python interpreter, not by any malicious behaviour.
 
 ### What you can do
 
-1. **Use the installer instead** — the `QSOCapture-setup-*.exe` (Inno Setup)
-   is far less likely to be flagged because it is a standard Windows installer
-   signed by a recognised toolchain. This is the recommended option for most
-   users.
-2. **Add an exclusion** — in Windows Security, go to
+1. **Add an exclusion** — in Windows Security, go to
    *Virus & threat protection → Manage settings → Exclusions* and add the
-   folder where you extracted the portable EXE (or the EXE itself).
-3. **Report the false positive** — submit the file to Microsoft for analysis:
+   installation folder or the executable.
+2. **Report the false positive** — submit the file to Microsoft for analysis:
    [Microsoft Security Intelligence](https://www.microsoft.com/en-us/wdsi/filesubmission).
    Once analysed and cleared, the detection will be removed from future
    Defender updates.
-4. **Build from source** — if you prefer, you can build the EXE yourself
+3. **Build from source** — if you prefer, you can build the EXE yourself
    following the instructions in [BUILDING.md](BUILDING.md). A locally built
    binary will not be flagged.
 

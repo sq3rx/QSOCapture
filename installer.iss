@@ -42,6 +42,8 @@ SolidCompression=yes
 WizardStyle=modern
 ArchitecturesInstallIn64BitMode=x64os
 PrivilegesRequired=admin
+PrivilegesRequiredOverridesAllowed=commandline
+CloseApplications=force
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
