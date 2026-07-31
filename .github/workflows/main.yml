@@ -60,14 +60,15 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: nuitka-build
+          path: artifacts
 
       - name: List downloaded files
-        run: ls -laR
+        run: find artifacts -type f
 
       - name: Create Release
         uses: softprops/action-gh-release@v3
         with:
           files: |
-            installer/*.exe
+            artifacts/installer/*.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
