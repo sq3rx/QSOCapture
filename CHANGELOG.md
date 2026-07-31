@@ -11,7 +11,7 @@ in plain business language, without going into implementation details.
 ## Unreleased
 
 ### 🐛 Bug Fixes
-* **QSO Slicing in compiled (Nuitka) builds:** Replaced the custom `_DaemonThreadPoolExecutor` (which relied on internal CPython threading APIs incompatible with Nuitka) with the standard `ThreadPoolExecutor`. This fixes QSO recordings not being saved in the installed/compiled version of the application while running correctly when launched via `qt_launcher.py` from source.
+* **QSO recordings not saving in installed version:** Fixed a compatibility issue with the compiled application (Nuitka) that prevented QSO recordings from being saved after installation. The application now correctly records and saves QSO slices in both the installed and source versions.
 
 ## Version 0.6.0beta
 
