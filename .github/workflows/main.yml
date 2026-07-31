@@ -61,10 +61,13 @@ jobs:
         with:
           name: nuitka-build
 
+      - name: List downloaded files
+        run: ls -laR
+
       - name: Create Release
         uses: softprops/action-gh-release@v3
         with:
           files: |
-            installer/QSOCapture-setup-*.exe
+            installer/*.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
