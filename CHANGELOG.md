@@ -8,6 +8,11 @@ in plain business language, without going into implementation details.
 > * Starting with Windows 7 and newer, there is now **a single unified release** package.
 > * A **portable version will not be released**, as Windows Defender / Antivirus incorrectly flags single-file builds as a false positive.
 
+## Unreleased
+
+### 🎨 Dashboard
+* **Frequency formatting in QSO table:** The Freq column now converts kHz values to MHz (e.g. `14195` → `14.195`) and always displays at least three decimal places, preserving higher precision when available. Previously, whole-kilohertz values like `14195` were shown without any decimals.
+
 ## Version 0.6.1beta
 
 ### 🐛 Bug Fixes

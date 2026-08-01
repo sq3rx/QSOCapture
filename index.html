@@ -1016,6 +1016,20 @@
       return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
     }
 
+    function formatFreq(val) {
+      if (!val) return '—';
+      const num = parseFloat(String(val).replace(/,/g, ''));
+      if (isNaN(num)) return val;
+      // Most values come from N1MM in kHz (e.g. "14195").
+      // Convert to MHz for display by dividing by 1000 when >= 1000.
+      const mhz = num >= 1000 ? num / 1000 : num;
+      const str = String(mhz);
+      const dotIdx = str.indexOf('.');
+      const decimals = dotIdx === -1 ? 0 : str.length - dotIdx - 1;
+      const places = Math.max(3, decimals);
+      return mhz.toFixed(places);
+    }
+
     // Lightweight auto-refresh of the dashboard list so freshly saved
     // recordings (e.g. a new continuous chunk) appear without a manual
     // Refresh. Only re-runs when the user is at the top of the list (not
@@ -1126,7 +1140,7 @@
                <td class="px-4 py-2 font-semibold text-brand">${q.call}</td>
                <td class="px-4 py-2">${bandBadge(q.band)}</td>
                <td class="px-4 py-2">${modeBadge(q.mode)}</td>
-               <td class="px-4 py-2 text-slate-400 font-mono">${q.freq || '—'}</td>
+               <td class="px-4 py-2 text-slate-400 font-mono">${formatFreq(q.freq)}</td>
                <td class="px-4 py-2 text-slate-300">${q.exchange || '—'}</td>
                <td class="px-4 py-2">${rxBadge(q.label)}</td>
                <td class="px-4 py-2 text-slate-500">${q.contest}</td>`;
