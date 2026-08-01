@@ -208,6 +208,8 @@ class N1MMListener:
         # N1MM sends frequency in units of 10 Hz (e.g. 352519 = 3.52519 MHz).
         freq_raw = (g("txfreq") or g("rxfreq") or g("freq")).strip()
         freq = self._parse_freq(freq_raw)
+        logger.debug("N1MM freq debug: TXFreq=%r RXFreq=%r Freq=%r -> freq_raw=%r -> parsed=%r",
+                     g("txfreq"), g("rxfreq"), g("freq"), freq_raw, freq)
 
         # The dashboard 'Exch' column is driven by ``exchange``. N1MM puts
         # the *received* exchange in different places depending on the contest:
