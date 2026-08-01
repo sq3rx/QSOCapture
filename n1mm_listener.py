@@ -219,7 +219,7 @@ class N1MMListener:
         # We prefer the zone, then the received serial, then the full received
         # exchange (with RST stripped), then the bare exch1.
         rcvd = g("RcvdExchange").strip()
-        exch1 = (g("exch1") or g("exchange")).strip()
+        exch1 = (g("exch1") or g("exchange") or g("exchange1")).strip()
         rcvnr = g("rcvnr").strip()
         zone = g("zone").strip()
 
@@ -258,8 +258,8 @@ class N1MMListener:
             grid=g("gridsquare").strip(),
             comment=g("comment").strip(),
             exchange=exchange.strip(),
-            exchange2=g("exch2").strip(),
-            exchange3=g("exch3").strip(),
+            exchange2=(g("exch2") or g("exchange2")).strip(),
+            exchange3=(g("exch3") or g("exchange3")).strip(),
             rcvnr=rcvnr.strip(),
             rcv=g("rcv").strip(),
             snt=g("snt").strip(),
