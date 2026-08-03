@@ -3,19 +3,21 @@
 All notable changes to QSOCapture are documented here. This file is written
 in plain business language, without going into implementation details.
 
-> **Note:** ⚠️
-> * It is recommended to **uninstall any previous version** before installing this release, as the build system has changed from PyInstaller to Nuitka.
-> * Starting with Windows 7 and newer, there is now **a single unified release** package.
-> * A **portable version will not be released**, as Windows Defender / Antivirus incorrectly flags single-file builds as a false positive.
-
 ## Unreleased
 
 ### 🎨 Dashboard
+* **Clear buttons for Contest and Call/Prefix filters:** Added a small "×" button inside the Contest and Call/Prefix input fields that appears when the field has a value. Clicking it clears the filter and immediately reloads the QSO list.
 * **Frequency formatting in QSO table:** The Freq column now converts kHz values to MHz (e.g. `14195` → `14.195`) and always displays at least three decimal places, preserving higher precision when available. Previously, whole-kilohertz values like `14195` were shown without any decimals.
 * **Resets and deletes section:** Added a dedicated section in Settings with seven data-clearing options — reset config, clear QSO log, delete all data, delete contest (files + QSOs), delete contest recordings (files only), delete continuous by date range, and factory reset. Each operation shows a clear confirmation prompt.
 
 ### 🐛 Bug Fixes
 * **QSO list not auto-refreshing during continuous recording:** When continuous recording was active, newly logged N1MM QSOs no longer appeared on the dashboard until the user clicked Refresh. Fixed the event-driven refresh mechanism so the list always updates immediately when a new QSO is saved, regardless of whether continuous recording is running.
+* **Orphaned "Recording…" entries after unclean shutdown:** When the application was closed (or crashed) during continuous recording, a database row with `duration=0.0` remained, showing "Recording…" forever in the dashboard's Stop column. Continuous chunks are now finalised immediately on shutdown, and any leftover orphaned records are cleaned up automatically on the next startup.
+
+> **Note:** ⚠️
+> * It is recommended to **uninstall any previous version** before installing this release, as the build system has changed from PyInstaller to Nuitka.
+> * Starting with Windows 7 and newer, there is now **a single unified release** package.
+> * A **portable version will not be released**, as Windows Defender / Antivirus incorrectly flags single-file builds as a false positive.
 
 ## Version 0.6.1beta
 
