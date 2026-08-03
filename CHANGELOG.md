@@ -12,6 +12,10 @@ in plain business language, without going into implementation details.
 
 ### 🎨 Dashboard
 * **Frequency formatting in QSO table:** The Freq column now converts kHz values to MHz (e.g. `14195` → `14.195`) and always displays at least three decimal places, preserving higher precision when available. Previously, whole-kilohertz values like `14195` were shown without any decimals.
+* **Resets and deletes section:** Added a dedicated section in Settings with seven data-clearing options — reset config, clear QSO log, delete all data, delete contest (files + QSOs), delete contest recordings (files only), delete continuous by date range, and factory reset. Each operation shows a clear confirmation prompt.
+
+### 🐛 Bug Fixes
+* **QSO list not auto-refreshing during continuous recording:** When continuous recording was active, newly logged N1MM QSOs no longer appeared on the dashboard until the user clicked Refresh. Fixed the event-driven refresh mechanism so the list always updates immediately when a new QSO is saved, regardless of whether continuous recording is running.
 
 ## Version 0.6.1beta
 

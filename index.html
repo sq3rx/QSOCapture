@@ -407,18 +407,36 @@
           </div>
         </div>
       <div id="cfgForm" class="p-5 grid grid-cols-1 md:grid-cols-2 gap-6"></div>
-      <div class="px-5 py-3 border-t border-slate-700 flex items-center justify-between sticky bottom-0 bg-slate-900">
-        <button id="factoryReset"
-                class="text-sm px-4 py-2 rounded-md bg-red-600 text-white font-semibold hover:bg-red-700">
-          &#9888; Factory Reset
+      <div class="px-5 py-3 border-t border-slate-700 flex items-center justify-end gap-3 sticky bottom-0 bg-slate-900">
+        <span id="cfgMsg" class="text-xs text-slate-400"></span>
+        <button id="saveCfg"
+                class="text-sm px-4 py-2 rounded-md bg-brand text-slate-950 font-semibold hover:opacity-90">
+          Save & Apply
         </button>
-        <div class="flex items-center gap-3">
-          <span id="cfgMsg" class="text-xs text-slate-400"></span>
-          <button id="saveCfg"
-                  class="text-sm px-4 py-2 rounded-md bg-brand text-slate-950 font-semibold hover:opacity-90">
-            Save & Apply
-          </button>
-        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Confirmation modal (reusable) -->
+  <div id="confirmModal" class="fixed inset-0 bg-black/70 hidden items-center justify-center z-50 p-4">
+    <div class="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-md p-5">
+      <h3 id="confirmTitle" class="text-lg font-semibold mb-3"></h3>
+      <div class="relative max-h-48 overflow-y-auto mb-4">
+        <p id="confirmBody" class="text-sm text-slate-300 whitespace-pre-wrap"></p>
+      </div>
+      <div id="confirmExtraWrap" class="hidden mb-4">
+        <label class="text-xs text-slate-400 block mb-1">Type <span class="text-red-400 font-bold">RESET</span> to confirm:</label>
+        <input id="confirmExtraInput" type="text" class="w-full bg-slate-950 border border-slate-700 rounded px-3 py-2 text-sm font-mono" />
+      </div>
+      <div class="flex justify-end gap-3">
+        <button id="confirmCancel"
+                class="px-4 py-2 rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-700 text-sm text-slate-300">
+          Cancel
+        </button>
+        <button id="confirmOk"
+                class="px-4 py-2 rounded-md bg-red-600 text-white font-semibold text-sm hover:bg-red-700">
+          Yes, delete
+        </button>
       </div>
     </div>
   </div>
@@ -597,6 +615,7 @@
     // slow "wider" filter returning after a "narrower" one) are discarded so
     // the displayed rows always match the latest count shown in the header.
     let qsoReqId = 0;
+    let _pendingRefresh = false;
 
     // Sort state for the dashboard. Both the N1MM "Timestamp" header and the
     // Continuous "Start"/"Stop" headers are clickable. Clicking a header that
@@ -1037,15 +1056,13 @@
     // re-fetches older pages. The request id guard discards stale responses.
     let qsoAuto = true;
     async function loadQsos(append = false) {
-      if (qsoLoading) return;
+      if (qsoLoading) {
+        _pendingRefresh = true;
+        return;
+      }
       if (qsoAuto && !append) {
         // Auto-refresh keeps the first page in sync; never auto-paginate.
         qsoOffset = 0;
-      }
-      if (!append) {
-        qsoOffset = 0;
-        rows.innerHTML = '';
-        $('contRows').innerHTML = '';
       }
       // Tag this request so we can ignore stale responses that arrive after a
       // newer filter change (otherwise an older, wider result could paint
@@ -1080,6 +1097,11 @@
         // A newer query was started while we were awaiting — discard this
         // response so the UI only ever reflects the latest request.
         if (reqId !== qsoReqId) return;
+        if (!append) {
+          qsoOffset = 0;
+          rows.innerHTML = '';
+          $('contRows').innerHTML = '';
+        }
         qsoTotal = d.count;
         $('count').textContent = d.count + (cont === 'true' ? ' recording(s)' : ' QSO(s)');
         // The "no data" hint is rendered as a full-width row inside each table
@@ -1164,6 +1186,11 @@
          qsoOffset += d.qsos.length;
       } finally {
         qsoLoading = false;
+        if (_pendingRefresh) {
+          _pendingRefresh = false;
+          loadQsos(append);
+          return;
+        }
       }
       // Show "Load more" only when there are still matching rows to fetch.
       const wrap = $('loadMoreWrap');
@@ -1718,6 +1745,83 @@
         let sc = fieldBlock('Soundcard device', soundcardWidget(v.soundcard_device), helpMap.soundcard_device);
         form.innerHTML += group('Soundcard', sc);
 
+        // Build Reset group
+        let contestOpts = '<option value="">— Select contest —</option>';
+        (contestList || []).forEach(c => {
+          contestOpts += `<option value="${c}">${c}</option>`;
+        });
+
+        let reset = ''
+          + `<div class="flex items-center gap-2 sm:col-span-2 flex-wrap">`
+          +   `<button id="resetConfigBtn" class="text-xs px-3 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300">&#9881; Reset config</button>`
+          +   `<button id="clearQsosBtn" class="text-xs px-3 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300">&#128465; Clear QSO log</button>`
+          +   `<button id="deleteRecordingsBtn" class="text-xs px-3 py-1.5 rounded-md bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300">&#127925; Delete all data</button>`
+          +   `<button id="factoryReset" class="text-xs px-3 py-1.5 rounded-md bg-red-600 text-white font-semibold hover:bg-red-700">&#9888; Factory Reset</button>`
+          + `</div>`
+          + `<hr class="border-slate-700 sm:col-span-2 my-1" />`
+          + `<div class="sm:col-span-2 flex flex-col gap-1">`
+          +   `<label class="text-xs uppercase tracking-wide text-slate-400">Contest</label>`
+          +   `<div class="flex items-center gap-2">`
+          +     `<select id="delContestInput" class="flex-1 bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-sm">${contestOpts}</select>`
+          +     `<button id="deleteContestBtn" class="text-xs px-3 py-1.5 rounded-md bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 whitespace-nowrap">Delete contest</button>`
+          +     `<button id="deleteContestRecBtn" class="text-xs px-3 py-1.5 rounded-md bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 whitespace-nowrap">Delete contest recordings</button>`
+          +   `</div>`
+          + `</div>`
+          + `<div class="sm:col-span-2 flex flex-col gap-1">`
+          +   `<label class="text-xs uppercase tracking-wide text-slate-400">Date range</label>`
+          +   `<div class="flex items-center gap-2">`
+          +     `<div class="relative flex-1">`
+          +       `<input id="delContFrom" type="text" placeholder="YYYY-MM-DD" class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-sm pr-8" />`
+          +       `<button type="button" id="delContFromBtn" class="absolute right-1 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-brand cursor-pointer">`
+          +         `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">`
+          +           `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />`
+          +         `</svg>`
+          +       `</button>`
+          +     `</div>`
+          +     `<span class="text-xs text-slate-500">–</span>`
+          +     `<div class="relative flex-1">`
+          +       `<input id="delContTo" type="text" placeholder="YYYY-MM-DD" class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-sm pr-8" />`
+          +       `<button type="button" id="delContToBtn" class="absolute right-1 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-brand cursor-pointer">`
+          +         `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">`
+          +           `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />`
+          +         `</svg>`
+          +       `</button>`
+          +     `</div>`
+          +     `<button id="deleteContinuousBtn" class="text-xs px-3 py-1.5 rounded-md bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 whitespace-nowrap">Delete continuous</button>`
+          +   `</div>`
+          + `</div>`;
+        form.innerHTML += group('⚠️ Resets and deletes', reset);
+
+        // Wire dynamically created reset buttons
+        const _wire = (id, fn) => { const el = $(id); if (el) el.addEventListener('click', fn); };
+        _wire('resetConfigBtn', resetConfig);
+        _wire('clearQsosBtn', clearQsos);
+        _wire('deleteRecordingsBtn', deleteRecordings);
+        _wire('deleteContestBtn', deleteContest);
+        _wire('deleteContestRecBtn', deleteContestRecordings);
+        _wire('deleteContinuousBtn', deleteContinuous);
+        _wire('factoryReset', factoryReset);
+
+        // Init flatpickr on the dynamic date fields
+        var delContFromPicker = flatpickr('#delContFrom', { dateFormat: 'Y-m-d', allowInput: true });
+        var delContToPicker = flatpickr('#delContTo', { dateFormat: 'Y-m-d', allowInput: true });
+        var delContFromBtn = $('delContFromBtn');
+        var delContToBtn = $('delContToBtn');
+        if (delContFromBtn) {
+          delContFromBtn.addEventListener('mousedown', function(e) {
+            e.stopImmediatePropagation();
+            if (delContFromPicker.isOpen) delContFromPicker.close();
+            else delContFromPicker.open();
+          });
+        }
+        if (delContToBtn) {
+          delContToBtn.addEventListener('mousedown', function(e) {
+            e.stopImmediatePropagation();
+            if (delContToPicker.isOpen) delContToPicker.close();
+            else delContToPicker.open();
+          });
+        }
+
         showModal();
         $('cfgMsg').textContent = '';
 
@@ -1789,18 +1893,179 @@
       }
     }
 
+    // --- Confirmation modal helpers ------------------------------------------
+    function showConfirm(title, body, needsExtra) {
+      return new Promise((resolve) => {
+        $('confirmTitle').textContent = title;
+        $('confirmBody').textContent = body;
+        const extraWrap = $('confirmExtraWrap');
+        const extraInput = $('confirmExtraInput');
+        if (needsExtra) {
+          extraWrap.className = 'mb-4';
+          extraInput.value = '';
+          extraInput.oninput = () => {
+            $('confirmOk').disabled = extraInput.value.toUpperCase() !== 'RESET';
+          };
+          $('confirmOk').disabled = true;
+        } else {
+          extraWrap.className = 'hidden';
+          $('confirmOk').disabled = false;
+        }
+        $('confirmModal').className = 'fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4';
+        $('confirmOk').onclick = () => {
+          $('confirmModal').className = 'fixed inset-0 bg-black/70 hidden items-center justify-center z-50 p-4';
+          resolve(true);
+        };
+        $('confirmCancel').onclick = () => {
+          $('confirmModal').className = 'fixed inset-0 bg-black/70 hidden items-center justify-center z-50 p-4';
+          resolve(false);
+        };
+      });
+    }
+
+    // --- Reset button handlers -----------------------------------------------
+    async function resetConfig() {
+      const ok = await showConfirm('Reset configuration?',
+        '• Restore all settings to factory defaults\n• Services will be restarted\n• Recordings and QSO log will NOT be affected');
+      if (!ok) return;
+      $('cfgMsg').textContent = 'Resetting config…';
+      try {
+        const r = await fetch('/api/reset_config', { method: 'POST' });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        $('cfgMsg').textContent = '✓ Config reset';
+        // Re-open config modal to show the newly defaulted values (the backend
+        // already persisted them; the form still shows the old ones otherwise).
+        await openConfig();
+        loadStatus();
+      } catch (e) {
+        $('cfgMsg').textContent = 'Error: ' + e.message;
+      }
+    }
+
+    async function clearQsos() {
+      const ok = await showConfirm('Clear QSO log?',
+        '• Delete ALL QSO records from the database\n• Audio files will remain on disk');
+      if (!ok) return;
+      $('cfgMsg').textContent = 'Clearing…';
+      try {
+        const r = await fetch('/api/clear_qsos', { method: 'POST' });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        $('cfgMsg').textContent = '✓ QSO log cleared';
+        loadContests().then(loadQsos);
+      } catch (e) {
+        $('cfgMsg').textContent = 'Error: ' + e.message;
+      }
+    }
+
+    async function deleteRecordings() {
+      const ok = await showConfirm('Delete all data?',
+        '• Delete ALL audio files\n• Delete ALL QSO records\n• This cannot be undone');
+      if (!ok) return;
+      $('cfgMsg').textContent = 'Deleting…';
+      try {
+        const r = await fetch('/api/delete_recordings', { method: 'POST' });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        $('cfgMsg').textContent = '✓ All recordings deleted';
+        loadContests().then(loadQsos);
+      } catch (e) {
+        $('cfgMsg').textContent = 'Error: ' + e.message;
+      }
+    }
+
+    async function deleteContestRecordings() {
+      const contest = $('delContestInput').value.trim();
+      if (!contest) {
+        $('cfgMsg').textContent = 'Select a contest first';
+        return;
+      }
+      const ok = await showConfirm('Delete contest recordings "' + contest + '"?',
+        '• Delete all audio files for contest "' + contest + '"\n• QSO records will NOT be affected');
+      if (!ok) return;
+      $('cfgMsg').textContent = 'Deleting…';
+      try {
+        const r = await fetch('/api/delete_contest_recordings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ contest }),
+        });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const d = await r.json();
+        $('cfgMsg').textContent = '✓ "' + contest + '" recordings deleted';
+        $('delContestInput').value = '';
+        loadContests().then(loadQsos);
+      } catch (e) {
+        $('cfgMsg').textContent = 'Error: ' + e.message;
+      }
+    }
+
+    async function deleteContest() {
+      const contest = $('delContestInput').value.trim();
+      if (!contest) {
+        $('cfgMsg').textContent = 'Select a contest first';
+        return;
+      }
+      const ok = await showConfirm('Delete contest "' + contest + '"?',
+        '• Delete all audio files for contest "' + contest + '"\n• Delete all QSO records for contest "' + contest + '"\n• This cannot be undone');
+      if (!ok) return;
+      $('cfgMsg').textContent = 'Deleting…';
+      try {
+        const r = await fetch('/api/delete_contest', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ contest }),
+        });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const d = await r.json();
+        $('cfgMsg').textContent = '✓ "' + contest + '" deleted (' + d.deleted_rows + ' rows)';
+        $('delContestInput').value = '';
+        loadContests().then(loadQsos);
+      } catch (e) {
+        $('cfgMsg').textContent = 'Error: ' + e.message;
+      }
+    }
+
+    async function deleteContinuous() {
+      const fromVal = $('delContFrom').value.trim();
+      const toVal = $('delContTo').value.trim();
+      const fromEpoch = toEpoch(fromVal, false);
+      const toEpochVal = toEpoch(toVal, true);
+      const rangeStr = (fromVal || '…') + ' – ' + (toVal || '…');
+      const ok = await showConfirm('Delete continuous recordings?',
+        (fromVal || toVal
+          ? '• Delete continuous recordings in range ' + rangeStr + '\n• This cannot be undone'
+          : '• Delete ALL continuous recordings\n• This cannot be undone'));
+      if (!ok) return;
+      $('cfgMsg').textContent = 'Deleting…';
+      try {
+        const r = await fetch('/api/delete_continuous', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ date_from: fromEpoch, date_to: toEpochVal }),
+        });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const d = await r.json();
+        $('cfgMsg').textContent = '✓ Deleted ' + d.deleted_files + ' files, ' + d.deleted_rows + ' DB rows';
+        $('delContFrom').value = '';
+        $('delContTo').value = '';
+        loadContests().then(loadQsos);
+      } catch (e) {
+        $('cfgMsg').textContent = 'Error: ' + e.message;
+      }
+    }
+
     async function factoryReset() {
-      if (!confirm(
-        '⚠ FACTORY RESET — this will permanently delete:\n' +
+      const ok = await showConfirm(
+        '⚠ Factory Reset',
+        'This will permanently delete:\n' +
         '  • QSO log database (all contacts)\n' +
-        '  • All recorded audio files (WAV/MP3)\n' +
+        '  • All recorded audio files\n' +
         '  • Configuration (restored to defaults)\n' +
         '  • Application log buffer\n\n' +
-        'If you want to keep your recordings, copy them from the\n' +
-        'recordings folder before proceeding.\n\n' +
-        'Continue?'
-      )) return;
-      $('cfgMsg').textContent = 'Resetting…';
+        'Type RESET to confirm.',
+        true
+      );
+      if (!ok) return;
+      $('cfgMsg').textContent = 'Factory resetting…';
       try {
         const r = await fetch('/api/factory_reset', { method: 'POST' });
         if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -1815,7 +2080,6 @@
     $('openCfg').addEventListener('click', openConfig);
     $('closeCfg').addEventListener('click', hideModal);
     $('saveCfg').addEventListener('click', saveConfig);
-    $('factoryReset').addEventListener('click', factoryReset);
 
     // --- Continuous recording start/stop toggle ---------------------------
     function updateRecButton() {
@@ -1926,6 +2190,13 @@
 
     if (typeof EventSource !== 'undefined') {
       const es = new EventSource('/api/events');
+      // When the SSE connection is (re-)established, refresh the list in case
+      // events were missed while the connection was down. The browser
+      // auto-reconnects EventSource, so this handler fires on initial connect
+      // and after any unexpected disconnect.
+      es.addEventListener('open', () => {
+        loadQsos(false);
+      });
       es.addEventListener('qso_saved', onDashboardEvent);
       es.addEventListener('continuous_chunk_saved', onDashboardEvent);
       es.addEventListener('continuous_resumed', () => {
