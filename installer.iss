@@ -53,6 +53,8 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 ; The EXE inside is named QSOCapture.exe, so we copy the entire folder.
 Source: "qt_launcher.dist\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion isreadme
+Source: "CHANGELOG.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "MANUAL.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "icon.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
