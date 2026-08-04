@@ -326,7 +326,8 @@ Click the **📜 Log** button to open the log viewer.
 
 All recordings and the QSO database are stored in:
 ```
-%LOCALAPPDATA%\QSOCapture\recordings
+%LOCALAPPDATA%\QSOCapture\
+
 ```
 Make regular backups of this folder, especially before important contests.
 
