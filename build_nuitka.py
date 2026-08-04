@@ -28,6 +28,9 @@ def main():
 
     import re
     numeric_version = re.sub(r"[^0-9.]", "", app_version) or "0.6.1"
+    # Ensure Nuitka gets at least 3 version parts (major.minor.build)
+    while numeric_version.count(".") < 2:
+        numeric_version += ".0"
 
     main_script = "qt_launcher.py"
     data_files = ["index.html", "icon.svg", "icon.ico"]
@@ -66,7 +69,7 @@ def main():
     if args.onefile:
         exe_name = f"QSOCapture-portable{version_suffix}"
     else:
-        exe_name = "QSOCapture"
+        exe_name = f"QSOCapture{version_suffix}"
     cmd.append(f"--output-filename={exe_name}.exe")
     cmd.append(main_script)
 
