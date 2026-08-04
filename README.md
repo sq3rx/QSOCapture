@@ -22,16 +22,14 @@ clean, color-coded web dashboard.
 
 - [Features](#features)
 - [Building](BUILDING.md)
-- [How to use it](#how-to-use-it)
-- [Configuration](#configuration)
- - [Using the dashboard](#using-the-dashboard)
- - [Screenshots](#screenshots)
- - [Project layout](#project-layout)
- - [API reference](#api-reference)
- - [Troubleshooting](#troubleshooting)
- - [Changelog](#changelog)
- - [Development approach](#development-approach)
- - [License](#license)
+- [Manual (user guide)](MANUAL.md)
+- [Screenshots](#screenshots)
+- [Project layout](#project-layout)
+- [API reference](#api-reference)
+- [Troubleshooting](#troubleshooting)
+- [Changelog](#changelog)
+- [Development approach](#development-approach)
+- [License](#license)
 
 ---
 
@@ -46,9 +44,13 @@ clean, color-coded web dashboard.
    system soundcard input device.
  - **WAV / MP3 output** — recordings are saved as lossless WAV by default;
    optionally switch to MP3 (via `lameenc`) for smaller files.
- - **SO2R ready** — in stereo (`channels = 2`) the left channel is recorded as
-   **RX1** and the right channel as **RX2**, each into its own buffer and its
-   own audio file. In mono (SO1R) only RX1 is used.
+  - **SO2R ready** — in stereo (`channels = 2`) the left channel is recorded as
+    **RX1** and the right channel as **RX2**, each into its own buffer and its
+    own audio file. In mono (SO1R) only RX1 is used.
+  - **Dual card SO2R** — instead of a single stereo soundcard, you can use
+    **two separate soundcards**, each capturing one receiver in mono. Toggle
+    the SO2R mode in Settings → Audio to switch between "Stereo" (one card,
+    L→RX1, R→RX2) and "Dual card" (two independent mono devices).
  - **Per-RX buffer badges** — the dashboard header shows a live buffer-fill
    badge for every receiver (`RX1 30s`, `RX2 30s` in SO2R) so you always know
    how much audio is buffered.
@@ -63,8 +65,10 @@ clean, color-coded web dashboard.
    each with the columns that matter.
  - **Color-coded log** — the live application log and the QSO table use
    friendly color badges (mode, band, RX) for at-a-glance readability.
-  - **Factory reset** — one click to wipe the log, recordings and settings
-    (restore defaults).
+ - **Resets and deletes** — reset config, clear QSO log, delete all
+     data, delete per-contest (files only or files + QSOs), delete
+     continuous recordings by date range, or factory reset everything —
+     all from the dashboard.
   - **Desktop app with system tray** — the application runs in its own window
      and can be minimised to the system tray. Click the tray
     icon to restore, or use the tray menu to quit.
@@ -79,174 +83,11 @@ Windows installer, see [BUILDING.md](BUILDING.md).
 
 ---
 
-## How to use it
+## User manual
 
-Assuming **QSOCapture is already installed** on your machine (desktop EXE /
-installer, or a checked-out source folder with dependencies present), here is
-how to get from zero to your first replayed QSO.
-
-> **Tip:** the shipped default values are sensible for most setups — you can
-> usually leave everything at its default and only tweak what is specific to
-> your station.
-
-### 1. Launch the app
-
- - **Desktop build:** double-click **QSOCapture** from the Start Menu or
-   desktop shortcut. The dashboard opens in the embedded browser.
- - **From source:** from the project folder run `python main.py`.
-
-### 2. Open the dashboard
-
-The dashboard opens automatically in the embedded browser. If the embedded
-browser fails to initialise, QSOCapture falls back to your default system
-browser and opens the dashboard there.
-
-### 3. Configure your audio source and N1MM
-
- 1. Click **⚙ Settings** in the dashboard header.
- 2. Set `audio_mode` to `tci` (ExpertSDR) or `soundcard`.
-    - **TCI:** set `tci_host` / `tci_port` to match ExpertSDR's TCI server
-      (default `127.0.0.1:50001`, enable it in ExpertSDR options).
-    - **Soundcard:** type a `soundcard_device` substring that matches your
-      receiver input.
- 3. Set `channels` to **1 for SO1R (mono)** or **2 for SO2R (stereo)** —
-    in SO2R the left channel is recorded as RX1 and the right as RX2.
- 4. Under the **N1MM** section, confirm `n1mm_udp_port` matches the UDP port
-    N1MM Logger+ broadcasts on (default `12060`). This is the only N1MM
-    setting you normally need, and the default is fine in most cases.
- 5. Click **Save** — the services restart automatically with the new
-    settings. A green buffer badge (`RX1 30s` / `RX2 30s`) in the header
-    confirms audio is flowing.
-
-> **Tip:** from the **⚙ Settings** panel you can also open the
-> **recordings directory** directly to browse the raw audio files on disk
-> without leaving the app.
-
-### 4. Start recording
-
- - Click **▶ Start recording**, or enable **Continuous recording autostart**
-   so it begins on launch. The header badge fills as audio is buffered.
-
-### 5. Log a contact in N1MM Logger+
-
-Log a QSO in **N1MM Logger+** as usual. The moment it is logged, QSOCapture
-slices the surrounding audio and the row appears in the **N1MM QSOs** view
-with a player ready to use.
-
-### 6. Replay and analyse
-
- - Switch between **N1MM QSOs** and **Continuous** recordings.
- - Use the filters (contest, call/prefix with regex, band, mode, RX,
-   date/time) to find the contact.
- - Play the slice and use the **playback-speed selector** (0.8×–2.0×) to
-   study it; click **Save** to download the file.
- - Open the **📜 Log** button for a color-coded live view of what the app
-   is doing.
-
-### 7. Stop when done
-
-Click **⏹ Stop recording** to finalise the current chunk. Your QSO log and
-recordings live in `%LOCALAPPDATA%\QSOCapture` (desktop) or
-`./recordings` (source) and survive restarts.
-
----
-
-## Configuration
-
-All settings live in `config.cfg` (an INI file) and can also be changed live
-from the web dashboard (**⚙ Settings**). Every field shows a **?** tooltip
-with an explanation. The most important options:
-
-| Section | Setting | Description |
-| ------- | ------- | ----------- |
-| general | `station_name` | Your station callsign / label shown in the header. |
-| general | — | Recordings location (hard-coded): `%LOCALAPPDATA%\QSOCapture\recordings` |
-| general | `continuous_recording` | ON = the continuous-recording feature is available. |
-| general | `continuous_autostart` | ON = start continuous recording automatically on launch. **OFF by default** — use the dashboard button to start it on demand. |
-| general | `continuous_chunk_minutes` | Length of each continuous chunk. |
-| general | `max_recordings_gb` | Disk cap for the `recordings/` folder in GB. `0` = unlimited; when exceeded, the oldest **continuous** chunks are pruned automatically (N1MM QSO slices are preserved). |
-| tci | `tci_host` / `tci_port` | ExpertSDR TCI server address (default `127.0.0.1:50001`). |
-| audio | `audio_mode` | `tci` (ExpertSDR) or `soundcard`. |
-| audio | `sample_width` | Bytes per sample in the saved file (default `2` = 16-bit, standard for WAV). |
-| audio | `audio_format` | `wav` (lossless) or `mp3` (smaller files). |
-| audio | `sample_rate` | Must match your radio / TCI / soundcard (48000 typical). |
-| audio | `channels` | 1 = SO1R (mono), 2 = SO2R (stereo). |
-| audio | `pre_roll` | Seconds of audio kept **before** the QSO timestamp. |
-| audio | `post_roll` | Seconds waited **after** the N1MM packet before slicing. |
-| audio | `tci_receiver` | Which ExpertSDR receiver to record (0 = main RX). |
-| audio | `soundcard_device` | Substring of the input device name (empty = default). |
-| n1mm | `n1mm_udp_port` | UDP port N1MM broadcasts on (default `12060`). |
-| n1mm | `n1mm_bind_ip` | Interface to listen on (default `127.0.0.1` — local only). |
-| web | `web_host` / `web_port` | Dashboard bind address (default `127.0.0.1:8000` — local only; set `0.0.0.0` to expose on the LAN). |
-
-When N1MM logs a contact, QSOCapture waits `post_roll` seconds (so the tail of
-the QSO is captured), then cuts a slice from the circular audio buffer that
-starts `pre_roll` seconds before the contact time. The result is a short,
-self-contained audio file named like:
-
-```
-2026-07-13_2120_SQ3RX_20M_RX1.wav
-```
-
----
-
-## Using the dashboard
-
-### Filters
-
- - **Contest** — pick a specific contest folder.
- - **Call / Prefix** — free-text search. Enter a plain fragment
-   (`SQ3RX`), a country prefix (`SQ`), or a **regular expression**
-   (`^SQ`, `3[A-Z]X$`, `SQ|SP`). Invalid regex is treated as a literal
-   substring.
-  - **Band** — multi-select dropdown with checkboxes for common ham bands
-    (160M–2M) plus a custom text field for arbitrary bands; multiple bands
-    can be selected at once.
-  - **Mode** — exact match (e.g. `CW`, `SSB`).
- - **RX** — filter by receiver: **All RX**, **RX1** or **RX2**. 
-   Applies to both the QSO and Continuous views.
- - **Date/time from – to** — filter by an exact moment, not just a day.
- - **Type** — switch between **N1MM QSOs** and **Continuous** recordings.
-
-### Recording control
-
-The **⏹ Stop recording / ▶ Start recording** button starts or stops
-continuous recording at any time. It is always visible — even if
-`continuous_autostart` is OFF, you can begin recording whenever you need it.
-Stopping finalises the current chunk into a complete, playable file.
-
-### N1MM QSOs view
-
-Shows `Timestamp · Call · Band · Mode · Freq · Exch · RX · Contest` plus an
-inline audio player with a **playback-speed selector** (0.8×–2.0×) and a
-**Save** button to download the recording. The player uses a **custom progress
-slider** that fills the whole row width, with a play/pause button and a
-current/total time readout (the native browser controls — including the mute
-button and the "…" overflow menu — are no longer shown). Click a row for the
-full QSO detail — name, QTH, grid, exchange, points, **WPX prefix, continent,
-multipliers, precedence, check, power** and more, all captured automatically
-from the N1MM Logger+ contact broadcast.
-
-### Continuous view
-
-Shows `Start · Stop · Duration · RX` and the player — no QSO metadata, just
-the raw recorded chunks.
-
-### Live Log
-
-The **📜 Log** button opens a color-coded, auto-refreshing view of the
-application log. Errors are red, warnings amber, info/debug muted.
-
-### Settings
-
-The **⚙ Settings** panel lets you change every option live. Hover the **?**
-icon next to any field for an explanation.
-
-**⚠ Factory Reset** — permanently deletes the entire QSO log database, all
-recorded audio files (WAV/MP3), restores the configuration to defaults and
-clears the application log buffer. If you want to keep your recordings, copy
-them from the recordings folder before proceeding. A confirmation prompt
-lists exactly what will be removed.
+A complete user guide covering installation, configuration, all settings,
+SO2R setup, filtering, playback, data management, update checking and
+troubleshooting is available in [MANUAL.md](MANUAL.md).
 
 ---
 
@@ -295,65 +136,37 @@ QSOCapture/
 
 | Method | Endpoint | Purpose |
 | ------ | -------- | ------- |
+| GET | `/icon.svg` | QSOCapture SVG logo. |
+| GET | `/icon.ico` / `/favicon.ico` | Dashboard favicon. |
+| GET | `/` | Serve the web dashboard HTML. |
 | GET | `/api/contests` | List contest folders. |
-| GET | `/api/qsos` | Filtered QSO list (`contest`, `call`, `band`, `mode`, `rx`, `date_from`, `date_to`, `continuous`). |
+| GET | `/api/qsos` | Filtered QSO list (`contest`, `call`, `band`, `mode`, `rx`, `date_from`, `date_to`, `continuous`, `offset`, `limit`, `sort_by`, `sort_dir`). |
 | GET | `/api/status` | TCI / N1MM connection state + per-RX buffer fill. |
-| GET | `/api/log` | Recent application log lines. |
+| GET | `/api/log` | Recent application log lines (`n`, `debug`). |
 | GET | `/api/config` | Current config + UI schema (with help). |
 | POST | `/api/config` | Update config live and restart services. |
 | POST | `/api/continuous/pause` | Finalise the current continuous chunk and stop recording. |
 | POST | `/api/continuous/resume` | Resume continuous recording with a fresh chunk. |
 | GET | `/api/export` | Download all (or one contest's) recordings as a ZIP archive. |
-| GET | `/api/audio_devices` | List available soundcard input devices (for `soundcard_device`). |
+| GET | `/api/audio_devices` | List available soundcard input devices. |
 | GET | `/api/paths` | Absolute filesystem paths of `recordings/` and `config.cfg`. |
 | POST | `/api/open_folder` | Open the recordings directory in the system file manager. |
 | GET | `/api/version_check` | Compare running version against latest GitHub release tag. |
 | GET | `/api/events` | Server-Sent Events stream for live dashboard updates. |
 | POST | `/api/debug` | Enable or disable debug-level logging at runtime. |
+| POST | `/api/reset_config` | Restore configuration to defaults. |
+| POST | `/api/clear_qsos` | Delete all QSO records from the database. |
+| POST | `/api/delete_recordings` | Delete all audio files (keep config and QSO log). |
+| POST | `/api/delete_contest` | Delete contest folder + QSO records for a given contest. |
+| POST | `/api/delete_contest_recordings` | Delete contest audio files only (QSO records are kept). |
+| POST | `/api/delete_continuous` | Delete continuous recordings within a date range. |
 | POST | `/api/factory_reset` | Wipe log + recordings + restore defaults. |
 | GET | `/audio/{contest}/{file}` | Stream a recorded audio file. |
 
----
-
-## Antivirus false positives
-
-Windows Defender and other antivirus engines may occasionally flag the
-executable as a threat. This is a **false positive** — the executable is a
-legitimate amateur radio application built with [Nuitka](https://nuitka.net),
-which compiles Python code into a standalone Windows binary. The heuristic
-detection is triggered by the combination of a large, self-contained executable
-with an embedded Python interpreter, not by any malicious behaviour.
-
-### What you can do
-
-1. **Add an exclusion** — in Windows Security, go to
-   *Virus & threat protection → Manage settings → Exclusions* and add the
-   installation folder or the executable.
-2. **Report the false positive** — submit the file to Microsoft for analysis:
-   [Microsoft Security Intelligence](https://www.microsoft.com/en-us/wdsi/filesubmission).
-   Once analysed and cleared, the detection will be removed from future
-   Defender updates.
-3. **Build from source** — if you prefer, you can build the EXE yourself
-   following the instructions in [BUILDING.md](BUILDING.md). A locally built
-   binary will not be flagged.
-
----
-
 ## Troubleshooting
 
- - **No audio recorded / buffer stays empty** — check the source in
-   **⚙ Settings**: for `tci` mode verify `tci_host`/`tci_port` match ExpertSDR's
-   TCI server (default `127.0.0.1:50001`, enabled in ExpertSDR options); for
-   `soundcard` mode pick the correct `soundcard_device` substring and confirm
-   the OS is routing receiver audio to that input.
-  - **Windows 7 / 8** — supported by the standard build (Qt WebEngine works on
-    Windows 7+). No separate legacy build is needed.
- - **N1MM contacts not appearing** — ensure N1MM Logger+ broadcasts on the same
-   UDP port configured in `n1mm_udp_port` (default `12060`) and that the
-   machine's firewall allows the bind on `n1mm_bind_ip` (default `127.0.0.1`).
- - **Broken / unplayable continuous chunks** — if you stop the app while a
-   continuous chunk is open it is finalised automatically; empty chunks (no
-   audio received) are discarded so the continuous view never shows dead rows.
+For detailed troubleshooting guidance covering all common issues, see the
+[Troubleshooting section in MANUAL.md](MANUAL.md#12-troubleshooting).
 
 ---
 

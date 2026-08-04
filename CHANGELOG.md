@@ -5,19 +5,21 @@ in plain business language, without going into implementation details.
 
 ## Unreleased
 
+### 🚀 New Features
+* **SO2R Dual Card mode:** Added a new "Dual card" option for SO2R setups. Instead of a single stereo soundcard (left channel → RX1, right channel → RX2), you can now use **two separate soundcards**, each capturing one receiver in mono. Configure it in Settings → Audio → SO2R mode toggle (Stereo / Dual card). When Dual card is enabled, two device selectors appear in Settings → Soundcard, letting you pick independent input devices for RX1 and RX2.
+
 ### 🎨 Dashboard
 * **Clear buttons for Contest and Call/Prefix filters:** Added a small "×" button inside the Contest and Call/Prefix input fields that appears when the field has a value. Clicking it clears the filter and immediately reloads the QSO list.
 * **Frequency formatting in QSO table:** The Freq column now converts kHz values to MHz (e.g. `14195` → `14.195`) and always displays at least three decimal places, preserving higher precision when available. Previously, whole-kilohertz values like `14195` were shown without any decimals.
 * **Resets and deletes section:** Added a dedicated section in Settings with seven data-clearing options — reset config, clear QSO log, delete all data, delete contest (files + QSOs), delete contest recordings (files only), delete continuous by date range, and factory reset. Each operation shows a clear confirmation prompt.
 
+### 📚 Documentation
+* **User manual:** Added [MANUAL.md](MANUAL.md) — a complete user guide covering installation, configuration, all settings, SO2R setup, filtering, playback, data management, update checking and troubleshooting. The README now links to the manual instead of including the "How to use it" section inline.
+
 ### 🐛 Bug Fixes
 * **QSO list not auto-refreshing during continuous recording:** When continuous recording was active, newly logged N1MM QSOs no longer appeared on the dashboard until the user clicked Refresh. Fixed the event-driven refresh mechanism so the list always updates immediately when a new QSO is saved, regardless of whether continuous recording is running.
 * **Orphaned "Recording…" entries after unclean shutdown:** When the application was closed (or crashed) during continuous recording, a database row with `duration=0.0` remained, showing "Recording…" forever in the dashboard's Stop column. Continuous chunks are now finalised immediately on shutdown, and any leftover orphaned records are cleaned up automatically on the next startup.
-
-> **Note:** ⚠️
-> * It is recommended to **uninstall any previous version** before installing this release, as the build system has changed from PyInstaller to Nuitka.
-> * Starting with Windows 7 and newer, there is now **a single unified release** package.
-> * A **portable version will not be released**, as Windows Defender / Antivirus incorrectly flags single-file builds as a false positive.
+* **Contact editing no longer removes audio file:** When editing a QSO in N1MM Logger+ (contactreplace), the program previously deleted the original recording and created a brand-new audio slice. Now the existing audio file is simply renamed to reflect the updated callsign/band, and the database record is updated in-place — the original recording is preserved.
 
 ## Version 0.6.1beta
 
@@ -25,6 +27,11 @@ in plain business language, without going into implementation details.
 * **QSO recordings not saving in installed version:** Fixed a compatibility issue with the compiled application (Nuitka) that prevented QSO recordings from being saved after installation. The application now correctly records and saves QSO slices in both the installed and source versions.
 
 ## Version 0.6.0beta
+
+> **Note:** ⚠️
+> * It is recommended to **uninstall any previous version** before installing this release, as the build system has changed from PyInstaller to Nuitka.
+> * Starting with Windows 7 and newer, there is now **a single unified release** package.
+> * A **portable version will not be released**, as Windows Defender / Antivirus incorrectly flags single-file builds as a false positive.
 
 ### 🚀 Major Improvements & Architecture
 * **Migrated from pywebview to PySide6 (Qt WebEngine):** Desktop launcher has been completely rewritten in PySide6. It provides a single build for Windows 7+, minimize-to-tray support, a confirm-close dialog, and native file dialogs without any external WebView2/CEF dependencies.

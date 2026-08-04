@@ -1744,14 +1744,33 @@
       return textInput('cfg__n1mm_addr', v, '127.0.0.1:12060');
     }
     let audioDevices = [];
-    function soundcardWidget(val) {
-      let opts = `<option value="">— type manually —</option>`;
+    function soundcardWidget(val, id) {
+      id = id || 'cfg_soundcard_device';
+      let opts = `<option value="">— select device —</option>`;
       audioDevices.forEach(d => {
         const sel = d.name === val ? 'selected' : '';
         opts += `<option value="${d.name}" ${sel}>${d.name}</option>`;
       });
-      return `<select id="cfg_soundcard_device" class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-sm">${opts}</select>
-              ${textInput('cfg__soundcard_text', val, 'or type device substring')}`;
+      return `<select id="${id}" class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-sm">${opts}</select>`;
+    }
+
+    function toggleWidget(val, id, label) {
+      const checked = val === 'dual_card' ? 'checked' : '';
+      return `<label class="flex items-center gap-2 cursor-pointer">
+                <span class="text-xs text-slate-400">Stereo</span>
+                <input type="checkbox" id="${id}" class="sr-only peer" ${checked} />
+                <div class="relative w-11 h-6 bg-slate-700 rounded-full peer peer-checked:bg-brand after:content-[''] after:absolute after:top-0.5 after:start-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full"></div>
+                <span class="text-xs text-slate-400">Dual card</span>
+              </label>`;
+    }
+
+    function deviceSelectWidget(val, id) {
+      let opts = `<option value="">— select device —</option>`;
+      audioDevices.forEach(d => {
+        const sel = d.name === val ? 'selected' : '';
+        opts += `<option value="${d.name}" ${sel}>${d.name}</option>`;
+      });
+      return `<select id="${id}" class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-sm">${opts}</select>`;
     }
 
     async function openConfig() {
@@ -1785,13 +1804,56 @@
           + fieldBlock('Audio format', selectInput('cfg_audio_format', v.audio_format, ['wav', 'mp3']), helpMap.audio_format)
           + fieldBlock('Sample rate (Hz)', numberInput('cfg_sample_rate', v.sample_rate), helpMap.sample_rate)
           + fieldBlock('Channels (1=SO1R,2=SO2R)', selectInput('cfg_channels', v.channels, [1,2]), helpMap.channels)
+          + fieldBlock('SO2R mode', toggleWidget(v.so2r_mode, 'cfg_so2r_mode'), helpMap.so2r_mode)
           + fieldBlock('Pre-roll (s)', numberInput('cfg_pre_roll', v.pre_roll, 'any'), helpMap.pre_roll)
           + fieldBlock('Post-roll (s)', numberInput('cfg_post_roll', v.post_roll, 'any'), helpMap.post_roll)
           + fieldBlock('Sample width (bytes)', selectInput('cfg_sample_width', v.sample_width, [1,2,4]), helpMap.sample_width);
         form.innerHTML += group('Audio', audio);
 
-        let sc = fieldBlock('Soundcard device', soundcardWidget(v.soundcard_device), helpMap.soundcard_device);
+        let sc = fieldBlock('Soundcard device (RX1)', soundcardWidget(v.soundcard_device, 'cfg_soundcard_device'), helpMap.soundcard_device)
+          + fieldBlock('Soundcard device 2 (RX2)', deviceSelectWidget(v.soundcard_device2, 'cfg_soundcard_device2'), helpMap.soundcard_device2);
         form.innerHTML += group('Soundcard', sc);
+
+        // Show/hide SO2R mode toggle and RX2 device field based on audio mode,
+        // channels & dual card.
+        // In the Audio group: 0=Audio mode, 1=Audio format, 2=Sample rate, 3=Channels,
+        // 4=SO2R mode toggle. In the Soundcard group: 0=RX1 device, 1=RX2 device.
+        function updateDualCardVisibility() {
+          const toggle = $('cfg_so2r_mode');
+          const channels = $('cfg_channels');
+          const mode = $('cfg__mode');
+          if (!toggle || !channels || !mode) return;
+          const isSoundcard = mode.value === 'soundcard';
+          const isSO2R = isSoundcard && (parseInt(channels.value || '2') >= 2);
+          const isDualCard = isSO2R && toggle.checked;
+          // Find SO2R mode toggle (index 4) in the Audio group
+          const allGroups = document.querySelectorAll('#cfgForm > .md\\:col-span-2');
+          const audioGroup = allGroups[1];
+          if (audioGroup) {
+            const audioFields = audioGroup.querySelectorAll('.flex.flex-col.gap-1, .flex.items-center.justify-between');
+            if (audioFields.length >= 5) {
+              audioFields[4].style.display = isSO2R ? '' : 'none';
+            }
+          }
+          // Find RX2 device (index 1) in the Soundcard group
+          const soundcardGroup = allGroups[2];
+          if (soundcardGroup) {
+            const scFields = soundcardGroup.querySelectorAll('.flex.flex-col.gap-1');
+            if (scFields.length >= 2) {
+              scFields[1].style.display = isDualCard ? '' : 'none';
+            }
+          }
+        }
+        // Defer initial setup until form is rendered
+        setTimeout(() => {
+          const toggle = $('cfg_so2r_mode');
+          const channels = $('cfg_channels');
+          const modeEl = $('cfg__mode');
+          if (toggle) toggle.addEventListener('change', updateDualCardVisibility);
+          if (channels) channels.addEventListener('change', updateDualCardVisibility);
+          if (modeEl) modeEl.addEventListener('change', updateDualCardVisibility);
+          updateDualCardVisibility();
+        }, 150);
 
         // Build Reset group
         let contestOpts = '<option value="">— Select contest —</option>';
@@ -1912,8 +1974,12 @@
           const parts = $('cfg__n1mm_addr').value.split(':');
           payload['n1mm_bind_ip'] = parts[0];
           payload['n1mm_udp_port'] = parseInt(parts[1], 10) || 0;
+        } else if (f === 'so2r_mode') {
+          payload[f] = $('cfg_so2r_mode')?.checked ? 'dual_card' : 'stereo';
         } else if (f === 'soundcard_device') {
-          payload[f] = $('cfg_soundcard_device').value || $('cfg__soundcard_text').value;
+          payload[f] = $('cfg_soundcard_device').value;
+        } else if (f === 'soundcard_device2') {
+          payload[f] = $('cfg_soundcard_device2').value;
         } else {
           const el = $('cfg_' + f);
           if (!el) return;

@@ -1,9 +1,7 @@
-"""config.py - Configuration parsing for QSOCapture.
+"""Configuration parsing for QSOCapture.
 
-This module loads the INI-style ``config.cfg`` file using :mod:`configparser`
-and exposes a single :class:`AppConfig` dataclass-like object with sensible
-defaults for every setting. It is intentionally dependency-free so that it can
-be imported from any thread without side effects.
+Loads the INI-style config.cfg via configparser and exposes an AppConfig
+dataclass with sensible defaults.
 """
 
 from __future__ import annotations
@@ -14,15 +12,8 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 
-# ---------------------------------------------------------------------------
-# Path helpers (no longer user-configurable)
-# ---------------------------------------------------------------------------
 def _get_base_dir() -> str:
-    """Return the writable application data directory.
-    
-    On Windows this is ``%LOCALAPPDATA%\\QSOCapture``, with a fallback to
-    ``~/QSOCapture`` when the environment variable is not set.
-    """
+    """Return the writable app data directory (%LOCALAPPDATA%\\QSOCapture, fallback ~/QSOCapture)."""
     return os.path.join(
         os.environ.get("LOCALAPPDATA", os.path.expanduser("~")),
         "QSOCapture",
@@ -30,10 +21,7 @@ def _get_base_dir() -> str:
 
 
 BASE_DIR = _get_base_dir()
-"""Root application data directory (under ``%LOCALAPPDATA%``)."""
-
 RECORDINGS_DIR = os.path.join(BASE_DIR, "recordings")
-"""Hard-coded path for all recorded audio files (not user-configurable)."""
 
 
 @dataclass
@@ -43,26 +31,28 @@ class AppConfig:
     # general
     station_name: str = "MYSTATION"
     continuous_recording: bool = True
-    continuous_autostart: bool = False  # begin continuous recording automatically on startup
+    continuous_autostart: bool = False
     continuous_chunk_minutes: int = 60
-    normalize_continuous: bool = True   # normalize continuous WAV chunks to consistent loudness
-    max_recordings_gb: float = 0.0  # max disk usage for recordings (0 = unlimited)
+    normalize_continuous: bool = True
+    max_recordings_gb: float = 0.0
 
     # audio
     audio_mode: str = "soundcard"          # "tci" | "soundcard"
     audio_format: str = "wav"              # "wav" | "mp3"
     sample_rate: int = 48000
     channels: int = 2                      # 1 = mono (SO1R), 2 = stereo (SO2R)
-    pre_roll: float = 8.0                  # seconds kept before QSO start
-    post_roll: float = 5.0                 # seconds waited after N1MM packet
-    sample_width: int = 2                  # bytes per sample
+    pre_roll: float = 8.0
+    post_roll: float = 5.0
+    sample_width: int = 2
+    so2r_mode: str = "stereo"            # "stereo" | "dual_card"  — how SO2R is wired
+    soundcard_device2: str = ""           # second device name for dual_card mode
 
     # tci
     tci_host: str = "127.0.0.1"
     tci_port: int = 50001
 
     # soundcard
-    soundcard_device: str = ""             # empty = default input device
+    soundcard_device: str = ""
 
     # n1mm
     n1mm_udp_port: int = 12060
@@ -102,18 +92,13 @@ def _get(config: configparser.ConfigParser, section: str, key: str, default):
 
 
 def load_config(path: str = "config.cfg") -> AppConfig:
-    """Parse *path* (an INI file) and return a populated :class:`AppConfig`.
+    """Parse *path* (an INI file) and return a populated AppConfig.
 
-    Missing sections/keys are replaced with the dataclass defaults so the
-    application can always assume a fully populated configuration object.
+    Missing sections/keys fall back to dataclass defaults.
     """
     parser = configparser.ConfigParser()
     if os.path.isfile(path):
-        # keep comments-free parsing; configparser ignores ';' / '#' comments
         parser.read(path, encoding="utf-8")
-    else:
-        # No config file -> use defaults only (still a valid run).
-        parser = configparser.ConfigParser()
 
     cfg = AppConfig(
         station_name=_get(parser, "general", "station_name", AppConfig.station_name),
@@ -129,9 +114,10 @@ def load_config(path: str = "config.cfg") -> AppConfig:
         pre_roll=_get(parser, "audio", "pre_roll", AppConfig.pre_roll),
         post_roll=_get(parser, "audio", "post_roll", AppConfig.post_roll),
         sample_width=_get(parser, "audio", "sample_width", AppConfig.sample_width),
+        so2r_mode=_get(parser, "audio", "so2r_mode", AppConfig.so2r_mode).lower(),
+        soundcard_device2=_get(parser, "audio", "soundcard_device2", AppConfig.soundcard_device2),
 
-        # Backward compatibility: tci_host/tci_port moved from [audio] → [general] → [tci].
-        # Check [tci] first, then [general] (migration), then [audio] (old config).
+        # Backward compatibility: tci_host/tci_port moved [audio] → [general] → [tci].
         tci_host=_get(parser, "tci", "tci_host",
                       _get(parser, "general", "tci_host",
                             _get(parser, "audio", "tci_host", AppConfig.tci_host))),
@@ -151,48 +137,52 @@ def load_config(path: str = "config.cfg") -> AppConfig:
     return cfg
 
 
-# Metadata describing each config field for the web UI (label, type, section,
-# optional choices). When ``choices`` is provided the web UI renders a
-# <select> dropdown instead of a free-text / number input.
+# UI schema: (section, field, label, type, choices, help_text)
+# When ``choices`` is provided the web UI renders a <select> dropdown.
+# When ``type`` is "device" the web UI renders a <select> populated from /api/audio_devices.
 CONFIG_SCHEMA = [
     ("general", "station_name", "Station name", "text", None,
      "Your station callsign / identifier shown in the header and used as a label in logs."),
     ("general", "continuous_autostart", "Continuous recording autostart", "bool", None,
-     "When ON, continuous recording starts automatically on app startup. When OFF, you can still start it anytime from the dashboard (Stop/Start recording button)."),
+     "When ON, continuous recording starts automatically on app startup."),
     ("general", "continuous_chunk_minutes", "Continuous chunk (min)", "int", None,
-     "Length of each continuous recording chunk in minutes. Larger values = fewer, bigger files."),
+     "Length of each continuous recording chunk in minutes."),
     ("general", "normalize_continuous", "Normalize continuous recordings", "bool", None,
-     "When ON, continuous WAV chunks are normalized to a consistent loudness level after each chunk is finalized. Disable to save CPU time and memory on long recordings (QSO slices are always normalized regardless of this setting)."),
+     "When ON, continuous WAV chunks are normalized after each chunk. Disable to save CPU on long recordings (QSO slices are always normalized)."),
     ("general", "max_recordings_gb", "Max recordings (GB)", "float", None,
-     "Hard cap on total disk usage of the recordings folder. When exceeded, the oldest continuous chunks are deleted automatically (0 = unlimited)."),
+     "Hard cap on recordings folder disk usage. Oldest continuous chunks deleted when exceeded (0 = unlimited)."),
     ("tci", "tci_host", "TCI host", "text", None,
-     "IP address of the ExpertSDR TCI server (usually 127.0.0.1 when running on the same PC)."),
+     "IP address of the ExpertSDR TCI server (usually 127.0.0.1)."),
     ("tci", "tci_port", "TCI port", "int", None,
      "TCP port of the ExpertSDR TCI server (default 50001)."),
     ("audio", "audio_mode", "Audio mode", "text", ["tci", "soundcard"],
-     "Source of audio: 'tci' streams from ExpertSDR via the TCI protocol, 'soundcard' captures a system input device."),
+     "'tci' streams from ExpertSDR, 'soundcard' captures a system input device."),
     ("audio", "sample_rate", "Sample rate (Hz)", "int", [8000, 16000, 22050, 44100, 48000, 96000],
-     "Audio sample rate. Must match your radio/TCI or soundcard setting (48000 is typical)."),
+     "Audio sample rate. Must match your radio/TCI or soundcard setting."),
     ("audio", "channels", "Channels (1=SO1R,2=SO2R)", "int", [1, 2],
      "1 = mono single receiver (SO1R), 2 = stereo two receivers (SO2R)."),
     ("audio", "pre_roll", "Pre-roll (s)", "float", None,
-     "Seconds of audio kept BEFORE the N1MM contact timestamp, so the start of the QSO is captured."),
+     "Seconds of audio kept BEFORE the N1MM contact timestamp."),
     ("audio", "post_roll", "Post-roll (s)", "float", None,
-     "Seconds to wait AFTER the N1MM packet before slicing, so the tail of the QSO is included."),
+     "Seconds to wait AFTER the N1MM packet before slicing."),
     ("audio", "sample_width", "Sample width (bytes)", "int", [1, 2, 4],
-     "Bytes per sample in the recorded file (2 = 16-bit, standard for WAV)."),
+     "Bytes per sample (2 = 16-bit, standard for WAV)."),
     ("audio", "audio_format", "Audio format", "text", ["wav", "mp3"],
-     "Container for saved audio. WAV is lossless and fast; MP3 saves disk space (requires lameenc)."),
-    ("audio", "soundcard_device", "Soundcard device (substr)", "text", None,
-     "Substring match of the system input device name to capture (leave empty for the default device)."),
+     "WAV is lossless; MP3 saves disk space (requires lameenc)."),
+    ("audio", "so2r_mode", "SO2R mode", "select", ["stereo", "dual_card"],
+     "'stereo' = one soundcard, left channel RX1 / right channel RX2. 'dual_card' = two separate soundcards, each mono."),
+    ("audio", "soundcard_device", "Soundcard device (RX1)", "device", None,
+     "Select the system input device for RX1 (or for stereo mode)."),
+    ("audio", "soundcard_device2", "Soundcard device 2 (RX2)", "device", None,
+     "Second soundcard for RX2 when SO2R mode is 'dual_card'."),
     ("n1mm", "n1mm_udp_port", "N1MM UDP port", "int", None,
      "UDP port N1MM Logger+ sends contact broadcasts on (default 12060)."),
     ("n1mm", "n1mm_bind_ip", "N1MM bind IP", "text", None,
-     "Network interface to listen on for N1MM packets (127.0.0.1 = local only, safer default; use 0.0.0.0 only if N1MM runs on another machine)."),
+     "Interface to listen on for N1MM packets. 127.0.0.1 = local only."),
     ("web", "web_host", "Web host", "text", None,
-     "Network interface the web dashboard binds to (127.0.0.1 = local only, safer default; 0.0.0.0 = accessible from other devices on the network)."),
+     "Interface the web dashboard binds to. 127.0.0.1 = local only."),
     ("web", "web_port", "Web port", "int", None,
-     "TCP port for the web dashboard (open http://localhost:PORT in your browser)."),
+     "TCP port for the web dashboard."),
 ]
 
 
@@ -201,11 +191,11 @@ def config_to_dict(cfg: AppConfig) -> dict:
     return {k: v for k, v in cfg.__dict__.items()}
 
 
-# Maps AppConfig attribute names to the (section, ini_key) used in config.cfg.
-# Only entries that differ from the attribute name need to be listed; the
-# save routine falls back to (schema_section, attribute_name) otherwise.
+# Maps AppConfig attribute names to (section, ini_key) for save_config.
+# Only entries differing from the attribute name need listing.
 INI_KEYS = {
     "audio_mode": ("audio", "mode"),
+    "audio_format": ("audio", "audio_format"),
     "tci_host": ("tci", "tci_host"),
     "tci_port": ("tci", "tci_port"),
     "n1mm_udp_port": ("n1mm", "udp_port"),
@@ -216,13 +206,7 @@ INI_KEYS = {
 
 
 def save_config(cfg: AppConfig, path: str = "config.cfg") -> None:
-    """Persist *cfg* back to an INI file grouped by section.
-
-    The mapping from flat field names to INI sections/keys is derived from
-    :data:`CONFIG_SCHEMA` (section) and :data:`INI_KEYS` (key override), so the
-    written file matches the ``config.cfg`` layout that :func:`load_config`
-    expects.
-    """
+    """Persist *cfg* to an INI file grouped by section (matching load_config layout)."""
     parser = configparser.ConfigParser()
     for section, field, _label, _ftype, _choices, _help in CONFIG_SCHEMA:
         ini_section, ini_key = INI_KEYS.get(field, (section, field))
@@ -238,6 +222,5 @@ def save_config(cfg: AppConfig, path: str = "config.cfg") -> None:
 
 if __name__ == "__main__":
     import json
-
     c = load_config()
     print(json.dumps(c.__dict__, indent=2, default=str))

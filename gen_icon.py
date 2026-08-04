@@ -1,9 +1,7 @@
 """Generate a multi-size Windows .ico from icon.svg.
 
-Produces ``icon.ico`` (16/32/48/64/128/256 px) used by PyInstaller (build.spec)
-and Inno Setup (installer.iss). The SVG is rendered with Pillow (no native cairo
-/ reportlab backend required) faithfully reproducing the original gradients and
-shapes. Run:  .venv\\Scripts\\python.exe gen_icon.py
+Produces icon.ico (16/32/48/64/128/256 px) for PyInstaller and Inno Setup.
+The SVG is rendered with Pillow (no cairo required). Run: python gen_icon.py
 """
 
 import os
@@ -15,12 +13,12 @@ SVG = os.path.join(HERE, "icon.svg")
 ICO = os.path.join(HERE, "icon.ico")
 PNG = os.path.join(HERE, "icon_512.png")
 SIZES = [16, 32, 48, 64, 128, 256]
-N = 512  # master render size
+N = 512
 
-CYAN0 = (0, 242, 254)   # #00f2fe
-CYAN1 = (79, 172, 254)  # #4facfe
-GREEN0 = (0, 255, 135)  # #00ff87
-GREEN1 = (96, 239, 255)  # #60efff
+CYAN0 = (0, 242, 254)
+CYAN1 = (79, 172, 254)
+GREEN0 = (0, 255, 135)
+GREEN1 = (96, 239, 255)
 
 
 def lerp(a, b, t):
@@ -29,7 +27,6 @@ def lerp(a, b, t):
 
 
 def bbox_gradient(bbox, c0, c1, vertical=True):
-    """RGBA (N x N) gradient confined to *bbox* (outside is transparent)."""
     x0, y0, x1, y1 = bbox
     w = max(1, x1 - x0)
     h = max(1, y1 - y0)
@@ -39,10 +36,7 @@ def bbox_gradient(bbox, c0, c1, vertical=True):
         for x in range(N):
             if x < x0 or x > x1 or y < y0 or y > y1:
                 continue
-            if vertical:
-                t = (y - y0) / h
-            else:
-                t = (((x - x0) / w) + ((y - y0) / h)) / 2.0
+            t = (y - y0) / h if vertical else (((x - x0) / w) + ((y - y0) / h)) / 2.0
             px[x, y] = lerp(c0, c1, t) + (255,)
     return img
 
@@ -79,19 +73,13 @@ def render_master():
     d.rounded_rectangle([0, 0, N, N], radius=110, fill="#1e222b")
 
     cx = cy = 256
-    # Background dashed rings (radio gradient).
     canvas = Image.alpha_composite(
         canvas, dashed_ring(cx, cy, 180, 12, CYAN0, CYAN1, 0.2, 20, 15))
     canvas = Image.alpha_composite(
         canvas, dashed_ring(cx, cy, 130, 8, CYAN0, CYAN1, 0.4, 10, 10))
 
-    # Four capture arms (success gradient, vertical, within each bbox).
-    arms = [
-        (-90, -40, -90, -90, -40, -90),
-        (90, -40, 90, -90, 40, -90),
-        (-90, 40, -90, 90, -40, 90),
-        (90, 40, 90, 90, 40, 90),
-    ]
+    arms = [(-90, -40, -90, -90, -40, -90), (90, -40, 90, -90, 40, -90),
+            (-90, 40, -90, 90, -40, 90), (90, 40, 90, 90, 40, 90)]
     w = 24
     for ax1, ay1, ax2, ay2, ax3, ay3 in arms:
         pts = [(cx + ax1, cy + ay1), (cx + ax2, cy + ay2), (cx + ax3, cy + ay3)]
@@ -106,7 +94,6 @@ def render_master():
             canvas, paint(Image.new("RGBA", (N, N), (0, 0, 0, 0)),
                           draw, bbox, GREEN0, GREEN1, 1.0, vertical=True))
 
-    # Equalizer bars (radio gradient, diagonal bbox).
     bars = [(-50, -30, 16, 60), (-20, -55, 16, 110),
             (10, -40, 16, 80), (40, -20, 16, 40)]
     for bx, by, bw, bh in bars:
@@ -121,18 +108,13 @@ def render_master():
             canvas, paint(Image.new("RGBA", (N, N), (0, 0, 0, 0)),
                           draw, bbox, CYAN0, CYAN1, 1.0, vertical=False))
 
-    # REC dot.
     r = 18
     rx, ry = 390, 120
-    bbox = [rx - r, ry - r, rx + r, ry + r]
-
-    def draw(md):
-        md.ellipse(bbox, fill=255)
-
+    rect = [rx - r, ry - r, rx + r, ry + r]
     rec = Image.new("RGBA", (N, N), (0, 0, 0, 0))
-    rec.paste((255, 51, 102, 255), bbox)
+    rec.paste((255, 51, 102, 255), rect)
     m = Image.new("L", (N, N), 0)
-    ImageDraw.Draw(m).ellipse(bbox, fill=255)
+    ImageDraw.Draw(m).ellipse(rect, fill=255)
     canvas = Image.composite(rec, canvas, m)
     return canvas
 

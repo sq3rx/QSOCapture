@@ -1,9 +1,8 @@
-#!/usr/bin/env python3
-"""seed_test_data.py - Seed the database with test data from a CBR file plus generated contests.
+"""Seed the database with test data from a CBR file plus generated contests.
 
 Usage:
-    python seed_test_data.py          # uses tests/*.cbr and creates dummy audio files
-    python seed_test_data.py --clean  # removes the existing DB first
+    python seed_test_data.py          # uses tests/*.cbr and creates dummy audio
+    python seed_test_data.py --clean  # removes existing DB first
 """
 
 from __future__ import annotations
@@ -25,8 +24,6 @@ import db as qso_db
 
 RECORDINGS_DIR = "recordings"
 TEST_DIR = "tests"
-
-# ── helpers ──────────────────────────────────────────────────────────────
 
 BAND_CENTRES = {
     "160": 1.8, "80": 3.5, "40": 7.0, "30": 10.0, "20": 14.0,
@@ -198,7 +195,6 @@ QTHS = [
 
 
 def safe_call(call: str) -> str:
-    """Filter call like audio_manager does: only alnum, - and _."""
     return "".join(ch for ch in call if ch.isalnum() or ch in "-_")
 
 
@@ -217,7 +213,7 @@ def get_continent(call: str) -> str:
 
 
 def make_wav(path: str, duration: float, sr: int = 16000) -> None:
-    """Create a short WAV with sine tones + noise using numpy (fast)."""
+    """Create a short WAV with sine tones + noise."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
     n = int(sr * duration)
     t = np.arange(n, dtype=np.float32) / sr
@@ -233,7 +229,6 @@ def make_wav(path: str, duration: float, sr: int = 16000) -> None:
 
 
 def parse_cbr(path: str) -> List[dict]:
-    """Parse a Cabrillo .cbr file."""
     qsos: List[dict] = []
     contest_name = "UNKNOWN"
     with open(path, "r", encoding="utf-8", errors="replace") as f:
@@ -260,22 +255,16 @@ def parse_cbr(path: str) -> List[dict]:
                 except (ValueError, OverflowError):
                     ts = time.time()
                 qsos.append({
-                    "contest": contest_name,
-                    "call": their_call,
-                    "band": freq_to_band(freq_khz),
-                    "mode": mode,
-                    "timestamp": ts,
-                    "freq": f"{freq_khz/1000.0:.3f}",
-                    "rcv": rcv_rst,
-                    "snt": "599",
-                    "rcvnr": rcv_nr,
-                    "sntnr": f"{len(qsos) + 1:04d}",
+                    "contest": contest_name, "call": their_call,
+                    "band": freq_to_band(freq_khz), "mode": mode,
+                    "timestamp": ts, "freq": f"{freq_khz/1000.0:.3f}",
+                    "rcv": rcv_rst, "snt": "599",
+                    "rcvnr": rcv_nr, "sntnr": f"{len(qsos) + 1:04d}",
                 })
     return qsos
 
 
 def generate_synthetic(name: str, base_date: float, count: int) -> List[dict]:
-    """Generate *count* synthetic QSOs for a contest."""
     qsos: List[dict] = []
     for i in range(count):
         band = BAND_CYCLE[i % len(BAND_CYCLE)]
@@ -296,7 +285,6 @@ def generate_synthetic(name: str, base_date: float, count: int) -> List[dict]:
 
 
 def seed_qsos(qsos: List[dict], contest_dir: str, dur_range=(3.0, 8.0)) -> int:
-    """Insert QSOs into DB and create dummy WAV files. Returns count."""
     n = len(qsos)
     for i, q in enumerate(qsos):
         ts = q["timestamp"]
@@ -336,8 +324,7 @@ def seed_continuous(start_ts: float, end_ts: float,
                     chunk_min: int = 60, label: str = "RX1") -> int:
     """Create continuous chunks spanning [start_ts, end_ts).
 
-    The WAV files are kept short (5 s) for speed, but the DB duration
-    reflects the real chunk length so the dashboard works correctly.
+    WAV files are short (5 s) for speed; DB duration reflects real chunk length.
     """
     chunk_sec = chunk_min * 60
     cur = start_ts
@@ -350,7 +337,6 @@ def seed_continuous(start_ts: float, end_ts: float,
         fname = f"{stamp}_{label}.wav"
         rel = f"_continuous/{fname}"
         dur = max(min(chunk_sec, end_ts - cur), 1.0)
-        # Write a short WAV (5 s) but store the real duration in DB
         make_wav(os.path.join(out_dir, fname), min(5.0, dur))
         qso_db.insert_qso(
             contest="_continuous", call="CONTINUOUS", band="", mode="",
@@ -359,7 +345,7 @@ def seed_continuous(start_ts: float, end_ts: float,
         count += 1
         cur += chunk_sec
         if count % 5 == 0:
-            print(f"  continuous: {count}")
+            print(f"  continuous chunks: {count}")
     return count
 
 
@@ -387,7 +373,7 @@ def main() -> None:
     total_qsos = 0
     total_cont = 0
 
-    # ── 1. CBR ───────────────────────────────────────────────────────────
+    # Seed from CBR file
     cbr_path = args.cbr
     if not cbr_path and os.path.isdir(TEST_DIR):
         files = glob.glob(os.path.join(TEST_DIR, "*.cbr"))
@@ -410,7 +396,7 @@ def main() -> None:
     else:
         print("No CBR file found – skipping CBR seeding.")
 
-    # ── 2. Synthetic contests ────────────────────────────────────────────
+    # Synthetic contests
     contests = [
         ("CQ-WPX-SSB", "2024-06-01 0000"),
         ("SP-DX-RTTY", "2024-07-13 0000"),
@@ -424,7 +410,7 @@ def main() -> None:
         qsos = generate_synthetic(name, dt, args.qsos)
         total_qsos += seed_qsos(qsos, contest_dir, (3.0, 8.0))
 
-    # ── 3. Continuous chunks for synthetic contests ──────────────────────
+    # Continuous chunks for synthetic contests
     cont_spans = [
         ("2024-06-01 0000", "2024-06-03 0000", "RX1"),
         ("2024-07-13 0000", "2024-07-15 0000", "RX1"),

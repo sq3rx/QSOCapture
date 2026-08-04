@@ -1,4 +1,4 @@
-"""audio_manager.py - Thread-safe audio capture and circular buffering."""
+"""Thread-safe audio capture and circular buffering."""
 
 from __future__ import annotations
 
@@ -22,13 +22,7 @@ logger = logging.getLogger("QSOCapture.audio")
 
 
 def _emit_event(name: str, data: Optional[dict] = None) -> None:
-    """Emit a dashboard event to the web layer (best-effort, lazy import).
-
-    Uses a lazy import of :func:`main.push_event` so importing
-    :mod:`audio_manager` does not create a circular import with :mod:`main`
-    (which imports this module at module load). If the web layer is not
-    running (e.g. unit tests) the call is silently ignored.
-    """
+    """Emit a dashboard event (best-effort, lazy import to avoid circular imports)."""
     try:
         from main import push_event
         push_event(name, data)
@@ -113,15 +107,10 @@ class QSORequest:
     band: str
     mode: str
     contest: str
-    timestamp: float          # epoch seconds of the QSO time (from N1MM)
+    timestamp: float
     pre_roll: float
     post_roll: float
-    # epoch seconds when the contact packet was received. This drives the
-    # slicing offset against the live audio buffer (the buffer only contains
-    # audio captured after the packet arrived).
     receive_ts: float = 0.0
-    # Rich metadata forwarded from N1MM (persisted to the DB so the
-    # dashboard can show frequency / exchange / name / QTH etc.).
     freq: str = ""
     name: str = ""
     qth: str = ""
@@ -152,17 +141,14 @@ class QSORequest:
     n1mm_id: str = ""
     is_claimed: str = ""
     sent_exchange: str = ""
-    radio_nr: str = "1"        # Radio number (1 or 2) from N1MM <RadioNr> (SO2R)
+    radio_nr: str = "1"
     raw_ts: str = ""
 
 
 def _write_pcm(path: str, frames: np.ndarray, sample_rate: int, channels: int,
                fmt: str = "wav") -> None:
-    """Write int16 frames to a WAV or MP3 file at path."""
+    """Write int16 frames to a WAV or MP3 file."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    # Force C-contiguous layout so tobytes() never depends on the strides of a
-    # column slice (e.g. pcm[:, 1:2]) from a stereo buffer. .astype already
-    # yields a contiguous array; this is a defensive guarantee.
     pcm = np.ascontiguousarray(frames, dtype=np.int16)
     if fmt == "mp3":
         try:
@@ -190,32 +176,21 @@ def _write_pcm(path: str, frames: np.ndarray, sample_rate: int, channels: int,
 
 
 def write_pcm_to_wav(path: str, frames: np.ndarray, sample_rate: int, channels: int) -> None:
-    """Write int16 frames to a 16-bit PCM WAV file (legacy alias)."""
+    """Legacy alias for _write_pcm with fmt=wav."""
     _write_pcm(path, frames, sample_rate, channels, fmt="wav")
 
 
-# --- Audio normalization (hardcoded, always-on, no UI) -------------------
-# Goal: bring every saved file to a consistent perceived loudness so the
-# user is not jumping between very quiet and very loud recordings. We target
-# a fixed RMS level (ReplayGain-style) but cap the applied gain so we never
-# amplify near-silent / noisy audio into a roar, and hard-clip the peaks just
-# below full scale to avoid distortion.
-NORM_TARGET_DBFS = -24.0       # desired RMS level (quieter than -18 to avoid loud files)
-NORM_MAX_GAIN_DB = 18.0        # upper bound on applied gain (protects quiet noise)
-NORM_PEAK_CEIL_DB = -6.0       # peak ceiling, anti-clipping safety margin
+# Audio normalization constants (always-on, no UI)
+NORM_TARGET_DBFS = -24.0
+NORM_MAX_GAIN_DB = 18.0
+NORM_PEAK_CEIL_DB = -6.0
 
 
 def _normalize_frames(frames: np.ndarray):
-    """Normalize int16 PCM frames to a consistent level.
+    """Normalize int16 PCM to target RMS level, return (frames, gain_db).
 
-    Returns a tuple ``(frames, gain_db)`` where ``gain_db`` is the applied
-    gain in decibels (negative when the audio was attenuated, positive when
-    boosted). The algorithm:
-      1. compute RMS of the float signal in [-1, 1]
-      2. desired gain = target_rms / rms, capped at ``NORM_MAX_GAIN_DB``
-      3. apply gain, then if any peak exceeds ``NORM_PEAK_CEIL_DB`` scale the
-         whole buffer down so the loudest sample sits exactly at the ceiling
-    A silent buffer (rms == 0) is returned untouched with a gain of 0.0 dB.
+    Computes RMS of float signal, applies capped gain, then clamps peaks to ceiling.
+    Silent buffer (rms=0) returned untouched with 0 dB gain.
     """
     if frames is None or frames.size == 0:
         return frames, 0.0
@@ -236,13 +211,7 @@ def _normalize_frames(frames: np.ndarray):
 
 
 def _normalize_wav_inplace(path: str) -> Optional[float]:
-    """Read a WAV file, normalize its samples, and overwrite it in place.
-
-    Used for continuous WAV chunks that are written streaming and can only be
-    normalized once the whole chunk is closed. A failure is silently ignored
-    (the original file is left intact) so recording never breaks on a glitch.
-    Returns the applied gain in dB, or ``None`` if normalization did not run.
-    """
+    """Read, normalize, and overwrite a WAV file in-place. Returns gain dB or None."""
     try:
         with wave.open(path, "rb") as wf:
             ch = wf.getnchannels()
@@ -272,36 +241,20 @@ class AudioSource(ABC):
         self.label = label
         cap = max(cfg.pre_roll + cfg.post_roll + 5.0, 30.0)
         self.buffer = CircularAudioBuffer(cfg.sample_rate, cfg.channels, cap)
-        # List of (label, buffer) pairs. For SO2R there are two receivers
-        # (RX1 = left channel, RX2 = right channel); otherwise just RX1.
         self.rx_buffers = [('RX1', self.buffer)]
         self._running = False
         self._thread: Optional[threading.Thread] = None
         self._continuous: Optional[threading.Thread] = None
-        # Continuous-recording writer state (queue-fed from the capture loop).
-        # The queue is *bounded* so a slow disk / encoder can never make the
-        # capture callback block indefinitely (which would stall live audio).
-        # When the queue is full the oldest pending chunk is dropped so we
-        # always keep the freshest audio.
+        # Bounded queue so slow disk never blocks the capture callback.
         self._cont_queue: "queue.Queue" = queue.Queue(maxsize=1800)
         self._cont_files: dict = {}
         self._cont_lock = threading.Lock()
         self._cont_start = 0.0
-        # Total number of continuous audio chunks dropped because the queue
-        # was full. Exposed via get_status() so the dashboard can warn the
-        # operator.
         self._cont_dropped = 0
-        # Dedicated encoder worker: MP3 encoding of finalized chunks happens
-        # here (off the writer thread) so a long encode never blocks draining
-        # of the continuous queue during multi-hour sessions.
         self._enc_queue: "queue.Queue" = queue.Queue()
         self._enc_thread: Optional[threading.Thread] = None
         self._enc_started = False
-        # True while the encoder thread is actively encoding a chunk (so the
-        # drain helper can wait until the DB row is fully migrated to .mp3).
         self._enc_busy = False
-        # When True the continuous writer stops accepting audio and keeps the
-        # current chunk finalised (used by the dashboard "stop recording" btn).
         self._continuous_paused = False
 
     @abstractmethod
@@ -312,18 +265,11 @@ class AudioSource(ABC):
         if self._running:
             return
         self._running = True
-        # Continuous *feature* is always enabled; whether it begins recording
-        # immediately is controlled by ``continuous_autostart``. When False we
-        # start the writer thread paused (buffers still fill) so it can be
-        # resumed on demand from the dashboard.
         self._continuous_paused = not getattr(self.cfg, "continuous_autostart", True)
         self._thread = threading.Thread(target=self._capture_loop, daemon=True,
                                         name=f"capture-{self.label}")
         self._thread.start()
         if self.cfg.continuous_recording:
-            # Dedicated MP3 encoder worker so a (potentially slow) encode of a
-            # finalized chunk never blocks the writer thread that drains the
-            # live audio queue.
             self._ensure_encoder()
             self._continuous = threading.Thread(target=self._continuous_loop,
                                                 daemon=True, name=f"cont-{self.label}")
@@ -334,7 +280,7 @@ class AudioSource(ABC):
                         label, self.cfg.audio_mode, rxs, self.cfg.channels >= 2)
 
     def _ensure_encoder(self) -> None:
-        """Start the MP3 encoder worker thread once (idempotent)."""
+        """Start the MP3 encoder worker thread (idempotent)."""
         if self._enc_started:
             return
         self._enc_started = True
@@ -343,9 +289,7 @@ class AudioSource(ABC):
         self._enc_thread.start()
 
     def _encoder_loop(self) -> None:
-        """Off-thread MP3 encoder: pulls finalized WAV chunks from ``_enc_queue``
-        and encodes them to MP3 without blocking the continuous writer thread.
-        """
+        """Off-thread MP3 encoder: pulls finalized WAV chunks from _enc_queue."""
         while self._running or not self._enc_queue.empty():
             try:
                 item = self._enc_queue.get(timeout=0.5)
@@ -371,22 +315,21 @@ class AudioSource(ABC):
                 self._enc_busy = False
 
     def stop(self) -> None:
-        """Stop capture and clean up threads promptly (no shutdown hang)."""
+        """Stop capture and clean up threads (finalises chunks, no shutdown hang)."""
+        self._close_cont_files()
         self._running = False
-        # For soundcard, abort the PortAudio stream so the blocking `with`
-        # context manager in the capture loop exits immediately.
-        stream = getattr(self, "_stream", None)
-        if stream is not None:
-            try:
-                stream.abort()
-            except Exception:
-                pass
-        # For TCI, cancel the running asyncio task(s) so the websocket
-        # connection (and its internal keepalive task) is closed gracefully
-        # via the `async with` context manager instead of being left pending
-        # when the loop is closed. Calling loop.stop() here left the
-        # keepalive() task pending and produced
-        # "Task was destroyed but it is pending!" / "Event loop is closed".
+        try:
+            self._cont_queue.put_nowait(('RX1', np.zeros((0, 1), dtype=np.int16)))
+        except queue.Full:
+            pass
+        # Abort any active sounddevice streams
+        for attr in ("_stream", "_stream2"):
+            stream = getattr(self, attr, None)
+            if stream is not None:
+                try:
+                    stream.abort()
+                except Exception:
+                    pass
         loop = getattr(self, "_loop", None)
         if loop is not None and not loop.is_closed():
             def _cancel_tasks() -> None:
@@ -400,69 +343,41 @@ class AudioSource(ABC):
             self._thread.join(timeout=2.0)
         if self._continuous:
             self._continuous.join(timeout=2.0)
+        self._close_cont_files()
         if self._enc_thread:
             self._enc_thread.join(timeout=2.0)
 
-    # -- continuous recording pause / resume (dashboard control) ----------
     def _drain_encoder(self, timeout: float = 30.0) -> None:
-        """Block until the MP3 encoder queue is empty and all pending chunks
-        have been finalised and registered in the DB.
-
-        Called after a chunk is closed so the dashboard (which refreshes
-        immediately on Stop) sees the fully migrated ``.mp3`` row with its
-        duration already set, instead of a transient ``.wav`` row or nothing
-        at all. We wait for both the queue to drain *and* the encoder thread
-        to finish its current encode (``_enc_busy``), because the DB row is
-        only migrated to ``.mp3`` once the encode + DB update completes.
-        """
+        """Block until encoder queue is empty and current encode finishes."""
         if not self.cfg.continuous_recording or self.cfg.audio_format != "mp3":
             return
         deadline = time.time() + timeout
         while time.time() < deadline:
             if self._enc_queue.empty() and not self._enc_busy:
-                # Give the encoder loop one last chance to pull a freshly
-                # queued item; if the queue stays empty and the encoder is
-                # idle we are done.
                 time.sleep(0.05)
                 if self._enc_queue.empty() and not self._enc_busy:
                     return
             time.sleep(0.05)
 
     def pause_continuous(self) -> None:
-        """Finalise the current continuous chunk and stop writing new audio.
+        """Finalise current continuous chunk and stop writing new audio.
 
-        The open chunk is closed (and converted to MP3 if configured) so a
-        complete, playable file remains. The writer thread stays alive but
-        discards queued audio until :meth:`resume_continuous` is called.
-
-        NOTE: We do NOT clear the ring buffers here. The ring buffers are
-        shared with slice_qso() for QSO recording — clearing them would
-        destroy the pre-roll audio that QSO slicing depends on, causing
-        "holes" in QSO recordings after a pause/resume cycle. Continuous
-        recording uses its own internal queue (_cont_queue), not the ring
-        buffers, so stale continuous audio is naturally discarded by the
-        writer thread without touching the shared buffers.
+        Ring buffers are preserved (needed for QSO slicing).
         """
         if not self.cfg.continuous_recording or self._continuous_paused:
             return
         self._continuous_paused = True
         _emit_event("continuous_paused")
         self._close_cont_files()
-        # Wait for the encoder to finish so the DB row is fully migrated to
-        # .mp3 (with its duration) before the dashboard refreshes. Without
-        # this the UI could show a transient .wav row or nothing at all until
-        # the next app restart re-derived the duration.
         self._drain_encoder()
         for label, _buf in self.rx_buffers:
             logger.info("[%s] continuous recording paused (chunk finalised, buffers kept for QSO slicing)",
                         label)
 
     def _rx_label_str(self) -> str:
-        """Comma-joined RX labels, e.g. 'RX1' or 'RX1,RX2' (SO2R)."""
         return ",".join(lbl for lbl, _ in self.rx_buffers)
 
     def _clear_buffers(self) -> None:
-        """Reset every ring buffer so stale audio is dropped on pause/resume."""
         for _label, buf in self.rx_buffers:
             with buf._lock:
                 buf._write_idx = 0
@@ -473,10 +388,6 @@ class AudioSource(ABC):
         if not self.cfg.continuous_recording or not self._continuous_paused:
             return
         if not self.is_connected():
-            # In TCI mode there is no audio source until the radio is linked.
-            # Refuse to start recording so we don't create empty/gap files
-            # against a disconnected transceiver. The dashboard "Record"
-            # button should be disabled when TCI is not connected.
             logger.warning("[%s] cannot resume continuous recording: audio source "
                            "not connected (TCI not linked)", self.label)
             return
@@ -489,10 +400,6 @@ class AudioSource(ABC):
 
     def slice_qso(self, req: QSORequest) -> Optional[str]:
         now = time.time()
-        # The audio buffer only contains samples captured since the contact
-        # packet arrived, so base the slice window on the *receive* time
-        # (when audio actually started being recorded) rather than the QSO
-        # time reported by N1MM (which can be in the past).
         ref_ts = req.receive_ts if req.receive_ts else req.timestamp
         start_off = (now - ref_ts) + req.pre_roll
         end_off = (now - ref_ts) - req.post_roll
@@ -503,18 +410,11 @@ class AudioSource(ABC):
         safe_call = "".join(ch for ch in req.call if ch.isalnum() or ch in "-_")
         stamp = time.strftime("%Y-%m-%d_%H%M", time.localtime(req.timestamp))
         ext = "mp3" if self.cfg.audio_format == "mp3" else "wav"
-        # Year-prefix the contest folder so the same contest repeated in
-        # different years (e.g. CQWW 2025 vs 2026) does not mix recordings.
         year = time.strftime("%Y", time.localtime(req.timestamp))
         contest_dir = f"{year}_{req.contest}" if req.contest else f"{year}_GENERAL"
         out_dir = os.path.join(RECORDINGS_DIR, contest_dir)
 
-        # In SO2R we capture two independent receivers (RX1 = radio 1,
-        # RX2 = radio 2). N1MM reports which radio made the QSO via <RadioNr>,
-        # so we slice only the matching receiver's buffer instead of blindly
-        # iterating over both (which produced two DB rows sharing the same
-        # n1mm_id; the unique index then kept only the RX2 row, making every
-        # QSO appear as if it were logged on RX2).
+        # For SO2R: slice only the matching receiver's buffer (by radio_nr).
         if len(self.rx_buffers) > 1:
             want_label = "RX2" if str(req.radio_nr).strip() == "2" else "RX1"
             target = next((buf for lbl, buf in self.rx_buffers if lbl == want_label),
@@ -537,8 +437,6 @@ class AudioSource(ABC):
                 return None
         logger.debug("[%s] sliced %d frames for %s (contest=%s)",
                       rx_label, frames.shape[0], req.call, contest_dir)
-        # Normalize so every QSO slice has a consistent loudness regardless
-        # of how strong the received signal was (quiet vs loud stations).
         frames, gain_db = _normalize_frames(frames)
         fname = f"{stamp}_{safe_call}_{req.band}_{rx_label}.{ext}"
         out_path = os.path.join(out_dir, fname)
@@ -547,9 +445,7 @@ class AudioSource(ABC):
         logger.info("[%s] saved QSO slice -> %s (%d frames, gain=%+.1f dB)",
                      rx_label, out_path, frames.shape[0], gain_db)
         saved.append((rx_label, out_path))
-        # Persist a DB record so the dashboard can list/filter QSOs.
-        # Forward the rich N1MM metadata (freq, exchange, name, ...) so
-        # the dashboard can display it.
+
         try:
             import db as qso_db
             superseded = qso_db.insert_qso(
@@ -570,9 +466,6 @@ class AudioSource(ABC):
                 raw_ts=req.raw_ts,
                 file_path=f"{contest_dir}/{fname}",
             )
-            # If an edited N1MM contact (contactreplace) produced a new
-            # slice filename, the old audio file is now orphaned — remove
-            # it so it does not linger in the recordings folder.
             if superseded:
                 old_path = os.path.join(RECORDINGS_DIR, superseded)
                 try:
@@ -590,19 +483,13 @@ class AudioSource(ABC):
         return saved[0][1] if saved else None
 
     def _buffer_filled_sec(self) -> float:
-        """Return the fill level (seconds) of the most-filled RX buffer.
-
-        In SO2R (``channels >= 2``) the per-receiver ``rx1_buf`` / ``rx2_buf``
-        buffers are written, while the legacy ``self.buffer`` stays empty. This
-        helper always reports the real fill level regardless of SO1R/SO2R.
-        """
+        """Return the fill level (seconds) of the most-filled RX buffer."""
         total = 0
         for _label, buf in self.rx_buffers:
             total = max(total, getattr(buf, "_filled", 0))
         return total / max(self.cfg.sample_rate, 1)
 
     def get_status(self) -> dict:
-        """Return a generic status dict. Overridden by TCI source."""
         qsize = getattr(self._cont_queue, 'qsize', lambda: 0)()
         qmax = self._cont_queue.maxsize
         return {
@@ -616,17 +503,10 @@ class AudioSource(ABC):
         }
 
     def is_connected(self) -> bool:
-        """Return whether the audio source is actually receiving audio.
-
-        For soundcard mode this is always True (the device is treated as
-        always available). For TCI it reflects the real websocket connection
-        state so the dashboard cannot start recording against a radio that is
-        not connected.
-        """
+        """For soundcard always True; TCI overrides to reflect WebSocket state."""
         return True
 
     def _buffers_detail(self) -> list:
-        """Per-RX buffer fill detail for the dashboard (e.g. RX1/RX2)."""
         detail = []
         for label, buf in self.rx_buffers:
             detail.append({
@@ -636,16 +516,7 @@ class AudioSource(ABC):
         return detail
 
     def _enqueue_cont(self, rx_label: str, frames: np.ndarray) -> None:
-        """Non-blocking enqueue of continuous audio frames.
-
-        Uses a *bounded* queue. If the queue is full (writer/encoder falling
-        behind, e.g. on a slow disk) the oldest pending chunk is dropped so the
-        capture callback never blocks on a full queue — live audio keeps
-        flowing and only a small tail of continuous recording is skipped.
-        """
-        # Force a C-contiguous copy so a column slice from a stereo buffer
-        # (e.g. pcm[:, 1:2]) gets its own physically-sequential memory
-        # before it is written to a WAV via tobytes()/writeframes().
+        """Non-blocking enqueue for continuous audio (drops oldest when full)."""
         frames = np.ascontiguousarray(frames, dtype=np.int16).copy()
         while True:
             try:
@@ -655,36 +526,19 @@ class AudioSource(ABC):
                 try:
                     self._cont_queue.get_nowait()
                     self._cont_dropped += 1
-                    # Emit an event on the first drop so the dashboard can
-                    # react; subsequent drops in the same burst are counted
-                    # but do not flood the event queue.
                     if self._cont_dropped == 1:
                         _emit_event("continuous_dropped", {"dropped": self._cont_dropped})
                 except queue.Empty:
                     return
 
     def _continuous_loop(self) -> None:
-        """Drain the continuous queue, appending audio to per-RX style chunk files.
-
-        A fresh chunk file is opened for every RX (RX1 / RX2 in SO2R) and
-        rolled over every ``continuous_chunk_minutes`` so each file is exactly
-        that long. This avoids keeping a huge in-memory buffer and fixes the
-        old behaviour where only a single short buffer snapshot was saved.
-
-        Chunk files are opened *lazily* — only once recording is actually
-        running (not paused). This prevents the old bug where, with
-        ``continuous_autostart = false``, the loop opened (and DB-registered)
-        empty chunk files at startup that were then silently discarded on the
-        first resume, leaving "start without stop / no audio" rows in the
-        continuous view.
-        """
+        """Drain continuous queue, writing per-RX chunk files rolled every chunk_minutes."""
         if not self.cfg.continuous_recording:
             return
         chunk_sec = max(1, int(self.cfg.continuous_chunk_minutes * 60))
         logger.debug("[%s] continuous loop started (chunk=%ds)", self.label, chunk_sec)
         while self._running:
             if self._continuous_paused:
-                # Drop queued audio so the queue does not grow while paused.
                 try:
                     while True:
                         self._cont_queue.get_nowait()
@@ -692,13 +546,7 @@ class AudioSource(ABC):
                     pass
                 time.sleep(0.2)
                 continue
-            # Not paused: ensure a chunk file is open (re-open after a pause).
             if not self._cont_files:
-                # In TCI mode, do not open a chunk (and thus start recording)
-                # until the radio is actually linked. Without this guard the
-                # continuous autostart path would write silent gap files while
-                # TCI is still connecting / disconnected. Soundcard mode is
-                # always "connected" so it is unaffected.
                 if not self.is_connected():
                     time.sleep(0.5)
                     continue
@@ -718,14 +566,7 @@ class AudioSource(ABC):
         self._close_cont_files()
 
     def _open_cont_files(self) -> None:
-        # Include a millisecond component derived from the FULL epoch time (not
-        # just the fractional part of the current second) so two chunks opened
-        # in the same wall-clock second — e.g. rapid Stop -> Start cycles after
-        # a factory reset — get distinct filenames and therefore distinct
-        # UNIQUE file_path rows in the DB. Without the full-time base the
-        # sub-second part repeats every second and the second chunk's
-        # INSERT OR IGNORE was silently dropped, so the recording never
-        # appeared in the dashboard.
+        """Open new chunk file(s) with a unique millisecond component for the filename."""
         stamp = time.strftime("%Y%m%d_%H%M%S", time.localtime()) + \
                 f"{int(time.time() * 1000) % 100000:05d}"
         out_dir = os.path.join(RECORDINGS_DIR, "_continuous")
@@ -741,8 +582,6 @@ class AudioSource(ABC):
                 self._cont_files[rx_label] = {
                     "wf": wf, "path": path, "frames": 0, "start": time.time()
                 }
-                # Insert a DB record immediately so the in-progress chunk
-                # shows up in the dashboard (duration is updated at rollover).
                 try:
                     import db as qso_db
                     qso_db.insert_qso(
@@ -762,16 +601,7 @@ class AudioSource(ABC):
             f["frames"] += frames.shape[0]
 
     def _finalise_cont_file(self, rx_label: str, f: dict) -> None:
-        """Close one chunk file and persist its DB record.
-
-        If the chunk contains no audio frames it is discarded (file deleted
-        and DB row removed) so the continuous view never shows a "start
-        without stop / no audio" entry.
-
-        When MP3 is configured, the (potentially slow) encode is handed off to
-        the dedicated encoder thread (``_encoder_loop``) so this writer thread
-        never blocks on it during long multi-hour sessions.
-        """
+        """Close a chunk file, persist DB record, and queue MP3 encode if needed."""
         try:
             f["wf"].close()
         except Exception:
@@ -780,7 +610,6 @@ class AudioSource(ABC):
         duration = f["frames"] / max(self.cfg.sample_rate, 1)
         rel = "_continuous/" + os.path.basename(path)
         if f["frames"] == 0:
-            # Empty chunk (e.g. silence or started while paused) -> drop it.
             try:
                 if os.path.exists(path):
                     os.remove(path)
@@ -801,20 +630,12 @@ class AudioSource(ABC):
             qso_db.update_qso_duration(rel, duration)
         except Exception as e:
             logger.debug("continuous db update failed: %s", e)
-        # WAV chunks are written streaming, so they can only be normalized once
-        # closed. Normalize in place to bring the chunk to a consistent level
-        # (only when the user opted in – disabled for performance on long
-        # recordings where consistent loudness is less critical).
         if self.cfg.audio_format == "wav" and self.cfg.normalize_continuous:
             gain_db = _normalize_wav_inplace(path)
             if gain_db is not None:
                 logger.info("[%s] continuous WAV normalized (gain=%+.1f dB) %s",
                             rx_label, gain_db, os.path.basename(path))
-        # MP3 encoding happens off-thread so it never blocks the writer.
         if self.cfg.audio_format == "mp3":
-            # Pass the computed duration so the encoder thread can persist it
-            # on the *renamed* .mp3 row (otherwise the duration update above
-            # would target the soon-to-be-deleted .wav row and be lost).
             self._enc_queue.put((rx_label, path, self.cfg.sample_rate, rel, duration))
 
     def _roll_cont_files(self) -> None:
@@ -844,9 +665,6 @@ class AudioSource(ABC):
         pcm = np.frombuffer(data, dtype=np.int16).reshape(-1, ch) if ch > 1 \
             else np.frombuffer(data, dtype=np.int16)
         gain_db = 0.0
-        # Normalize the PCM to a consistent loudness before encoding to MP3
-        # (only when the user opted in – disabled for performance on long
-        # recordings where consistent loudness is less critical).
         if normalize:
             pcm, gain_db = _normalize_frames(pcm)
         data = pcm.tobytes()
@@ -873,35 +691,39 @@ class AudioSource(ABC):
 
 
 class SoundcardAudioSource(AudioSource):
-    """Capture audio from a system sound device via sounddevice.
+    """Capture audio from system sound device(s) via sounddevice.
 
-    In SO2R (``channels == 2``) the left channel is recorded as **RX1** and
-    the right channel as **RX2**, each into its own circular buffer, so two
-    independent files are produced for every QSO / continuous chunk.
+    In stereo mode (so2r_mode='stereo', channels=2):
+      left channel -> RX1, right channel -> RX2.
+
+    In dual_card mode (so2r_mode='dual_card', channels=2):
+      two separate mono InputStreams, each to its own RX buffer.
     """
 
     def __init__(self, cfg, label: str = "RX1"):
         super().__init__(cfg, label)
         self._stream = None
+        self._stream2 = None
         if cfg.channels >= 2:
-            # Separate mono buffers for each receiver.
             self.rx1_buf = CircularAudioBuffer(cfg.sample_rate, 1,
                                                max(cfg.pre_roll + cfg.post_roll + 5.0, 30.0))
             self.rx2_buf = CircularAudioBuffer(cfg.sample_rate, 1,
                                                max(cfg.pre_roll + cfg.post_roll + 5.0, 30.0))
             self.rx_buffers = [('RX1', self.rx1_buf), ('RX2', self.rx2_buf)]
 
-    def _resolve_device(self):
-        if not self.cfg.soundcard_device:
+    def _resolve_device(self, name_attr: str = "soundcard_device"):
+        """Resolve device index from config attribute *name_attr* (exact name match)."""
+        dev_name = getattr(self.cfg, name_attr, "")
+        if not dev_name:
             return None
         try:
             import sounddevice as sd
             devices = sd.query_devices()
             for i, d in enumerate(devices):
-                if self.cfg.soundcard_device.lower() in d["name"].lower():
+                if d["name"] == dev_name:
                     return i
             logger.warning("Soundcard device '%s' not found, using default",
-                           self.cfg.soundcard_device)
+                           dev_name)
         except Exception as e:
             logger.error("sounddevice query failed: %s", e)
         return None
@@ -914,44 +736,83 @@ class SoundcardAudioSource(AudioSource):
             self._running = False
             return
 
-        device = self._resolve_device()
-        channels = self.cfg.channels
         sr = self.cfg.sample_rate
 
-        def callback(indata, frames_count, time_info, status):
-            if status:
-                logger.debug("sounddevice status: %s", status)
-            pcm = (indata * 32767.0).astype(np.int16)
-            if pcm.ndim == 1:
-                pcm = pcm.reshape(-1, 1)
-            if self.cfg.channels >= 2 and pcm.shape[1] >= 2:
-                # SO2R: left channel -> RX1, right channel -> RX2.
-                self.rx1_buf.write(pcm[:, 0:1])
-                self.rx2_buf.write(pcm[:, 1:2])
-                if self.cfg.continuous_recording and self._running:
-                    self._enqueue_cont('RX1', pcm[:, 0:1])
-                    self._enqueue_cont('RX2', pcm[:, 1:2])
-            else:
-                self.buffer.write(pcm)
+        if self.cfg.channels >= 2 and self.cfg.so2r_mode == "dual_card":
+            # ── dual_card mode: two separate mono streams ──────────────
+            dev1 = self._resolve_device("soundcard_device")
+            dev2 = self._resolve_device("soundcard_device2")
+
+            def callback1(indata, frames_count, time_info, status):
+                if status:
+                    logger.debug("sounddevice1 status: %s", status)
+                pcm = (indata * 32767.0).astype(np.int16)
+                if pcm.ndim == 1:
+                    pcm = pcm.reshape(-1, 1)
+                self.rx1_buf.write(pcm)
                 if self.cfg.continuous_recording and self._running:
                     self._enqueue_cont('RX1', pcm)
 
-        try:
-            self._stream = sd.InputStream(
-                device=device,
-                samplerate=sr,
-                channels=channels,
-                dtype="float32",
-                callback=callback,
-                blocksize=2048,
-            )
-            with self._stream:
-                while self._running:
-                    time.sleep(0.1)
-        except Exception as e:
-            logger.error("[%s] soundcard capture error: %s", self.label, e)
-        finally:
-            self._running = False
+            def callback2(indata, frames_count, time_info, status):
+                if status:
+                    logger.debug("sounddevice2 status: %s", status)
+                pcm = (indata * 32767.0).astype(np.int16)
+                if pcm.ndim == 1:
+                    pcm = pcm.reshape(-1, 1)
+                self.rx2_buf.write(pcm)
+                if self.cfg.continuous_recording and self._running:
+                    self._enqueue_cont('RX2', pcm)
+
+            try:
+                self._stream = sd.InputStream(
+                    device=dev1, samplerate=sr, channels=1,
+                    dtype="float32", callback=callback1, blocksize=2048,
+                )
+                self._stream2 = sd.InputStream(
+                    device=dev2, samplerate=sr, channels=1,
+                    dtype="float32", callback=callback2, blocksize=2048,
+                )
+                with self._stream, self._stream2:
+                    while self._running:
+                        time.sleep(0.1)
+            except Exception as e:
+                logger.error("[%s] dual_card capture error: %s", self.label, e)
+            finally:
+                self._running = False
+        else:
+            # ── stereo / mono mode: single stream ─────────────────────
+            device = self._resolve_device("soundcard_device")
+            channels = self.cfg.channels
+
+            def callback(indata, frames_count, time_info, status):
+                if status:
+                    logger.debug("sounddevice status: %s", status)
+                pcm = (indata * 32767.0).astype(np.int16)
+                if pcm.ndim == 1:
+                    pcm = pcm.reshape(-1, 1)
+                if self.cfg.channels >= 2 and pcm.shape[1] >= 2:
+                    self.rx1_buf.write(pcm[:, 0:1])
+                    self.rx2_buf.write(pcm[:, 1:2])
+                    if self.cfg.continuous_recording and self._running:
+                        self._enqueue_cont('RX1', pcm[:, 0:1])
+                        self._enqueue_cont('RX2', pcm[:, 1:2])
+                else:
+                    self.buffer.write(pcm)
+                    if self.cfg.continuous_recording and self._running:
+                        self._enqueue_cont('RX1', pcm)
+
+            try:
+                self._stream = sd.InputStream(
+                    device=device, samplerate=sr, channels=channels,
+                    dtype="float32", callback=callback, blocksize=2048,
+                )
+                with self._stream:
+                    while self._running:
+                        time.sleep(0.1)
+            except Exception as e:
+                logger.error("[%s] soundcard capture error: %s", self.label, e)
+            finally:
+                self._running = False
 
 
 class TCIAudioSource(AudioSource):
@@ -963,9 +824,6 @@ class TCIAudioSource(AudioSource):
         self._connected = False
         self._frames_received = 0
         self._last_log_time = time.monotonic()
-        # Map TCI receiver index -> circular buffer. In SO2R we capture
-        # receiver 0 (RX1) and receiver 1 (RX2) into separate buffers so two
-        # independent files are produced.
         if cfg.channels >= 2:
             self.rx1_buf = CircularAudioBuffer(cfg.sample_rate, 1,
                                                max(cfg.pre_roll + cfg.post_roll + 5.0, 30.0))
@@ -975,7 +833,6 @@ class TCIAudioSource(AudioSource):
             self._rx_map = {0: self.rx1_buf, 1: self.rx2_buf}
             self._rx_label_map = {0: 'RX1', 1: 'RX2'}
         else:
-            # SO1R: always record the main receiver (index 0).
             self._rx_map = {0: self.buffer}
             self._rx_label_map = {0: 'RX1'}
 
@@ -994,14 +851,10 @@ class TCIAudioSource(AudioSource):
         try:
             self._loop.run_until_complete(self._ws_client())
         except asyncio.CancelledError:
-            # Normal path on stop(): the task(s) are cancelled so the loop
-            # returns cleanly instead of leaving pending tasks behind.
             logger.debug("[%s] TCI client cancelled", self.label)
         except Exception as e:
             logger.error("[%s] TCI client error: %s", self.label, e)
         finally:
-            # Drain any tasks that refused to cancel gracefully so the loop
-            # can be closed without "Task was destroyed but it is pending!".
             try:
                 if not self._loop.is_closed():
                     for task in asyncio.all_tasks(self._loop):
@@ -1029,10 +882,7 @@ class TCIAudioSource(AudioSource):
                     self._connected = True
                     rx = 0
 
-                    # The server broadcasts initialization commands and ends
-                    # with "READY;" (case-insensitive per the TCI spec). We
-                    # must detect that before requesting the audio stream,
-                    # otherwise AUDIO_START is never sent and nothing records.
+                    # Wait for READY before requesting audio stream.
                     ready = False
                     got_any = False
                     deadline = time.monotonic() + 6.0
@@ -1056,27 +906,17 @@ class TCIAudioSource(AudioSource):
                         logger.warning("[%s] TCI: 'READY' not seen, proceeding anyway "
                                        "(some servers omit it)", self.label)
 
-                    # Commands are sent exactly as named in the TCI spec
-                    # (case-sensitive on many ExpertSDR builds). The audio
-                    # stream requires: SAMPLE_TYPE, CHANNELS, SAMPLE_RATE and
-                    # SAMPLES, in that order, before AUDIO_START. Sample rates
-                    # allowed by the spec are 8/12/24/48 kHz.
                     async def _tci_send(cmd: str) -> None:
-                        # Log the raw command we send to ExpertSDR (visible in
-                        # the dashboard Log modal when debug is enabled) so the
-                        # full TCI exchange can be inspected.
                         logger.debug("[%s] TCI >> %s", self.label, cmd)
                         await ws.send(cmd)
 
                     await _tci_send("SET_CLIENT_NAME:QSOCapture;")
                     await _tci_send("AUDIO_STREAM_SAMPLE_TYPE:int16;")
                     await _tci_send(f"AUDIO_STREAM_CHANNELS:{self.cfg.channels};")
-                    # Clamp to a rate the TCI server accepts for the audio stream.
                     audio_sr = min(max(int(self.cfg.sample_rate), 8000), 48000)
                     await _tci_send(f"AUDIO_SAMPLERATE:{audio_sr};")
                     await _tci_send("AUDIO_STREAM_SAMPLES:1024;")
                     if self.cfg.channels >= 2:
-                        # SO2R: capture receiver 0 (RX1) and receiver 1 (RX2).
                         await _tci_send("AUDIO_START:0;")
                         await _tci_send("AUDIO_START:1;")
                         logger.info("[%s] TCI audio requested (SO2R rx=0,1, sr=%d)",
@@ -1086,28 +926,19 @@ class TCIAudioSource(AudioSource):
                         logger.info("[%s] TCI audio requested (rx=0, sr=%d)",
                                     self.label, audio_sr)
 
-                    # Diagnostics: count every binary frame actually received
-                    # so the dashboard/log shows whether the server is sending
-                    # audio at all.
                     self._frames_received = 0
                     async for message in ws:
                         if not self._running:
                             break
                         if isinstance(message, str):
-                            # Raw text message received from ExpertSDR (status
-                            # updates, TRX state, etc.). Log it so the full TCI
-                            # exchange is visible in debug mode.
                             logger.debug("[%s] TCI << %s", self.label, message.strip())
                         self._handle_tci_message(message)
             except asyncio.CancelledError:
-                # stop() cancelled the task: exit the reconnect loop cleanly.
                 break
             except Exception as e:
                 self._connected = False
                 logger.warning("[%s] TCI connection error, reconnect in 3s: %s",
                                self.label, e)
-                # Guard the reconnect sleep: if the loop is being torn down
-                # (CancelledError) don't attempt to sleep on a closed loop.
                 try:
                     await asyncio.sleep(3.0)
                 except asyncio.CancelledError:
@@ -1122,8 +953,6 @@ class TCIAudioSource(AudioSource):
             raw = bytes(message)
             result = self._decode_binary_audio(raw)
             if result is None:
-                # Non-audio binary frame (e.g. control/keepalive). Logged in
-                # debug so the raw TCI stream is fully visible.
                 logger.debug("[%s] TCI << binary (len=%d, not audio)", self.label, len(raw))
                 return
             pcm, rx_index = result
@@ -1139,10 +968,6 @@ class TCIAudioSource(AudioSource):
         if len(raw) < HEADER + 4:
             return None
         hdr = np.frombuffer(raw[:HEADER], dtype=np.uint32)
-        # TCI Stream header layout (all uint32, little-endian):
-        #   [0] receiver   [1] sample_rate   [2] format   [3] codec
-        #   [4] crc        [5] length        [6] type     [7] channels
-        # The receiver number lives in hdr[0]; hdr[3] is the (unused) codec.
         rx_index = int(hdr[0])
         fmt = int(hdr[2])
         stype = int(hdr[6])
@@ -1177,15 +1002,11 @@ class TCIAudioSource(AudioSource):
             return None
 
         if nchan > 1 and pcm.ndim == 1 and pcm.shape[0] % nchan == 0:
-            # Force C-contiguous memory for the selected channel before it is
-            # routed to a buffer / written to disk (defensive against any
-            # strides-based copy assumptions downstream).
             pcm = np.ascontiguousarray(pcm.reshape(-1, nchan)[:, 0], dtype=np.int16)
         return pcm, rx_index
 
     def _push_pcm(self, pcm: np.ndarray, rx_index: int = 0) -> None:
         pcm = np.asarray(pcm, dtype=np.int16).reshape(-1, 1)
-        # Route to the receiver-specific buffer (RX1 / RX2 in SO2R).
         buf = self._rx_map.get(rx_index, self.buffer)
         n = pcm.shape[0]
         buf.write(pcm)
@@ -1216,7 +1037,6 @@ class TCIAudioSource(AudioSource):
         }
 
     def is_connected(self) -> bool:
-        """TCI is only connected once the websocket handshake completes."""
         return bool(getattr(self, "_connected", False))
 
 

@@ -1,17 +1,14 @@
-"""
-Nuitka build script for QSOCapture.
+"""Nuitka build script for QSOCapture.
 
-Builds a standalone Windows EXE with an embedded Qt WebEngine browser
-(PySide6 / QWebEngineView). No external browser or Python required.
-
-Produces a onedir folder (qt_launcher.dist/) suitable for the Inno Setup
-installer. For a portable single-file EXE, run with --onefile:
-
-    python build_nuitka.py --onefile
+Builds a standalone Windows EXE with embedded Qt WebEngine (PySide6).
+Produces a onedir folder (qt_launcher.dist/) for Inno Setup, or --onefile
+for a portable EXE.
 
 Usage:
-    python build_nuitka.py                  # onedir (folder for installer)
+    python build_nuitka.py                  # onedir (for installer)
+    python build_nuitka.py --onefile        # single-file portable EXE
 """
+
 import argparse
 import os
 import subprocess
@@ -21,8 +18,7 @@ import sys
 def main():
     parser = argparse.ArgumentParser(description="Build QSOCapture with Nuitka")
     parser.add_argument(
-        "--onefile",
-        action="store_true",
+        "--onefile", action="store_true",
         help="Build a single-file portable EXE (default: onedir folder for installer)",
     )
     args = parser.parse_args()
@@ -30,96 +26,48 @@ def main():
     app_version = os.environ.get("APP_VERSION", "")
     version_suffix = f"-{app_version}" if app_version else ""
 
-    # Nuitka requires a purely numeric version for VERSIONINFO (e.g. "0.6.1").
-    # Strip any non-numeric suffix like "beta", "rc1", etc.
     import re
     numeric_version = re.sub(r"[^0-9.]", "", app_version) or "0.6.1"
 
-    # The main entry point
     main_script = "qt_launcher.py"
+    data_files = ["index.html", "icon.svg", "icon.ico"]
 
-    # Data files to bundle
-    data_files = [
-        "index.html",
-        "icon.svg",
-        "icon.ico",
-    ]
-
-    # Base Nuitka command
     cmd = [
-        sys.executable,
-        "-m",
-        "nuitka",
+        sys.executable, "-m", "nuitka",
         "--standalone" if not args.onefile else "--onefile",
-        # Enable PySide6 plugin for automatic Qt DLL handling
         "--enable-plugin=pyside6",
-        # No console window for a desktop app
         "--windows-console-mode=disable",
-        # Application icon
         f"--windows-icon-from-ico=icon.ico",
-        # Auto-accept downloads (Dependency Walker, etc.)
         "--assume-yes-for-downloads",
-        # Link-time optimisation — produces smaller, more optimised binaries
-        # which are less likely to trigger heuristic antivirus detection.
         "--lto=yes",
-        # NOTE: --windows-uac-uiaccess is intentionally NOT used here.
-        # It adds a requireAdministrator manifest which causes error 740
-        # (elevation required) on launch. The app stores all data in
-        # %LOCALAPPDATA% and does not need admin rights.
-        # Disable ccache to ensure fully reproducible builds (ccache can
-        # sometimes produce non-deterministic output that looks suspicious).
         "--disable-ccache",
-        # Strip docstrings to reduce binary size (smaller EXE is less likely
-        # to trigger heuristic detection).
         "--python-flag=-OO",
-        # Remove temporary build artefacts after compilation.
         "--remove-output",
-        # Windows metadata (VERSIONINFO) — makes the EXE look like a proper
-        # signed application rather than an unknown binary.
         "--windows-company-name=SQ3RX",
         "--windows-product-name=QSOCapture",
         "--windows-file-description=Amateur Radio Contest Audio Recorder",
-        # File/product version is required when any VERSIONINFO is given.
-        # Use numeric_version (stripped of non-numeric suffixes like "beta"),
-        # or fall back to "0.6.1".
         f"--windows-file-version={numeric_version}",
         f"--windows-product-version={numeric_version}",
-        # Include data files
     ]
 
     for f in data_files:
         cmd.append(f"--include-data-files={f}={f}")
 
-    # Explicitly include modules that may not be auto-detected
     hidden_modules = [
-        "main",
-        "config",
-        "db",
-        "audio_manager",
-        "n1mm_listener",
-        "uvicorn.logging",
-        "uvicorn.loops",
-        "uvicorn.loops.auto",
-        "uvicorn.protocols",
-        "uvicorn.protocols.http",
-        "uvicorn.protocols.http.auto",
-        "uvicorn.protocols.websockets",
-        "uvicorn.protocols.websockets.auto",
-        "uvicorn.lifespan",
-        "uvicorn.lifespan.on",
+        "main", "config", "db", "audio_manager", "n1mm_listener",
+        "uvicorn.logging", "uvicorn.loops", "uvicorn.loops.auto",
+        "uvicorn.protocols", "uvicorn.protocols.http", "uvicorn.protocols.http.auto",
+        "uvicorn.protocols.websockets", "uvicorn.protocols.websockets.auto",
+        "uvicorn.lifespan", "uvicorn.lifespan.on",
     ]
     for mod in hidden_modules:
         cmd.append(f"--include-module={mod}")
 
-    # Output filename (only meaningful for --onefile; for standalone Nuitka
-    # always names the .dist folder after the main script, qt_launcher)
     if args.onefile:
         exe_name = f"QSOCapture-portable{version_suffix}"
     else:
         exe_name = "QSOCapture"
     cmd.append(f"--output-filename={exe_name}.exe")
-
-    # Add the main script
     cmd.append(main_script)
 
     print(f"Running: {' '.join(cmd)}")
@@ -129,7 +77,6 @@ def main():
     if result.returncode != 0:
         print(f"ERROR: Nuitka build failed with exit code {result.returncode}")
         sys.exit(1)
-
     print("Build completed successfully!")
 
 
