@@ -121,6 +121,8 @@
     .clear-btn:hover { background:#64748b; color:#f1f5f9; }
     .clear-btn.visible { display:flex; }
     .clear-btn svg { display:block; flex-shrink:0; }
+    /* Disabled filter fields in the Continuous tab */
+    .filter-disabled { opacity: 0.5; pointer-events: none; }
     table { border-collapse:collapse; } th,td { padding:.75rem 1rem; }
     .text-center { text-align:center; } .py-10 { padding-top:2.5rem; padding-bottom:2.5rem; }
     .font-mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
@@ -198,8 +200,9 @@
       <div>
         <label class="block text-xs uppercase tracking-wide text-slate-400 mb-1">Contest</label>
         <div class="relative">
-          <input id="contest" type="text" placeholder="e.g. CQWW or 2026_CQ" autocomplete="off"
+          <input id="contest" type="text" placeholder="e.g. CQWW or 2025 CQWW" autocomplete="off"
                  class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm pr-7" />
+          <input id="contestRaw" type="hidden" value="" />
           <button id="clearContest" type="button" title="Clear contest"
                   class="clear-btn hidden"><svg class="w-3 h-3" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
           <div id="contestDropdown" class="hidden absolute z-50 w-full bg-slate-900 border border-slate-700 rounded-md mt-1 max-h-48 overflow-y-auto shadow-lg"></div>
@@ -810,7 +813,11 @@
       const f = (filter || '').toLowerCase().trim();
       let items = contestList;
       if (f) {
-        items = items.filter(c => c.toLowerCase().includes(f));
+        // Match against both the raw value and the formatted label.
+        items = items.filter(c =>
+          (c.value || '').toLowerCase().includes(f) ||
+          (c.label || '').toLowerCase().includes(f)
+        );
       }
       dd.innerHTML = '';
       if (items.length === 0) {
@@ -823,10 +830,11 @@
       items.forEach(c => {
         const d = document.createElement('div');
         d.className = 'px-3 py-2 text-sm text-slate-200 hover:bg-slate-700 cursor-pointer';
-        d.textContent = c;
+        d.textContent = c.label || c.value;
+        d.setAttribute('data-value', c.value);
         d.addEventListener('mousedown', (e) => {
           e.preventDefault(); // prevent blur from firing on the input
-          selectContest(c);
+          selectContest(c.value, c.label);
         });
         dd.appendChild(d);
       });
@@ -843,9 +851,11 @@
       contestHighlightIdx = -1;
     }
 
-    function selectContest(value) {
+    function selectContest(value, label) {
       const inp = $('contest');
-      inp.value = value;
+      const raw = $('contestRaw');
+      inp.value = label || value;
+      raw.value = value;
       hideContestDropdown();
       updateClearBtn('contest');
       loadQsos();
@@ -865,7 +875,9 @@
 
     function doClearContest() {
       const inp = $('contest');
+      const raw = $('contestRaw');
       inp.value = '';
+      raw.value = '';
       hideContestDropdown();
       updateClearBtn('contest');
       loadQsos();
@@ -1117,7 +1129,7 @@
       // over the newer, narrower count — making the header say e.g. 13 but
       // showing many more rows).
       const reqId = ++qsoReqId;
-      const c = $('contest').value, call = $('call').value,
+      const c = $('contestRaw').value || $('contest').value, call = $('call').value,
             band = $('band').value,
             mode = $('mode').value, cont = $('continuous').value,
             rxSel = $('rx').value,
@@ -1213,7 +1225,7 @@
                <td class="px-4 py-2 text-slate-400 font-mono">${formatFreq(q.freq)}</td>
                <td class="px-4 py-2 text-slate-300">${q.exchange || '—'}</td>
                <td class="px-4 py-2">${rxBadge(q.label)}</td>
-               <td class="px-4 py-2 text-slate-500">${q.contest}</td>`;
+               <td class="px-4 py-2 text-slate-500">${q.contest_display || q.contest}</td>`;
              const td = document.createElement('td');
              td.className = 'px-0 py-0';
              td.appendChild(buildPlayer(q.url, q.url ? q.url.replace('/audio/', '') : '', q.file));
@@ -1269,7 +1281,7 @@
         ['WPX', q.wpxprefix], ['Continent', q.continent],
         ['My Call', q.mycall], ['Comment', q.comment],
         ['Operator', q.operator], ['Station', q.station],
-        ['Contest', q.contest], ['Contest Nr', q.contest_nr],
+        ['Contest', q.contest_display || q.contest], ['Contest Nr', q.contest_nr],
         ['Points', q.points], ['Multiplier', q.multiplier],
         ['Mult2', q.multiplier2], ['Mult3', q.multiplier3],
         ['Prec', q.prec], ['CK', q.ck], ['Power', q.power],
@@ -1437,14 +1449,28 @@
       } else if (e.key === 'Enter') {
         e.preventDefault();
         if (contestHighlightIdx >= 0 && items[contestHighlightIdx]) {
-          selectContest(items[contestHighlightIdx].textContent);
+          const el = items[contestHighlightIdx];
+          selectContest(el.getAttribute('data-value') || el.textContent,
+                        el.textContent);
         } else if (!contestInput.value.trim()) {
           // Field is empty — reload QSOs without contest filter
           hideContestDropdown();
           loadQsos();
         } else {
-          // No item highlighted — just hide the dropdown without loading QSOs
-          hideContestDropdown();
+          // No item highlighted — resolve manually typed text against known
+          // contests (normalized match), then reload.
+          const typed = contestInput.value.trim();
+          const match = contestList.find(c =>
+            (c.label || '').toLowerCase() === typed.toLowerCase() ||
+            (c.value || '').toLowerCase() === typed.toLowerCase()
+          );
+          if (match) {
+            selectContest(match.value, match.label);
+          } else {
+            $('contestRaw').value = typed;
+            hideContestDropdown();
+            loadQsos();
+          }
         }
       } else if (e.key === 'Escape') {
         hideContestDropdown();
@@ -1454,9 +1480,23 @@
       // Delay so click on dropdown item fires before blur
       setTimeout(() => {
         hideContestDropdown();
-        // If the field was cleared, reload QSOs without contest filter
-        if (!contestInput.value.trim()) {
+        const typed = contestInput.value.trim();
+        if (!typed) {
+          // If the field was cleared, reload QSOs without contest filter
+          $('contestRaw').value = '';
           loadQsos();
+        } else {
+          // Try to resolve manually typed text to a known contest.
+          const match = contestList.find(c =>
+            (c.label || '').toLowerCase() === typed.toLowerCase() ||
+            (c.value || '').toLowerCase() === typed.toLowerCase()
+          );
+          if (match) {
+            contestInput.value = match.label;
+            $('contestRaw').value = match.value;
+          } else {
+            $('contestRaw').value = typed;
+          }
         }
       }, 150);
     });
@@ -1557,14 +1597,63 @@
       }
     });
 
+    // Clear all filter fields (contest, call, band, mode, rx, date range).
+    // Called when switching between the N1MM and Continuous tabs so leftover
+    // filters from one view do not silently restrict the other.
+    function clearFilters() {
+      // Contest
+      const contestInp = $('contest');
+      contestInp.value = '';
+      $('contestRaw').value = '';
+      hideContestDropdown();
+      updateClearBtn('contest');
+      // Call
+      const callInp = $('call');
+      callInp.value = '';
+      updateClearBtn('call');
+      // Band
+      document.querySelectorAll('#bandDropdown input[type="checkbox"]').forEach(cb => cb.checked = false);
+      $('bandCustom').value = '';
+      updateBandLabel();
+      // Mode
+      $('mode').value = '';
+      // RX
+      $('rx').value = '';
+      // Date range
+      dateFromPicker.clear();
+      dateToPicker.clear();
+    }
+
+    // Disable filters that are irrelevant in the Continuous tab (contest,
+    // call, band, mode). RX and date range remain active.
+    function updateFilterState() {
+      const isCont = $('continuous').value === 'true';
+      ['contest', 'call', 'mode'].forEach(id => {
+        const el = $(id);
+        el.disabled = isCont;
+        el.classList.toggle('filter-disabled', isCont);
+      });
+      // Band is a custom dropdown (div), not a native input.
+      const bandDisplay = $('bandDisplay');
+      bandDisplay.classList.toggle('filter-disabled', isCont);
+      bandDisplay.setAttribute('tabindex', isCont ? '-1' : '0');
+    }
+
     // Other filter fields use the standard debounced input/change pattern.
     // Date fields only trigger on "change" (when the user finishes typing and
     // moves away or presses Enter) to avoid firing a query on every character
     // while the user is still typing a partial date like "2026-07-2".
     let t;
-    ['call','mode','rx','continuous'].forEach(id => {
+    ['call','mode','rx'].forEach(id => {
       $(id).addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => loadQsos(), 200); });
       $(id).addEventListener('change', () => loadQsos());
+    });
+    // Switching between the N1MM and Continuous tabs clears all remaining
+    // filters so each view always starts from a clean, unfiltered state.
+    $('continuous').addEventListener('change', () => {
+      clearFilters();
+      updateFilterState();
+      loadQsos();
     });
     // Date fields are handled by flatpickr's onChange callback above.
     $('refresh').addEventListener('click', () => loadQsos());
@@ -1858,7 +1947,9 @@
         // Build Reset group
         let contestOpts = '<option value="">— Select contest —</option>';
         (contestList || []).forEach(c => {
-          contestOpts += `<option value="${c}">${c}</option>`;
+          const val = c.value || c;
+          const lbl = c.label || c;
+          contestOpts += `<option value="${val}">${lbl}</option>`;
         });
 
         let reset = ''
@@ -2241,6 +2332,8 @@
           if (sel.value !== 'true') {
             sel.value = 'true';
           }
+          clearFilters();
+          updateFilterState();
           loadQsos();
         } else if (r.status === 409) {
           // TCI not connected — the backend refused to start recording.
@@ -2262,6 +2355,7 @@
 
     loadStatus();
     loadContests().then(loadQsos);
+    updateFilterState();
 
     // --- Periodic status refresh (buffer fill / connection badges) --------
     // The QSO *list* is refreshed on backend SSE events (instead of a fixed

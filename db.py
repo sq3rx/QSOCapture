@@ -283,15 +283,85 @@ def insert_contact(contact, file_path: Optional[str] = None) -> None:
     )
 
 
-def list_contests() -> List[str]:
-    """Return sorted distinct contest names (excluding internal _* entries)."""
+def format_contest_name(raw: str) -> str:
+    """Format a raw contest name like '20256_CQWW_CW' into a readable label.
+
+    * Strips a leading year prefix (e.g. '2025_') and any leading digits
+      that are part of the contest name (e.g. '6_' in '20256_CQWW_CW').
+    * Replaces underscores and hyphens with spaces.
+    * Returns the original string if it cannot be parsed.
+    """
+    if not raw:
+        return raw
+    name = raw.strip()
+    # Split off a leading year (4 digits) if present.
+    year = ""
+    rest = name
+    m = re.match(r"^(\d{4})[_-]?(.*)$", name)
+    if m:
+        year = m.group(1)
+        rest = m.group(2)
+    # Strip any remaining leading digits + separator (e.g. '6_' in '20256_CQWW_CW').
+    rest = re.sub(r"^\d+[_-]?", "", rest)
+    # Replace separators with spaces and collapse multiple spaces.
+    label = re.sub(r"[_-]+", " ", rest).strip()
+    if year:
+        label = f"{year} {label}".strip()
+    return label or name
+
+
+def _normalize_contest_key(s: str) -> str:
+    """Normalize a contest name for fuzzy matching: lowercase, strip separators."""
+    return re.sub(r"[_\-\s]+", "", (s or "").lower())
+
+
+def resolve_contest(user_input: str) -> Optional[str]:
+    """Resolve a user-entered contest name to the raw DB value.
+
+    Tries exact match first, then normalized (case-insensitive, ignoring
+    underscores/hyphens/spaces) match against all known contests.
+    Returns None if no match found.
+    """
+    if not user_input:
+        return None
+    inp = user_input.strip()
+    con = _connect()
+    rows = con.execute(
+        "SELECT DISTINCT contest FROM qsos "
+        "WHERE contest != '' AND contest IS NOT NULL "
+        "AND contest NOT GLOB '_*'"
+    ).fetchall()
+    # Exact match first.
+    for (raw,) in rows:
+        if raw == inp:
+            return raw
+    # Normalized match.
+    key = _normalize_contest_key(inp)
+    if not key:
+        return None
+    for (raw,) in rows:
+        if _normalize_contest_key(raw) == key:
+            return raw
+    return None
+
+
+def list_contests() -> List[dict]:
+    """Return sorted distinct contest names (excluding internal _* entries).
+
+    Each entry is a dict with:
+      * value - raw contest name as stored in the DB (used for filtering)
+      * label - human-readable formatted name (used for display)
+    """
     con = _connect()
     rows = con.execute(
         "SELECT DISTINCT contest FROM qsos "
         "WHERE contest != '' AND contest IS NOT NULL "
         "AND contest NOT GLOB '_*' ORDER BY contest"
     ).fetchall()
-    return [r[0] for r in rows]
+    return [
+        {"value": r[0], "label": format_contest_name(r[0])}
+        for r in rows
+    ]
 
 
 def query_contacts(
@@ -398,7 +468,9 @@ def query_contacts(
         label = r["rx"] or "RX1"
         ts = r["timestamp"]
         results.append({
-            "id": r["id"], "contest": r["contest"], "call": r["call"],
+            "id": r["id"], "contest": r["contest"],
+            "contest_display": format_contest_name(r["contest"]),
+            "call": r["call"],
             "band": r["band"], "mode": r["mode"], "freq": r["freq"],
             "name": r["name"] or "", "qth": r["qth"] or "",
             "grid": r["grid"] or "", "comment": r["comment"] or "",

@@ -50,7 +50,7 @@ The dashboard header contains:
 
 The main area has two views selected via the **Type** filter:
 
-- **N1MM QSOs** – list of sliced contacts showing Timestamp, Call, Band, Mode, Freq, Exch, RX, Contest and an inline audio player.
+- **N1MM QSOs** – list of sliced contacts showing Timestamp, Call, Band, Mode, Freq, Exch, RX, Contest (in a readable format, e.g. `2025 CQWW CW`) and an inline audio player.
 - **Continuous** – list of continuous recording chunks showing Start, Stop, Duration, RX and the player.
 
 ---
@@ -198,7 +198,7 @@ The dashboard offers several filters above the QSO list:
 
 | Filter | Description |
 | ------ | ----------- |
-| **Contest** | Text field with autocomplete. Type a contest name fragment (e.g. `CQWW`) and select from the dropdown. |
+| **Contest** | Text field with autocomplete. Contest names are shown in a readable format (e.g. `2025 CQWW CW` instead of `20256_CQWW_CW`). Type a fragment (e.g. `CQWW`) or a full formatted name (e.g. `2025 CQWW CW`) and select from the dropdown — the filter resolves it to the correct contest automatically. |
 | **Call / Prefix** | Free-text search. Enter a callsign (`SQ3RX`), prefix (`SQ`), or a **regular expression** (`^SQ`, `3[A-Z]X$`, `SQ\|SP`). Invalid regex is treated as plain text. |
 | **Band** | Dropdown with checkboxes for bands 160M–2M plus a custom band field. Multiple bands can be selected at once. |
 | **Mode** | Exact match: CW, SSB, RTTY, FT8, PSK, DIGI, or all. |
@@ -226,7 +226,7 @@ Every row in the QSO and Continuous views includes a built-in audio player.
 
 ### QSO details
 
-Click on a QSO row (but not on player controls) to open a details panel with: name, QTH, grid, exchange, points, **WPX prefix, continent, multipliers, prec, CK, power** and more – all captured automatically from the N1MM Logger+ contact broadcast.
+Click on a QSO row (but not on player controls) to open a details panel with: name, QTH, grid, exchange, points, **WPX prefix, continent, multipliers, prec, CK, power** and more – all captured automatically from the N1MM Logger+ contact broadcast. The **Contest** field in the details panel shows the contest name in a readable format (e.g. `2025 CQWW CW`).
 
 ---
 
