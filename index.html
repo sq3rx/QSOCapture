@@ -1683,6 +1683,26 @@
     $('openHelp').addEventListener('click', showHelp);
     $('closeHelp').addEventListener('click', hideHelp);
 
+    // Open external links in the system browser. In the desktop app
+    // (QWebEngineView) target="_blank" does nothing, so we intercept clicks
+    // on any external link inside the About modal and delegate to the Python
+    // bridge (openExternalUrl). In a plain browser this falls back to
+    // window.open.
+    $('helpLink').addEventListener('click', (e) => {
+      e.preventDefault();
+      openExternalUrl('https://github.com/sq3rx/QSOCapture');
+    });
+    // Global delegated handler: any link with target="_blank" inside the
+    // About modal (including the dynamically generated "Download" and
+    // "Changelog" links from checkForUpdate) is routed through the bridge.
+    $('helpModal').addEventListener('click', (e) => {
+      const a = e.target.closest && e.target.closest('a[target="_blank"]');
+      if (a) {
+        e.preventDefault();
+        openExternalUrl(a.href);
+      }
+    });
+
     // --- Version update check ---------------------------------------------
     // Auto-checks GitHub for a newer release. On startup a small badge is
     // shown in the header (unless the user dismissed it for that version).
