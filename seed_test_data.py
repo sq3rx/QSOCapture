@@ -1,15 +1,27 @@
-"""Seed the database with test data from a CBR file plus generated contests.
+"""Seed the database with realistic test data for QSOCapture.
+
+Generates synthetic QSOs for real contests (with their real available modes),
+creates a short audio recording (WAV or MP3) for each QSO, and optionally
+creates continuous recordings.
+
+Works both for the EXE build (data in %LOCALAPPDATA%\\QSOCapture) and for
+`python main.py` (data in the project directory). The target directory is
+auto-detected, or can be forced with --target / --app-dir.
 
 Usage:
-    python seed_test_data.py          # uses tests/*.cbr and creates dummy audio
-    python seed_test_data.py --clean  # removes existing DB first
+    python seed_test_data.py                          # 5 contests, 1000 QSOs each, MP3 (auto-detect)
+    python seed_test_data.py --target python          # data to project dir (python main.py)
+    python seed_test_data.py --target exe             # data to %LOCALAPPDATA%\\QSOCapture (EXE)
+    python seed_test_data.py --contests 3 --qsos 50   # 3 contests, 50 QSOs each
+    python seed_test_data.py --format wav             # WAV instead of MP3
+    python seed_test_data.py --no-continuous          # skip continuous recordings
+    python seed_test_data.py --clean                  # remove existing DB first
+    python seed_test_data.py --app-dir PATH           # explicit data directory
 """
 
 from __future__ import annotations
 
 import argparse
-import glob
-import math
 import os
 import random
 import sys
@@ -22,21 +34,100 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import db as qso_db
 
-RECORDINGS_DIR = "recordings"
-TEST_DIR = "tests"
+# ---------------------------------------------------------------------------
+# Data directory resolution (EXE vs python main.py)
+# ---------------------------------------------------------------------------
+
+def _exe_app_dir() -> str:
+    """Return the data directory used by the EXE build (qt_launcher)."""
+    return os.path.join(
+        os.environ.get("LOCALAPPDATA", os.path.expanduser("~")),
+        "QSOCapture",
+    )
+
+
+def _project_dir() -> str:
+    """Return the project directory (used by `python main.py`)."""
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def _resolve_app_dir(target: Optional[str], cli_dir: Optional[str]) -> str:
+    """Resolve the data directory (DB + recordings).
+
+    Priority:
+      1. --app-dir PATH (explicit)
+      2. --target {exe,python} (explicit)
+      3. Auto: prefer the project dir if it already has a DB (python main.py),
+         else the EXE dir if it has a DB, else the project dir (dev default).
+    """
+    if cli_dir:
+        return os.path.abspath(cli_dir)
+    if target == "exe":
+        return _exe_app_dir()
+    if target == "python":
+        return _project_dir()
+    # Auto-detection.
+    if os.path.isfile(os.path.join(_project_dir(), "qsos.db")):
+        return _project_dir()
+    if os.path.isfile(os.path.join(_exe_app_dir(), "qsos.db")):
+        return _exe_app_dir()
+    return _project_dir()
+
+
+# ---------------------------------------------------------------------------
+# Real contests with their real available modes
+# ---------------------------------------------------------------------------
+
+# Each contest: name, available modes, example month/day (year is generated
+# dynamically), and the bands it is typically run on.
+CONTESTS = [
+    # name, modes, (month, day), bands
+    ("CQ-WW-CW",       ["CW"],                    (11, 28), ["160M", "80M", "40M", "20M", "15M", "10M"]),
+    ("CQ-WW-SSB",      ["SSB"],                   (10, 24), ["160M", "80M", "40M", "20M", "15M", "10M"]),
+    ("CQ-WW-RTTY",     ["RTTY"],                  (9, 26),  ["80M", "40M", "20M", "15M", "10M"]),
+    ("CQ-WPX-SSB",     ["SSB"],                   (3, 28),  ["160M", "80M", "40M", "20M", "15M", "10M"]),
+    ("CQ-WPX-CW",      ["CW"],                    (5, 30),  ["160M", "80M", "40M", "20M", "15M", "10M"]),
+    ("CQ-WPX-RTTY",    ["RTTY"],                  (2, 14),  ["80M", "40M", "20M", "15M", "10M"]),
+    ("SP-DX-RTTY",     ["RTTY"],                  (7, 11),  ["80M", "40M", "20M", "15M", "10M"]),
+    ("SP-DX-CW",       ["CW"],                    (7, 11),  ["80M", "40M", "20M", "15M", "10M"]),
+    ("SP-ARG",         ["CW", "SSB"],             (6, 6),   ["80M", "40M", "20M", "15M", "10M"]),
+    ("PZK-SP-DX",      ["CW", "SSB"],             (4, 4),   ["80M", "40M", "20M", "15M", "10M"]),
+    ("ARRL-FIELD-DAY", ["CW", "SSB", "FT8", "FT4", "RTTY", "PSK"], (6, 27), ["160M", "80M", "40M", "20M", "15M", "10M", "6M", "2M", "70CM"]),
+    ("ARRL-DX",        ["CW", "SSB"],             (2, 21),  ["160M", "80M", "40M", "20M", "15M", "10M"]),
+    ("ARRL-10M",       ["CW", "SSB", "FT8", "FT4", "RTTY", "PSK"], (12, 12), ["10M"]),
+    ("ARRL-160M",      ["CW"],                    (12, 4),  ["160M"]),
+    ("ARRL-RTTY",      ["RTTY"],                  (1, 3),   ["80M", "40M", "20M", "15M", "10M"]),
+    ("ARRL-VHF",       ["CW", "SSB", "FT8", "FT4", "RTTY", "PSK"], (6, 13), ["6M", "2M", "70CM"]),
+    ("IARU-HF",        ["CW", "SSB", "RTTY"],     (7, 11),  ["160M", "80M", "40M", "20M", "15M", "10M"]),
+    ("IARU-R1-FD",     ["CW", "SSB", "FT8", "FT4", "RTTY", "PSK"], (8, 1), ["160M", "80M", "40M", "20M", "15M", "10M", "6M", "2M", "70CM"]),
+    ("RDXC",           ["CW", "SSB"],             (3, 21),  ["160M", "80M", "40M", "20M", "15M", "10M"]),
+    ("WAG",            ["CW", "SSB"],             (12, 26), ["160M", "80M", "40M", "20M", "15M", "10M"]),
+    ("EU-HF",          ["CW", "SSB"],             (8, 8),   ["160M", "80M", "40M", "20M", "15M", "10M"]),
+    ("CQMM",           ["CW", "SSB"],             (10, 3),  ["160M", "80M", "40M", "20M", "15M", "10M"]),
+    ("ALL-ASIAN",      ["CW", "SSB"],             (6, 20),  ["160M", "80M", "40M", "20M", "15M", "10M"]),
+    ("JIDX",           ["CW", "SSB"],             (4, 11),  ["160M", "80M", "40M", "20M", "15M", "10M"]),
+    ("OCEANIA-DX",     ["CW", "SSB"],             (10, 10), ["160M", "80M", "40M", "20M", "15M", "10M"]),
+    ("WAE",            ["CW", "SSB", "RTTY"],     (8, 8),   ["80M", "40M", "20M", "15M", "10M"]),
+    ("NAQP",           ["CW", "SSB"],             (1, 17),  ["160M", "80M", "40M", "20M", "15M", "10M"]),
+    ("BARTG-RTTY",     ["RTTY"],                  (3, 21),  ["80M", "40M", "20M", "15M", "10M"]),
+    ("WW-DIGI",        ["FT8", "FT4", "RTTY", "PSK"], (8, 29), ["160M", "80M", "40M", "20M", "15M", "10M", "6M", "2M"]),
+    ("STEW-PERRY",     ["CW"],                    (1, 31),  ["160M", "80M", "40M", "20M", "15M", "10M"]),
+    ("RSGB",           ["CW", "SSB"],             (1, 10),  ["160M", "80M", "40M", "20M", "15M", "10M"]),
+]
+
+# Frequency ranges per band (kHz) for realistic frequencies.
+FREQ_RANGES = {
+    "160M": (1800, 1850), "80M": (3500, 3600), "40M": (7000, 7100),
+    "30M": (10100, 10150), "20M": (14000, 14100), "17M": (18068, 18168),
+    "15M": (21000, 21100), "12M": (24900, 25000), "10M": (28000, 28200),
+    "6M": (50000, 50400), "2M": (144000, 144400), "70CM": (432000, 432400),
+}
 
 BAND_CENTRES = {
     "160": 1.8, "80": 3.5, "40": 7.0, "30": 10.0, "20": 14.0,
     "17": 18.0, "15": 21.0, "12": 24.0, "10": 28.0, "6": 50.0,
+    "2": 144.0, "70": 432.0,
 }
-
-FREQ_RANGES = {
-    "40M": (7000, 7100), "20M": (14000, 14100), "15M": (21000, 21100),
-    "10M": (28000, 28200), "80M": (3500, 3600), "160M": (1800, 1850),
-    "30M": (10100, 10150), "12M": (24900, 25000), "17M": (18068, 18168),
-}
-
-BAND_CYCLE = ["40M", "20M", "15M", "10M", "80M", "20M", "40M", "15M"]
 
 PREFIX_CONTINENT = [
     ("UA9", "AS"), ("UA", "EU"), ("K", "NA"), ("W", "NA"), ("N", "NA"),
@@ -212,8 +303,8 @@ def get_continent(call: str) -> str:
     return "EU"
 
 
-def make_wav(path: str, duration: float, sr: int = 16000) -> None:
-    """Create a short WAV with sine tones + noise."""
+def make_audio(path: str, duration: float, fmt: str = "mp3", sr: int = 16000) -> None:
+    """Create a short audio file (WAV or MP3) with sine tones + noise."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
     n = int(sr * duration)
     t = np.arange(n, dtype=np.float32) / sr
@@ -221,55 +312,38 @@ def make_wav(path: str, duration: float, sr: int = 16000) -> None:
            3000 * np.sin(2 * np.pi * 880 * t) +
            np.random.normal(0, 600, n).astype(np.float32))
     sig = np.clip(sig, -32768, 32767).astype(np.int16)
-    with wave.open(path, "wb") as wf:
-        wf.setnchannels(1)
-        wf.setsampwidth(2)
-        wf.setframerate(sr)
-        wf.writeframes(sig.tobytes())
+
+    if fmt == "mp3":
+        try:
+            import lameenc
+        except ImportError:
+            fmt = "wav"
+            path = os.path.splitext(path)[0] + ".wav"
+    if fmt == "mp3":
+        enc = lameenc.Encoder()
+        enc.set_bit_rate(128)
+        enc.set_in_sample_rate(sr)
+        enc.set_channels(1)
+        enc.set_quality(2)
+        mp3 = enc.encode(sig.tobytes()) + enc.flush()
+        with open(path, "wb") as f:
+            f.write(mp3)
+    else:
+        with wave.open(path, "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(sr)
+            wf.writeframes(sig.tobytes())
 
 
-def parse_cbr(path: str) -> List[dict]:
-    qsos: List[dict] = []
-    contest_name = "UNKNOWN"
-    with open(path, "r", encoding="utf-8", errors="replace") as f:
-        for line in f:
-            s = line.strip()
-            if s.upper().startswith("CONTEST:"):
-                contest_name = s.split(":", 1)[1].strip()
-            elif s.startswith("QSO:"):
-                parts = s.split()
-                if len(parts) < 10:
-                    continue
-                try:
-                    freq_khz = float(parts[1])
-                except ValueError:
-                    freq_khz = 7060.0
-                mode = parts[2]
-                date_str = parts[3]
-                time_str = parts[4]
-                their_call = parts[7]
-                rcv_rst = parts[8] if len(parts) > 8 else "599"
-                rcv_nr = parts[9] if len(parts) > 9 else "001"
-                try:
-                    ts = time.mktime(time.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H%M"))
-                except (ValueError, OverflowError):
-                    ts = time.time()
-                qsos.append({
-                    "contest": contest_name, "call": their_call,
-                    "band": freq_to_band(freq_khz), "mode": mode,
-                    "timestamp": ts, "freq": f"{freq_khz/1000.0:.3f}",
-                    "rcv": rcv_rst, "snt": "599",
-                    "rcvnr": rcv_nr, "sntnr": f"{len(qsos) + 1:04d}",
-                })
-    return qsos
-
-
-def generate_synthetic(name: str, base_date: float, count: int) -> List[dict]:
+def generate_synthetic(name: str, modes: List[str], bands: List[str],
+                       base_date: float, count: int) -> List[dict]:
+    """Generate synthetic QSOs for a contest using only its real modes/bands."""
     qsos: List[dict] = []
     for i in range(count):
-        band = BAND_CYCLE[i % len(BAND_CYCLE)]
+        band = random.choice(bands)
         call = random.choice(CALLS)
-        mode = random.choice(["CW", "SSB", "FT8", "RTTY"])
+        mode = random.choice(modes)
         fr = FREQ_RANGES.get(band, (7000, 7100))
         freq_khz = random.randint(fr[0], fr[1])
         ts = base_date + (i * 48 * 3600) // count + random.uniform(-30, 30)
@@ -284,17 +358,18 @@ def generate_synthetic(name: str, base_date: float, count: int) -> List[dict]:
     return qsos
 
 
-def seed_qsos(qsos: List[dict], contest_dir: str, dur_range=(3.0, 8.0)) -> int:
+def seed_qsos(qsos: List[dict], contest_dir: str, recordings_dir: str,
+              fmt: str = "mp3", dur_range=(3.0, 8.0)) -> int:
     n = len(qsos)
     for i, q in enumerate(qsos):
         ts = q["timestamp"]
         stamp = time.strftime("%Y-%m-%d_%H%M", time.localtime(ts))
         call_safe = safe_call(q["call"])
         label = random.choice(["RX1", "RX2"])
-        fname = f"{stamp}_{call_safe}_{q['band']}_{label}.wav"
+        fname = f"{stamp}_{call_safe}_{q['band']}_{label}.{fmt}"
         rel = f"{contest_dir}/{fname}"
         dur = random.uniform(*dur_range)
-        make_wav(os.path.join(RECORDINGS_DIR, rel), dur)
+        make_audio(os.path.join(recordings_dir, rel), dur, fmt)
         continent = get_continent(q["call"])
         qso_db.insert_qso(
             contest=contest_dir, call=q["call"], band=q["band"],
@@ -320,24 +395,25 @@ def seed_qsos(qsos: List[dict], contest_dir: str, dur_range=(3.0, 8.0)) -> int:
     return n
 
 
-def seed_continuous(start_ts: float, end_ts: float,
-                    chunk_min: int = 60, label: str = "RX1") -> int:
+def seed_continuous(start_ts: float, end_ts: float, recordings_dir: str,
+                    chunk_min: int = 60, label: str = "RX1",
+                    fmt: str = "mp3") -> int:
     """Create continuous chunks spanning [start_ts, end_ts).
 
-    WAV files are short (5 s) for speed; DB duration reflects real chunk length.
+    Audio files are short (5 s) for speed; DB duration reflects real chunk length.
     """
     chunk_sec = chunk_min * 60
     cur = start_ts
     count = 0
-    out_dir = os.path.join(RECORDINGS_DIR, "_continuous")
+    out_dir = os.path.join(recordings_dir, "_continuous")
     os.makedirs(out_dir, exist_ok=True)
 
     while cur < end_ts:
         stamp = time.strftime("%Y%m%d_%H%M%S", time.localtime(cur))
-        fname = f"{stamp}_{label}.wav"
+        fname = f"{stamp}_{label}.{fmt}"
         rel = f"_continuous/{fname}"
         dur = max(min(chunk_sec, end_ts - cur), 1.0)
-        make_wav(os.path.join(out_dir, fname), min(5.0, dur))
+        make_audio(os.path.join(out_dir, fname), min(5.0, dur), fmt)
         qso_db.insert_qso(
             contest="_continuous", call="CONTINUOUS", band="", mode="",
             timestamp=cur, duration=dur, file_path=rel,
@@ -353,82 +429,97 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Seed test data into QSOCapture")
     parser.add_argument("--clean", action="store_true",
                         help="Remove existing DB before seeding")
-    parser.add_argument("--cbr", default=None,
-                        help="Path to .cbr file (auto-searches tests/ if omitted)")
+    parser.add_argument("--contests", type=int, default=5,
+                        help="Number of contests to generate (default: 5)")
     parser.add_argument("--qsos", type=int, default=1000,
                         help="Synthetic QSOs per contest (default: 1000)")
+    parser.add_argument("--format", choices=["wav", "mp3"], default="mp3",
+                        help="Audio format for recordings (default: mp3)")
+    parser.add_argument("--continuous", dest="continuous", action="store_true",
+                        default=True, help="Generate continuous recordings (default)")
+    parser.add_argument("--no-continuous", dest="continuous", action="store_false",
+                        help="Skip continuous recordings")
+    parser.add_argument("--target", choices=["exe", "python"], default=None,
+                        help="Data directory target: 'exe' = %%LOCALAPPDATA%%\\QSOCapture, "
+                             "'python' = project directory. Auto-detected when omitted.")
+    parser.add_argument("--app-dir", default=None,
+                        help="Explicit data directory (DB + recordings). "
+                             "Overrides --target. Auto-detected when omitted.")
     args = parser.parse_args()
 
-    if args.clean and os.path.exists(qso_db.DB_PATH):
-        print(f"Removing DB: {qso_db.DB_PATH}")
+    app_dir = _resolve_app_dir(args.target, args.app_dir)
+    recordings_dir = os.path.join(app_dir, "recordings")
+    db_path = os.path.join(app_dir, "qsos.db")
+
+    # Determine the target mode for the summary.
+    if args.app_dir:
+        target_mode = "custom"
+    elif args.target == "exe":
+        target_mode = "exe"
+    elif args.target == "python":
+        target_mode = "python"
+    elif os.path.normcase(app_dir) == os.path.normcase(_project_dir()):
+        target_mode = "python"
+    else:
+        target_mode = "exe"
+
+    # Point db.py at the resolved data directory.
+    qso_db.DB_PATH = db_path
+
+    if args.clean and os.path.exists(db_path):
+        print(f"Removing DB: {db_path}")
         try:
-            os.remove(qso_db.DB_PATH)
+            os.remove(db_path)
         except PermissionError:
             print("  DB in use, can't remove. Try closing the app first.")
             return
 
     qso_db.init_db()
-    os.makedirs(RECORDINGS_DIR, exist_ok=True)
+    os.makedirs(recordings_dir, exist_ok=True)
+
+    if args.contests < 1:
+        print("--contests must be >= 1")
+        return
+
+    # Pick a random subset of real contests.
+    selected = random.sample(CONTESTS, min(args.contests, len(CONTESTS)))
+    if args.contests > len(CONTESTS):
+        print(f"  Note: only {len(CONTESTS)} contests available, using all.")
 
     total_qsos = 0
     total_cont = 0
+    year = time.localtime().tm_year
 
-    # Seed from CBR file
-    cbr_path = args.cbr
-    if not cbr_path and os.path.isdir(TEST_DIR):
-        files = glob.glob(os.path.join(TEST_DIR, "*.cbr"))
-        if files:
-            cbr_path = files[0]
+    for name, modes, (month, day), bands in selected:
+        # Build a realistic date for this contest in the current year.
+        try:
+            dt = time.mktime(time.strptime(f"{year}-{month:02d}-{day:02d} 0000",
+                                           "%Y-%m-%d %H%M"))
+        except (ValueError, OverflowError):
+            dt = time.time()
+        contest_dir = f"{year}_{name}"
+        print(f"Seeding {contest_dir} ({args.qsos} QSOs, modes={','.join(modes)})")
+        qsos = generate_synthetic(name, modes, bands, dt, args.qsos)
+        total_qsos += seed_qsos(qsos, contest_dir, recordings_dir, args.format)
 
-    if cbr_path and os.path.exists(cbr_path):
-        print(f"Seeding from CBR: {cbr_path}")
-        qsos = parse_cbr(cbr_path)
-        print(f"  Parsed {len(qsos)} QSOs")
-        if qsos:
-            first_ts = qsos[0]["timestamp"]
-            year = time.strftime("%Y", time.localtime(first_ts))
-            contest_dir = f"{year}_{qsos[0]['contest']}"
-            total_qsos += seed_qsos(qsos, contest_dir, (3.0, 8.0))
+        if args.continuous:
+            # Continuous recordings spanning the contest weekend.
             t0 = min(q["timestamp"] for q in qsos)
             t1 = max(q["timestamp"] for q in qsos)
-            total_cont += seed_continuous(t0 - 3600, t1 + 3600, 60, "RX1")
-            total_cont += seed_continuous(t0 - 1800, t1 + 1800, 120, "RX2")
-    else:
-        print("No CBR file found – skipping CBR seeding.")
-
-    # Synthetic contests
-    contests = [
-        ("CQ-WPX-SSB", "2024-06-01 0000"),
-        ("SP-DX-RTTY", "2024-07-13 0000"),
-        ("IARU-HF",    "2024-08-10 0000"),
-    ]
-    for name, date_str in contests:
-        dt = time.mktime(time.strptime(date_str, "%Y-%m-%d %H%M"))
-        year = time.strftime("%Y", time.localtime(dt))
-        contest_dir = f"{year}_{name}"
-        print(f"Seeding {contest_dir} ({args.qsos} QSOs)")
-        qsos = generate_synthetic(name, dt, args.qsos)
-        total_qsos += seed_qsos(qsos, contest_dir, (3.0, 8.0))
-
-    # Continuous chunks for synthetic contests
-    cont_spans = [
-        ("2024-06-01 0000", "2024-06-03 0000", "RX1"),
-        ("2024-07-13 0000", "2024-07-15 0000", "RX1"),
-        ("2024-08-10 0000", "2024-08-12 0000", "RX1"),
-        ("2024-06-02 0000", "2024-06-03 0000", "RX2"),
-        ("2024-08-11 0000", "2024-08-12 0000", "RX2"),
-    ]
-    for ds, de, lbl in cont_spans:
-        ts = time.mktime(time.strptime(ds, "%Y-%m-%d %H%M"))
-        te = time.mktime(time.strptime(de, "%Y-%m-%d %H%M"))
-        total_cont += seed_continuous(ts, te, 60, lbl)
+            total_cont += seed_continuous(t0 - 3600, t1 + 3600,
+                                          recordings_dir, 60, "RX1", args.format)
+            total_cont += seed_continuous(t0 - 1800, t1 + 1800,
+                                          recordings_dir, 120, "RX2", args.format)
 
     print(f"\n{'='*60}")
     print(f"Seeding complete!")
+    print(f"  Target mode:            {target_mode}")
+    print(f"  Contests:               {len(selected)}")
     print(f"  QSOs inserted:          {total_qsos}")
     print(f"  Continuous chunks:      {total_cont}")
-    print(f"  Database:               {qso_db.DB_PATH}")
-    print(f"  Recordings directory:   {os.path.abspath(RECORDINGS_DIR)}")
+    print(f"  Audio format:           {args.format}")
+    print(f"  Database:               {db_path}")
+    print(f"  Recordings directory:   {os.path.abspath(recordings_dir)}")
     print(f"{'='*60}")
 
 
