@@ -27,12 +27,12 @@ def main():
     version_suffix = f"-{app_version}" if app_version else ""
 
     import re
-    numeric_version = re.sub(r"[^0-9.]", "", app_version) or "0.6.1"
+    numeric_version = re.sub(r"[^0-9.]", "", app_version) or "0.7.0"
     # Nuitka requires each version part to be a 16-bit number (0-65535).
-    # Timestamps like 20260804.194448 exceed this, so fall back to 0.6.1.
+    # Timestamps like 20260804.194448 exceed this, so fall back to 0.7.0.
     parts = numeric_version.split(".")
     if any(int(p) > 65535 for p in parts):
-        numeric_version = "0.6.1"
+        numeric_version = "0.7.0"
 
     main_script = "qt_launcher.py"
     data_files = ["index.html", "icon.svg", "icon.ico"]

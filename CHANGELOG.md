@@ -3,7 +3,7 @@
 All notable changes to QSOCapture are documented here. This file is written
 in plain business language, without going into implementation details.
 
-## Unreleased
+## Version 0.7.0beta
 
 ### 🚀 New Features
 * **SO2R Dual Card mode:** Added a new "Dual card" option for SO2R setups. Instead of a single stereo soundcard (left channel → RX1, right channel → RX2), you can now use **two separate soundcards**, each capturing one receiver in mono. Configure it in Settings → Audio → SO2R mode toggle (Stereo / Dual card). When Dual card is enabled, two device selectors appear in Settings → Soundcard, letting you pick independent input devices for RX1 and RX2.
@@ -17,11 +17,13 @@ in plain business language, without going into implementation details.
 
 ### 📚 Documentation
 * **User manual:** Added [MANUAL.md](MANUAL.md) — a complete user guide covering installation, configuration, all settings, SO2R setup, filtering, playback, data management, update checking and troubleshooting. The README now links to the manual instead of including the "How to use it" section inline.
+* **Manual Quick Start:** Added a "Quick Start" section to [MANUAL.md](MANUAL.md) that walks new users from first launch to reviewing their recordings — configure settings, start the recorder, set up N1MM Logger+ broadcast data, filter with the TYPE box, play/save and locate the raw files.
 
 ### 🐛 Bug Fixes
 * **QSO list not auto-refreshing during continuous recording:** When continuous recording was active, newly logged N1MM QSOs no longer appeared on the dashboard until the user clicked Refresh. Fixed the event-driven refresh mechanism so the list always updates immediately when a new QSO is saved, regardless of whether continuous recording is running.
 * **Orphaned "Recording…" entries after unclean shutdown:** When the application was closed (or crashed) during continuous recording, a database row with `duration=0.0` remained, showing "Recording…" forever in the dashboard's Stop column. Continuous chunks are now finalised immediately on shutdown, and any leftover orphaned records are cleaned up automatically on the next startup.
 * **Contact editing no longer removes audio file:** When editing a QSO in N1MM Logger+ (contactreplace), the program previously deleted the original recording and created a brand-new audio slice. Now the existing audio file is simply renamed to reflect the updated callsign/band, and the database record is updated in-place — the original recording is preserved.
+* **Settings window closes after saving:** Clicking **Save & Apply** in Settings now closes the window automatically on success, so you can immediately return to the dashboard. If saving fails, the window stays open and shows the error so you can fix it. The Reset/Delete actions continue to keep the window open.
 
 ## Version 0.6.1beta
 
