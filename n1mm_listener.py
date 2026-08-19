@@ -258,7 +258,11 @@ class N1MMListener:
 
     def _handle_delete(self, root: ET.Element) -> None:
         """Handle a <contactdelete> packet: drop the DB row + audio file."""
-        n1mm_id = (root.findtext("id") or "").strip()
+        fields: dict = {}
+        for child in root.iter():
+            if child.text is not None and child.tag.lower() not in fields:
+                fields[child.tag.lower()] = child.text
+        n1mm_id = (fields.get("id") or "").strip()
         if not n1mm_id:
             return
         logger.debug("N1MM raw delete packet:\n%s", ET.tostring(root, encoding="unicode"))

@@ -3,6 +3,13 @@
 All notable changes to QSOCapture are documented here. This file is written
 in plain business language, without going into implementation details.
 
+## Unreleased
+
+> This section will become version 0.7.1beta.
+
+### 🐛 Bug Fixes
+* **Deleting a QSO in N1MM Logger+ now actually removes it:** Previously the database row and its audio recording were left in place because the delete packet was not processed correctly. Deleted QSOs are now properly removed from the dashboard.
+
 ## Version 0.7.0beta
 
 ### 🚀 New Features
