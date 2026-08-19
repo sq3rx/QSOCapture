@@ -23,6 +23,7 @@ import threading
 import time
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Callable, Optional
 
 from config import RECORDINGS_DIR
@@ -193,7 +194,7 @@ class N1MMListener:
                     if not (p.isdigit() and p[0] == "5" and 2 <= len(p) <= 3)]
             return " ".join(kept).strip() or s
 
-        if zone:
+        if zone and zone != "0":
             exchange = zone
         elif rcvnr and rcvnr != "0":
             exchange = rcvnr
@@ -332,7 +333,7 @@ class N1MMListener:
                         if not (p.isdigit() and p[0] == "5" and 2 <= len(p) <= 3)]
                 return " ".join(kept).strip() or s
 
-            if zone:
+            if zone and zone != "0":
                 exchange = zone
             elif rcvnr and rcvnr != "0":
                 exchange = rcvnr
@@ -407,13 +408,17 @@ class N1MMListener:
 
     @staticmethod
     def _parse_ts(ts: str) -> float:
-        """Parse N1MM <timestamp> (YYYY-MM-DD HH:MM[:SS])."""
+        """Parse N1MM <timestamp> (YYYY-MM-DD HH:MM[:SS]).
+
+        N1MM broadcasts <timestamp> in UTC, so parse it as an aware UTC datetime
+        and convert to an epoch seconds value. No local-timezone interpretation.
+        """
         ts = (ts or "").strip()
         if not ts:
             return time.time()
         for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
             try:
-                return time.mktime(time.strptime(ts, fmt))
+                return datetime.strptime(ts, fmt).replace(tzinfo=timezone.utc).timestamp()
             except ValueError:
                 continue
         return time.time()
@@ -427,7 +432,7 @@ class N1MMListener:
             "160m": "160M", "80m": "80M", "40m": "40M", "30m": "30M",
             "20m": "20M", "17m": "17M", "15m": "15M", "12m": "12M",
             "10m": "10M", "6m": "6M", "2m": "2M",
-            "1.8mhz": "160M", "3.5mhz": "80M", "7mhz": "40M",
+            "1.8mhz": "160M", "3.5mhz": "80M", "5.3mhz": "60M", "7mhz": "40M",
             "14mhz": "20M", "21mhz": "15M", "28mhz": "10M",
         }
         if b in mapping:
@@ -440,9 +445,9 @@ class N1MMListener:
             except ValueError:
                 return band.strip().upper()
             bands = [
-                (1.8, "160M"), (3.5, "80M"), (7.0, "40M"), (10.0, "30M"),
-                (14.0, "20M"), (18.0, "17M"), (21.0, "15M"), (24.0, "12M"),
-                (28.0, "10M"), (50.0, "6M"), (144.0, "2M"),
+                (1.8, "160M"), (3.5, "80M"), (5.3, "60M"), (7.0, "40M"),
+                (10.0, "30M"), (14.0, "20M"), (18.0, "17M"), (21.0, "15M"),
+                (24.0, "12M"), (28.0, "10M"), (50.0, "6M"), (144.0, "2M"),
             ]
             best = min(bands, key=lambda x: abs(x[0] - mhz))
             if abs(best[0] - mhz) < 1.0:

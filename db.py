@@ -160,6 +160,8 @@ def init_db() -> None:
                         pass
         con.commit()
 
+        _migrate_timestamps(con)
+
 
 _MIGRATE_COLUMNS = [
     ("rcv", "TEXT"), ("snt", "TEXT"), ("rcvnr", "TEXT"), ("sntnr", "TEXT"),
@@ -169,6 +171,41 @@ _MIGRATE_COLUMNS = [
     ("n1mm_id", "TEXT"), ("is_claimed", "TEXT"), ("sent_exchange", "TEXT"),
     ("duration", "REAL"), ("rx", "TEXT"),
 ]
+
+_TIMESTAMP_MIGRATION_VERSION = 1
+
+
+def _migrate_timestamps(con: sqlite3.Connection) -> None:
+    """Rewrite legacy local-interpreted timestamps to correct UTC epochs.
+
+    Earlier versions parsed N1MM <timestamp> (which N1MM sends in UTC) with
+    time.mktime, interpreting it in the host's local timezone. We recompute the
+    epoch from the stored original N1MM string (raw_ts, UTC) so existing rows
+    match new UTC-correct inserts. Runs once, guarded by PRAGMA user_version.
+    Rows without raw_ts (continuous / migrated-from-file) are left untouched.
+    """
+    from datetime import datetime, timezone
+
+    ver = con.execute("PRAGMA user_version").fetchone()[0]
+    if ver >= _TIMESTAMP_MIGRATION_VERSION:
+        return
+    rows = con.execute(
+        "SELECT id, raw_ts FROM qsos "
+        "WHERE raw_ts IS NOT NULL AND raw_ts != ''"
+    ).fetchall()
+    for rid, raw in rows:
+        raw = raw.strip()
+        new_ts = None
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
+            try:
+                new_ts = datetime.strptime(raw, fmt).replace(tzinfo=timezone.utc).timestamp()
+                break
+            except ValueError:
+                continue
+        if new_ts is not None:
+            con.execute("UPDATE qsos SET timestamp=? WHERE id=?", (new_ts, rid))
+    con.execute(f"PRAGMA user_version = {_TIMESTAMP_MIGRATION_VERSION}")
+    con.commit()
 
 
 def insert_qso(
