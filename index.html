@@ -327,7 +327,7 @@
       <div>
         <label class="block text-xs uppercase tracking-wide text-slate-400 mb-1">Type</label>
         <select id="continuous" class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm">
-          <option value="false">N1MM QSOs</option>
+          <option value="false">Logger QSOs</option>
           <option value="true">Continuous</option>
         </select>
       </div>
@@ -607,6 +607,19 @@
     const $ = (id) => document.getElementById(id);
     const rows = $('rows');
 
+    // Toggle the N1MM vs N3FJP option groups based on the Logger source select.
+    // Kept at top level with event delegation so re-renders can't detach it.
+    function updateLoggerSourceVisibility() {
+      const src = ($('cfg_logger_source') && $('cfg_logger_source').value) || 'n1mm';
+      const n1 = $('n1mmGroup');
+      const n3 = $('n3fjpGroup');
+      if (n1) n1.style.display = src === 'n1mm' ? '' : 'none';
+      if (n3) n3.style.display = src === 'n3fjp' ? '' : 'none';
+    }
+    document.addEventListener('change', (e) => {
+      if (e.target && e.target.id === 'cfg_logger_source') updateLoggerSourceVisibility();
+    });
+
     // Open an external URL in the system browser. In the desktop app (WebView2)
     // window.open does not work, so we delegate to the Python API. In a plain
     // browser we fall back to window.open.
@@ -728,9 +741,16 @@
           statusBadge(tci, connected, `TCI ${connected ? 'connected' : 'off'}`);
         }
 
+        const logg = s.logger || {};
         const n1mm = $('n1mmBadge');
-        const nr = s.n1mm && s.n1mm.running;
-        statusBadge(n1mm, nr, `N1MM ${nr ? 'listening' : 'off'}`);
+        if (logg.type === 'n3fjp') {
+          const ok = logg.connected;
+          statusBadge(n1mm, ok, `N3FJP ${ok ? 'connected' : 'off'}`);
+          n1mm.title = (logg.addr || '') + (logg.last_reconcile ? ` | reconcile ${new Date(logg.last_reconcile*1000).toLocaleTimeString()}` : '');
+        } else {
+          const nr = logg.running;
+          statusBadge(n1mm, nr, `N1MM ${nr ? 'listening' : 'off'}`);
+        }
 
         const bufContainer = $('bufContainer');
         bufContainer.innerHTML = '';
@@ -797,7 +817,7 @@
         st.textContent = 'offline';
         st.className = 'text-xs px-3 py-1 rounded-full bg-red-500/10 border border-red-500/30 text-red-300';
         statusBadge($('tciBadge'), false, 'TCI ?');
-        statusBadge($('n1mmBadge'), false, 'N1MM ?');
+        statusBadge($('n1mmBadge'), false, 'Logger ?');
         const buf = $('bufContainer');
         buf.innerHTML = '<span class="px-3 py-1 rounded-full bg-slate-800/60 border border-slate-700 text-slate-400">Buffer ?</span>';
       }
@@ -1858,6 +1878,10 @@
       const v = val || '127.0.0.1:12060';
       return textInput('cfg__n1mm_addr', v, '127.0.0.1:12060');
     }
+    function n3fjpAddrWidget(val) {
+      const v = val || '127.0.0.1:1100';
+      return textInput('cfg__n3fjp_addr', v, '127.0.0.1:1100');
+    }
     let audioDevices = [];
     function soundcardWidget(val, id) {
       id = id || 'cfg_soundcard_device';
@@ -1912,8 +1936,18 @@
           + fieldBlock('Normalize continuous recordings', boolInput('cfg_normalize_continuous', v.normalize_continuous), helpMap.normalize_continuous)
           + fieldBlock('Web address (host:port)', webAddrWidget(`${v.web_host}:${v.web_port}`), helpMap.web_host)
           + fieldBlock('TCI address (host:port)', tciAddrWidget(`${v.tci_host}:${v.tci_port}`), helpMap.tci_host)
-          + fieldBlock('N1MM address (bind_ip:udp_port)', n1mmAddrWidget(`${v.n1mm_bind_ip}:${v.n1mm_udp_port}`), helpMap.n1mm_bind_ip);
+          + fieldBlock('Logger source', selectInput('cfg_logger_source', v.logger_source, ['n1mm', 'n3fjp']), helpMap.logger_source)
+          + `<div id="n1mmGroup">` + fieldBlock('N1MM address (bind_ip:udp_port)', n1mmAddrWidget(`${v.n1mm_bind_ip}:${v.n1mm_udp_port}`), helpMap.n1mm_bind_ip) + `</div>`
+          + `<div id="n3fjpGroup">`
+          + fieldBlock('N3FJP address (host:port)', n3fjpAddrWidget(`${v.n3fjp_host}:${v.n3fjp_port}`), helpMap.n3fjp_host)
+          + fieldBlock('N3FJP contest name', textInput('cfg_n3fjp_contest', v.n3fjp_contest || '', 'e.g. Field Day'), helpMap.n3fjp_contest)
+          + fieldBlock('N3FJP reconcile interval (s)', numberInput('cfg_n3fjp_reconcile_interval_s', v.n3fjp_reconcile_interval_s), helpMap.n3fjp_reconcile_interval_s)
+          + fieldBlock('N3FJP list window', numberInput('cfg_n3fjp_list_window', v.n3fjp_list_window), helpMap.n3fjp_list_window)
+          + `</div>`;
         form.innerHTML += group('General', general);
+
+        // Show the N1MM or N3FJP block depending on the logger source.
+        updateLoggerSourceVisibility();
 
         let audio = fieldBlock('Audio mode', modeWidget(v.audio_mode), helpMap.audio_mode)
           + fieldBlock('Audio format', selectInput('cfg_audio_format', v.audio_format, ['wav', 'mp3']), helpMap.audio_format)
@@ -2091,6 +2125,10 @@
           const parts = $('cfg__n1mm_addr').value.split(':');
           payload['n1mm_bind_ip'] = parts[0];
           payload['n1mm_udp_port'] = parseInt(parts[1], 10) || 0;
+        } else if (f === 'n3fjp_host') {
+          const parts = $('cfg__n3fjp_addr').value.split(':');
+          payload['n3fjp_host'] = parts[0];
+          payload['n3fjp_port'] = parseInt(parts[1], 10) || 0;
         } else if (f === 'so2r_mode') {
           payload[f] = $('cfg_so2r_mode')?.checked ? 'dual_card' : 'stereo';
         } else if (f === 'soundcard_device') {

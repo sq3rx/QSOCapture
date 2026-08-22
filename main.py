@@ -27,7 +27,8 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Streamin
 import config as config_module
 from config import AppConfig, load_config, config_to_dict, save_config, CONFIG_SCHEMA, RECORDINGS_DIR
 from audio_manager import create_audio_source
-from n1mm_listener import N1MMListener, N1MMContact
+from n1mm_listener import N1MMListener, schedule_qso_slice
+from n3fjp_listener import N3FJPListener
 import db as qso_db
 import threading
 
@@ -116,7 +117,7 @@ def get_latest_version():
 # Global state
 cfg: AppConfig = load_config()
 audio_source = None
-n1mm = None
+logger_listener = None
 _config_lock = threading.Lock()
 
 DEBUG_LOGGING = False
@@ -174,35 +175,42 @@ def push_event(name: str, data: Optional[dict] = None) -> None:
         pass
 
 
+def _make_logger_listener(cfg):
+    """Build the logger listener for the configured source."""
+    if cfg.logger_source == "n3fjp":
+        return N3FJPListener(cfg, on_contact=on_contact)
+    return N1MMListener(cfg, on_contact=on_contact)
+
+
 def _apply_and_restart() -> None:
-    """Restart audio source and N1MM listener after config changes."""
-    global audio_source, n1mm
-    if n1mm:
-        n1mm.stop()
+    """Restart audio source and logger listener after config changes."""
+    global audio_source, logger_listener
+    if logger_listener:
+        logger_listener.stop()
     if audio_source:
         audio_source.stop()
     os.makedirs(RECORDINGS_DIR, exist_ok=True)
     audio_source = create_audio_source(cfg, label="RX1")
     audio_source.start()
-    n1mm = N1MMListener(cfg, on_contact=on_contact)
-    n1mm.start()
-    logger.info("Configuration applied and services restarted (mode=%s)", cfg.audio_mode)
+    logger_listener = _make_logger_listener(cfg)
+    logger_listener.start()
+    logger.info("Configuration applied and services restarted (mode=%s, logger_source=%s)",
+                cfg.audio_mode, cfg.logger_source)
 
 
-def on_contact(contact: N1MMContact) -> None:
-    """Callback for every decoded N1MM contact."""
-    from n1mm_listener import schedule_qso_slice
-
-    logger.info("Scheduling slice for %s", contact.call)
+def on_contact(contact) -> None:
+    """Callback for every decoded contact (N1MM or N3FJP)."""
+    logger.info("Scheduling slice for %s", getattr(contact, "call", "?"))
     logger.debug("on_contact: call=%s contest=%s freq=%s recv_ts=%.1f pre=%.1f post=%.1f",
-                 contact.call, contact.contest, contact.freq,
-                 contact.receive_ts, cfg.pre_roll, cfg.post_roll)
+                 getattr(contact, "call", ""), getattr(contact, "contest", ""),
+                 getattr(contact, "freq", ""),
+                 getattr(contact, "receive_ts", 0.0), cfg.pre_roll, cfg.post_roll)
     SLICE_POOL.submit(schedule_qso_slice, contact, audio_source, cfg)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global audio_source, n1mm
+    global audio_source, logger_listener
     qso_db.init_db()
     threading.Thread(
         target=qso_db.migrate_existing,
@@ -214,22 +222,23 @@ async def lifespan(app: FastAPI):
     os.makedirs(RECORDINGS_DIR, exist_ok=True)
     audio_source = create_audio_source(cfg, label="RX1")
     audio_source.start()
-    n1mm = N1MMListener(cfg, on_contact=on_contact)
-    n1mm.start()
+    logger_listener = _make_logger_listener(cfg)
+    logger_listener.start()
     dl_thread = threading.Thread(target=_disk_limit_loop, daemon=True,
                                  name="disk-limit")
     dl_thread.start()
     hb_thread = threading.Thread(target=_debug_heartbeat_loop, daemon=True,
                                  name="debug-heartbeat")
     hb_thread.start()
-    logger.info("QSOCapture started (mode=%s)", cfg.audio_mode)
+    logger.info("QSOCapture started (mode=%s, logger_source=%s)",
+                cfg.audio_mode, cfg.logger_source)
     try:
         yield
     except _asyncio.CancelledError:
         pass
     finally:
-        if n1mm:
-            n1mm.stop()
+        if logger_listener:
+            logger_listener.stop()
         if audio_source:
             audio_source.stop()
         try:
@@ -426,8 +435,21 @@ def api_open_folder() -> JSONResponse:
 def api_status() -> JSONResponse:
     audio_running = audio_source is not None and getattr(audio_source, "_running", False)
     audio_status = audio_source.get_status() if audio_source else {}
-    n1mm_running = n1mm is not None and getattr(n1mm, "_running", False)
+    ll = logger_listener
+    logger_running = ll is not None and getattr(ll, "_running", False)
+    logger_status = ll.get_status() if ll else {}
     tci_connected = bool(audio_status.get("connected", False)) if cfg.audio_mode == "tci" else False
+    logger_detail = {"type": cfg.logger_source, "running": logger_running}
+    if cfg.logger_source == "n3fjp":
+        logger_detail.update({
+            "connected": bool(logger_status.get("connected", False)),
+            "addr": logger_status.get("host", f"{cfg.n3fjp_host}:{cfg.n3fjp_port}"),
+            "last_reconcile": logger_status.get("last_reconcile", 0.0),
+        })
+    else:
+        logger_detail.update({
+            "bind": logger_status.get("bind", f"{cfg.n1mm_bind_ip}:{cfg.n1mm_udp_port}"),
+        })
     return JSONResponse({
         "station": cfg.station_name,
         "mode": cfg.audio_mode,
@@ -444,10 +466,7 @@ def api_status() -> JSONResponse:
             "cont_queue_fill_pct": audio_status.get("cont_queue_fill_pct", 0.0),
             "cont_queue_dropped": audio_status.get("cont_queue_dropped", 0),
         },
-        "n1mm": {
-            "running": n1mm_running,
-            "bind": f"{cfg.n1mm_bind_ip}:{cfg.n1mm_udp_port}",
-        },
+        "logger": logger_detail,
     })
 
 
@@ -688,9 +707,13 @@ def _validate_field_range(field: str, value) -> None:
         "tci_port": (1, 65535), "n1mm_udp_port": (1, 65535),
         "web_port": (1, 65535), "sample_width": (1, 4),
         "max_recordings_gb": (0.0, 100000.0),
+        "n3fjp_port": (1, 65535),
+        "n3fjp_reconcile_interval_s": (0, 86400),
+        "n3fjp_list_window": (5, 500),
     }
     choices = {
         "so2r_mode": ["stereo", "dual_card"],
+        "logger_source": ["n1mm", "n3fjp"],
     }
     if field in choices and value not in choices[field]:
         raise HTTPException(
@@ -766,14 +789,15 @@ def _debug_heartbeat_loop() -> None:
                 buf_txt = ", ".join(
                     f"{b.get('label','?')}={b.get('filled_sec',0)}s" for b in buffers
                 ) or "—"
-                n1mm_running = n1mm is not None and getattr(n1mm, "_running", False)
+                n1mm_running = logger_listener is not None and getattr(logger_listener, "_running", False)
                 tci_connected = bool(status.get("connected")) if status and cfg.audio_mode == "tci" else False
                 logger.debug(
                     "heartbeat: audio_running=%s buf=[%s] tci_connected=%s "
-                    "n1mm_running=%s continuous_paused=%s",
+                    "logger_running=%s (src=%s) continuous_paused=%s",
                     running, buf_txt,
                     tci_connected,
                     n1mm_running,
+                    cfg.logger_source,
                     bool(status.get("continuous_paused")) if status else False,
                 )
             except Exception as e:

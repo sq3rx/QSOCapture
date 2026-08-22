@@ -110,6 +110,8 @@ def init_db() -> None:
                 raw_ts    TEXT,
                 duration  REAL,
                 file_path TEXT UNIQUE,
+                source    TEXT,
+                source_key TEXT,
                 created_at REAL DEFAULT (strftime('%s','now'))
             )
             """
@@ -121,6 +123,10 @@ def init_db() -> None:
                 con.execute(f"ALTER TABLE qsos ADD COLUMN {col} {ctype}")
         con.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_qsos_n1mm_id ON qsos(n1mm_id)"
+        )
+        con.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_qsos_source_key "
+            "ON qsos(source, source_key)"
         )
         con.execute(
             "CREATE INDEX IF NOT EXISTS idx_qsos_timestamp ON qsos(timestamp DESC)"
@@ -169,7 +175,7 @@ _MIGRATE_COLUMNS = [
     ("wpxprefix", "TEXT"), ("continent", "TEXT"), ("multiplier2", "TEXT"),
     ("multiplier3", "TEXT"), ("prec", "TEXT"), ("ck", "TEXT"), ("power", "TEXT"),
     ("n1mm_id", "TEXT"), ("is_claimed", "TEXT"), ("sent_exchange", "TEXT"),
-    ("duration", "REAL"), ("rx", "TEXT"),
+    ("duration", "REAL"), ("rx", "TEXT"), ("source", "TEXT"), ("source_key", "TEXT"),
 ]
 
 _TIMESTAMP_MIGRATION_VERSION = 1
@@ -221,21 +227,61 @@ def insert_qso(
     n1mm_id: str = "", is_claimed: str = "", sent_exchange: str = "",
     timestamp: float = 0.0, raw_ts: str = "", duration: float = 0.0,
     file_path: Optional[str] = None,
+    source: str = "", source_key: str = "",
 ) -> Optional[str]:
-    """Insert/upsert a QSO record by N1MM GUID.
+    """Insert/upsert a QSO record by N1MM GUID (or source/source_key).
 
-    * No n1mm_id -> plain INSERT OR IGNORE (continuous chunks, migrated files).
-    * n1mm_id + same file_path -> update metadata (N1MM edited the contact).
-    * n1mm_id + different file_path -> delete old row, insert new, return
-      superseded file_path so caller can remove orphaned audio.
+    * No n1mm_id and no source_key -> plain INSERT OR IGNORE.
+    * n1mm_id present -> upsert by GUID (see below).
+    * source_key present (e.g. N3FJP) -> upsert by (source, source_key).
+
+    For upserts:
+    * same file_path -> update metadata (the QSO was edited in the logger).
+    * different file_path -> delete old row, insert new, return the superseded
+      file_path so the caller can remove orphaned audio.
 
     Returns previous file_path when replaced, else None.
     """
     superseded: Optional[str] = None
     n1mm_id_val = n1mm_id or None
+    source_val = source or None
+    source_key_val = source_key or None
     con = _connect()
     with _lock:
-        if n1mm_id_val:
+        if source_key_val:
+            existing = con.execute(
+                "SELECT file_path FROM qsos "
+                "WHERE source=? AND source_key=?",
+                (source_val, source_key_val),
+            ).fetchone()
+            if existing is not None:
+                old_fp = existing[0]
+                if old_fp == file_path:
+                    con.execute(
+                        """UPDATE qsos SET contest=?, call=?, band=?, mode=?, freq=?,
+                           name=?, qth=?, grid=?, comment=?, exchange=?, exchange2=?,
+                           exchange3=?, rcv=?, snt=?, rcvnr=?, sntnr=?, section=?,
+                           mycall=?, countryprefix=?, wpxprefix=?, continent=?,
+                           operator=?, station=?, contest_nr=?, points=?, multiplier=?,
+                           multiplier2=?, multiplier3=?, prec=?, ck=?, power=?,
+                           is_claimed=?, sent_exchange=?, timestamp=?, raw_ts=?,
+                           duration=?, rx=? WHERE source=? AND source_key=?""",
+                        (contest, call, band, mode, freq, name, qth, grid,
+                         comment, exchange, exchange2, exchange3, rcv, snt,
+                         rcvnr, sntnr, section, mycall, countryprefix,
+                         wpxprefix, continent, operator, station, contest_nr,
+                         points, multiplier, multiplier2, multiplier3, prec,
+                         ck, power, is_claimed, sent_exchange, timestamp,
+                         raw_ts, duration, _extract_rx(file_path),
+                         source_val, source_key_val),
+                    )
+                    return None
+                con.execute(
+                    "DELETE FROM qsos WHERE source=? AND source_key=?",
+                    (source_val, source_key_val),
+                )
+                superseded = old_fp
+        elif n1mm_id_val:
             existing = con.execute(
                 "SELECT file_path FROM qsos WHERE n1mm_id=?", (n1mm_id_val,)
             ).fetchone()
@@ -269,7 +315,7 @@ def insert_qso(
                   operator, station, contest_nr, points, multiplier,
                   multiplier2, multiplier3, prec, ck, power, n1mm_id_val,
                   is_claimed, sent_exchange, timestamp, raw_ts, duration,
-                  file_path, rx_val)
+                  file_path, rx_val, source_val, source_key_val)
         con.execute(
             "INSERT OR IGNORE INTO qsos ("
             "contest, call, band, mode, freq, name, qth, grid, comment, "
@@ -278,11 +324,11 @@ def insert_qso(
             "operator, station, contest_nr, points, multiplier, "
             "multiplier2, multiplier3, prec, ck, power, n1mm_id, "
             "is_claimed, sent_exchange, timestamp, raw_ts, duration, "
-            "file_path, rx) VALUES (" + ",".join("?" for _ in params) + ")",
+            "file_path, rx, source, source_key) VALUES (" + ",".join("?" for _ in params) + ")",
             params,
         )
         con.commit()
-    return superseded
+        return superseded
 
 
 def insert_contact(contact, file_path: Optional[str] = None) -> None:
@@ -638,6 +684,165 @@ def rename_qso_audio(n1mm_id: str, new_call: str, new_band: str,
         con.commit()
 
     return new_rel
+
+
+def find_by_source_key(source: str, source_key: str) -> Optional[dict]:
+    """Return the row (as a dict) matched by (source, source_key), or None."""
+    con = _connect()
+    con.row_factory = sqlite3.Row
+    row = con.execute(
+        "SELECT * FROM qsos WHERE source=? AND source_key=?",
+        (source, source_key),
+    ).fetchone()
+    if row is None:
+        return None
+    return dict(row)
+
+
+def delete_qso_by_source_key(source: str, source_key: str) -> Optional[str]:
+    """Remove a QSO matched by (source, source_key), return its file_path."""
+    con = _connect()
+    with _lock:
+        row = con.execute(
+            "SELECT file_path FROM qsos WHERE source=? AND source_key=?",
+            (source, source_key),
+        ).fetchone()
+        if row is None:
+            return None
+        fp = row[0]
+        con.execute(
+            "DELETE FROM qsos WHERE source=? AND source_key=?",
+            (source, source_key),
+        )
+        con.commit()
+        return fp
+
+
+def rename_qso_audio_by_key(source: str, source_key: str, new_source_key: str,
+                            new_call: str, new_band: str, new_contest_dir: str,
+                            new_rx_label: str, timestamp: float,
+                            **metadata) -> Optional[str]:
+    """Rename audio file + update DB record for an edited QSO (by source key).
+
+    Analogous to :func:`rename_qso_audio` but matched on (source, source_key)
+    instead of n1mm_id. When the identity of the QSO changed (call/band/time)
+    the caller passes a *new_source_key* and the DB row is re-keyed.
+
+    Returns the new relative file_path on success, or None if not found.
+    """
+    con = _connect()
+    with _lock:
+        row = con.execute(
+            "SELECT file_path FROM qsos WHERE source=? AND source_key=?",
+            (source, source_key),
+        ).fetchone()
+        if row is None:
+            logger.debug("rename_qso_audio_by_key: %s/%s not found", source, source_key)
+            return None
+        old_rel = row[0]
+        if not old_rel:
+            return None
+
+    safe_call = "".join(ch for ch in new_call if ch.isalnum() or ch in "-_")
+    stamp = time.strftime("%Y-%m-%d_%H%M", time.localtime(timestamp))
+    ext = os.path.splitext(old_rel)[1]  # preserve existing extension
+    new_fname = f"{stamp}_{safe_call}_{new_band}_{new_rx_label}{ext}"
+    new_rel = f"{new_contest_dir}/{new_fname}"
+
+    old_abs = os.path.join(RECORDINGS_DIR, old_rel)
+    new_abs = os.path.join(RECORDINGS_DIR, new_rel)
+
+    if os.path.isfile(old_abs):
+        os.makedirs(os.path.dirname(new_abs), exist_ok=True)
+        try:
+            os.rename(old_abs, new_abs)
+            logger.info("Renamed audio file: %s -> %s", old_rel, new_rel)
+        except OSError as e:
+            logger.warning("Failed to rename audio file %s -> %s: %s",
+                           old_abs, new_abs, e)
+            return None
+    else:
+        logger.debug("rename_qso_audio_by_key: old file missing %s (rename skipped)",
+                     old_abs)
+
+    set_clauses = ["file_path=?"]
+    set_params = [new_rel]
+    allowed_meta = {
+        "contest", "call", "band", "mode", "freq", "name", "qth", "grid",
+        "comment", "exchange", "exchange2", "exchange3", "rcv", "snt",
+        "rcvnr", "sntnr", "section", "mycall", "countryprefix", "wpxprefix",
+        "continent", "operator", "station", "contest_nr", "points",
+        "multiplier", "multiplier2", "multiplier3", "prec", "ck", "power",
+        "is_claimed", "sent_exchange", "raw_ts",
+    }
+    for key in sorted(metadata):
+        if key in allowed_meta:
+            set_clauses.append(f"{key}=?")
+            set_params.append(metadata[key])
+    if new_source_key and new_source_key != source_key:
+        set_clauses.append("source_key=?")
+        set_params.append(new_source_key)
+    set_params.append(source)
+    set_params.append(source_key)
+    sql = f"UPDATE qsos SET {', '.join(set_clauses)} WHERE source=? AND source_key=?"
+
+    with _lock:
+        con.execute(sql, set_params)
+        con.commit()
+
+    return new_rel
+
+
+def update_fields_by_source_key(source: str, source_key: str, **fields) -> bool:
+    """Update metadata columns of a row matched by (source, source_key).
+
+    Used by the N3FJP reconciliation engine when a QSO's non-identity metadata
+    changed (e.g. exchange, RST, frequency) but the QSO is still the same QSO.
+    Never touches file_path, duration or source_key.
+    """
+    allowed = {
+        "contest", "call", "band", "mode", "freq", "name", "qth", "grid",
+        "comment", "exchange", "exchange2", "exchange3", "rcv", "snt",
+        "rcvnr", "sntnr", "section", "mycall", "countryprefix", "wpxprefix",
+        "continent", "operator", "station", "contest_nr", "points",
+        "multiplier", "multiplier2", "multiplier3", "prec", "ck", "power",
+        "is_claimed", "sent_exchange", "raw_ts", "timestamp",
+    }
+    clauses = []
+    params = []
+    for key in sorted(fields):
+        if key in allowed:
+            clauses.append(f"{key}=?")
+            params.append(fields[key])
+    if not clauses:
+        return False
+    params.append(source)
+    params.append(source_key)
+    con = _connect()
+    with _lock:
+        cur = con.execute(
+            f"UPDATE qsos SET {', '.join(clauses)} "
+            "WHERE source=? AND source_key=?",
+            params,
+        )
+        con.commit()
+        return cur.rowcount > 0
+
+
+def list_source_rows(source: str, limit: int = 100) -> List[dict]:
+    """Return the most recent ``limit`` QSO rows for a logger source.
+
+    Used by the N3FJP reconciliation engine to diff the logger's list against
+    what QSOCapture has already recorded.
+    """
+    con = _connect()
+    con.row_factory = sqlite3.Row
+    rows = con.execute(
+        "SELECT id, contest, call, band, mode, freq, timestamp, file_path, "
+        "source_key FROM qsos WHERE source=? ORDER BY timestamp DESC LIMIT ?",
+        (source, max(1, int(limit))),
+    ).fetchall()
+    return [dict(r) for r in rows]
 
 
 def delete_contest(contest: str) -> int:

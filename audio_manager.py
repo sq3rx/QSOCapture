@@ -143,6 +143,8 @@ class QSORequest:
     sent_exchange: str = ""
     radio_nr: str = "1"
     raw_ts: str = ""
+    source: str = ""
+    source_key: str = ""
 
 
 def _write_pcm(path: str, frames: np.ndarray, sample_rate: int, channels: int,
@@ -464,6 +466,8 @@ class AudioSource(ABC):
                 power=req.power, n1mm_id=req.n1mm_id, is_claimed=req.is_claimed,
                 sent_exchange=req.sent_exchange, timestamp=req.timestamp,
                 raw_ts=req.raw_ts,
+                source=getattr(req, "source", ""),
+                source_key=getattr(req, "source_key", ""),
                 file_path=f"{contest_dir}/{fname}",
             )
             if superseded:

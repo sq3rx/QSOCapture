@@ -7,6 +7,10 @@ in plain business language, without going into implementation details.
 
 > This section will become version 0.7.1beta.
 
+### 🚀 New Features
+* **N3FJP software support:** QSOCapture can now capture QSOs from the N3FJP program family (Amateur Contact Log and the contest loggers) via their TCP API (default port 1100). Pick the source in Settings → General → **Logger source** (`n1mm` or `n3fjp`).
+* **Edited and deleted N3FJP QSOs stay in sync:** Because N3FJP only reports "something was edited or deleted" without saying which QSO, QSOCapture compares its database against the logger's contact list and applies the change — favourites: metadata updates in place, renamed recordings when the callsign/band changes, and removed rows + audio for deleted contacts. The comparison happens on the edit event and then periodically (configure the interval and list window in Settings).
+
 ### 🐛 Bug Fixes
 * **Deleting a QSO in N1MM Logger+ now actually removes it:** Previously the database row and its audio recording were left in place because the delete packet was not processed correctly. Deleted QSOs are now properly removed from the dashboard.
 * **Correct QSO times:** N1MM sends the QSO `<timestamp>` in UTC, but QSOCapture was interpreting it in your computer's local timezone, shifting every displayed QSO time by the UTC offset (up to 11 hours). Timestamps are now interpreted correctly as UTC. Existing QSOs are automatically migrated to the correct time on first start.
