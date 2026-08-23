@@ -5,7 +5,7 @@ in plain business language, without going into implementation details.
 
 ## Unreleased
 
-> This section will become version 0.7.1beta.
+> This section will become version 0.8.0beta.
 
 ### 🚀 New Features
 * **N3FJP software support:** QSOCapture can now capture QSOs from the N3FJP program family (Amateur Contact Log and the contest loggers) via their TCP API (default port 1100). Pick the source in Settings → General → **Logger source** (`n1mm` or `n3fjp`).
@@ -16,6 +16,7 @@ in plain business language, without going into implementation details.
 * **Correct QSO times:** N1MM sends the QSO `<timestamp>` in UTC, but QSOCapture was interpreting it in your computer's local timezone, shifting every displayed QSO time by the UTC offset (up to 11 hours). Timestamps are now interpreted correctly as UTC. Existing QSOs are automatically migrated to the correct time on first start.
 * **Exchange column no longer shows a stale `0` for most contests:** For contests that do not use zones, N1MM sends `<zone>0</zone>`, which previously hijacked the Exch column and hid the real serial, section or exchange. The zone value `0` is now ignored, so the correct exchange (serial, section, etc.) is shown instead.
 * **60 m QSOs now show the correct band:** QSOs made on the 60 m band (5.3 MHz) were previously labelled `5.3` instead of `60M`, sorting and filtering apart from every other band. 60 m is now recognized and displayed as `60M`.
+* **Editing a QSO in N1MM Logger+ now updates the QSO and audio:** Editing a contact (contactreplace) previously had no effect when the packet did not wrap the details in a `<contactinfo>` element, so the callsign/band change never reached the dashboard and the audio file kept its old name. The packet is now processed regardless of its layout, updating the QSO in place and renaming the recording to match.
 
 ## Version 0.7.0beta
 

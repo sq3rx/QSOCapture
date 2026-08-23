@@ -159,10 +159,7 @@ class N1MMListener:
             return
         if tag == "contactreplace":
             info = root.find("contactinfo") or root.find("ContactInfo")
-            if info is None:
-                logger.debug("N1MM: contactreplace without nested contactinfo")
-                return
-            self._handle_replace(info)
+            self._handle_replace(info if info is not None else root)
             return
 
         if "contactinfo" not in tag:
