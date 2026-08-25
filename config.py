@@ -54,19 +54,9 @@ class AppConfig:
     # soundcard
     soundcard_device: str = ""
 
-    # logger source
-    logger_source: str = "n1mm"              # "n1mm" | "n3fjp"
-
     # n1mm
     n1mm_udp_port: int = 12060
     n1mm_bind_ip: str = "127.0.0.1"
-
-    # n3fjp (TCP API, N3FJP is the server)
-    n3fjp_host: str = "127.0.0.1"
-    n3fjp_port: int = 1100
-    n3fjp_contest: str = ""
-    n3fjp_reconcile_interval_s: int = 60
-    n3fjp_list_window: int = 100
 
     # web
     web_host: str = "127.0.0.1"
@@ -137,16 +127,8 @@ def load_config(path: str = "config.cfg") -> AppConfig:
 
         soundcard_device=_get(parser, "audio", "soundcard_device", AppConfig.soundcard_device),
 
-        logger_source=_get(parser, "general", "logger_source", AppConfig.logger_source).lower(),
-
         n1mm_udp_port=_get(parser, "n1mm", "udp_port", AppConfig.n1mm_udp_port),
         n1mm_bind_ip=_get(parser, "n1mm", "bind_ip", AppConfig.n1mm_bind_ip),
-
-        n3fjp_host=_get(parser, "n3fjp", "host", AppConfig.n3fjp_host),
-        n3fjp_port=_get(parser, "n3fjp", "port", AppConfig.n3fjp_port),
-        n3fjp_contest=_get(parser, "n3fjp", "contest", AppConfig.n3fjp_contest),
-        n3fjp_reconcile_interval_s=_get(parser, "n3fjp", "reconcile_interval_s", AppConfig.n3fjp_reconcile_interval_s),
-        n3fjp_list_window=_get(parser, "n3fjp", "list_window", AppConfig.n3fjp_list_window),
 
         web_host=_get(parser, "web", "host", AppConfig.web_host),
         web_port=_get(parser, "web", "port", AppConfig.web_port),
@@ -169,8 +151,6 @@ CONFIG_SCHEMA = [
      "When ON, continuous WAV chunks are normalized after each chunk. Disable to save CPU on long recordings (QSO slices are always normalized)."),
     ("general", "max_recordings_gb", "Max recordings (GB)", "float", None,
      "Hard cap on recordings folder disk usage. Oldest continuous chunks deleted when exceeded (0 = unlimited)."),
-    ("general", "logger_source", "Logger source", "text", ["n1mm", "n3fjp"],
-     "Which logging program drives QSO capture: 'n1mm' = N1MM Logger+ UDP broadcasts, 'n3fjp' = the N3FJP TCP API."),
     ("tci", "tci_host", "TCI host", "text", None,
      "IP address of the ExpertSDR TCI server (usually 127.0.0.1)."),
     ("tci", "tci_port", "TCI port", "int", None,
@@ -199,16 +179,6 @@ CONFIG_SCHEMA = [
      "UDP port N1MM Logger+ sends contact broadcasts on (default 12060)."),
     ("n1mm", "n1mm_bind_ip", "N1MM bind IP", "text", None,
      "Interface to listen on for N1MM packets. 127.0.0.1 = local only."),
-    ("n3fjp", "n3fjp_host", "N3FJP host", "text", None,
-     "Host where N3FJP software listens for TCP API connections (default 127.0.0.1)."),
-    ("n3fjp", "n3fjp_port", "N3FJP TCP API port", "int", None,
-     "TCP port of the N3FJP Application Program Interface (default 1100)."),
-    ("n3fjp", "n3fjp_contest", "N3FJP contest name", "text", None,
-     "Optional override for the contest name shown in recordings. Leave blank to use the detected N3FJP program name (or GENERAL)."),
-    ("n3fjp", "n3fjp_reconcile_interval_s", "N3FJP reconcile interval (s)", "int", None,
-     "How often to re-check N3FJP's QSO list against this database to catch edited/deleted contacts (default 60)."),
-    ("n3fjp", "n3fjp_list_window", "N3FJP list window", "int", None,
-     "How many of the most recent N3FJP QSOs to compare during reconciliation (default 100)."),
     ("web", "web_host", "Web host", "text", None,
      "Interface the web dashboard binds to. 127.0.0.1 = local only."),
     ("web", "web_port", "Web port", "int", None,
@@ -230,11 +200,6 @@ INI_KEYS = {
     "tci_port": ("tci", "tci_port"),
     "n1mm_udp_port": ("n1mm", "udp_port"),
     "n1mm_bind_ip": ("n1mm", "bind_ip"),
-    "n3fjp_host": ("n3fjp", "host"),
-    "n3fjp_port": ("n3fjp", "port"),
-    "n3fjp_contest": ("n3fjp", "contest"),
-    "n3fjp_reconcile_interval_s": ("n3fjp", "reconcile_interval_s"),
-    "n3fjp_list_window": ("n3fjp", "list_window"),
     "web_host": ("web", "host"),
     "web_port": ("web", "port"),
 }

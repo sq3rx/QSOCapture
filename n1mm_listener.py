@@ -117,14 +117,6 @@ class N1MMListener:
             except Exception:
                 pass
 
-    def get_status(self) -> dict:
-        """Status summary used by /api/status (mirrors N3FJPListener)."""
-        running = getattr(self, "_running", False)
-        return {
-            "running": running,
-            "bind": f"{self.cfg.n1mm_bind_ip}:{self.cfg.n1mm_udp_port}",
-        }
-
     def _loop(self) -> None:
         assert self._sock is not None
         while self._running:
@@ -510,8 +502,6 @@ def schedule_qso_slice(contact: N1MMContact, source, cfg) -> None:
         sent_exchange=contact.sent_exchange,
         radio_nr=contact.radio_nr,
         raw_ts=contact.raw_ts,
-        source=getattr(contact, "source", ""),
-        source_key=getattr(contact, "source_key", ""),
     )
     try:
         source.slice_qso(req)

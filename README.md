@@ -13,8 +13,8 @@
 **QSOCapture** is a lightweight contest audio recorder and log player for
 amateur radio operators. It captures audio from your receiver (via the
 **TCI** protocol from ExpertSDR or a regular **soundcard** input), slices out
-each QSO the moment **N1MM Logger+** or **N3FJP software** logs it, and
-presents everything in a clean, color-coded web dashboard.
+each QSO the moment **N1MM Logger+** logs it, and presents everything in a
+clean, color-coded web dashboard.
 
 ---
 
@@ -35,10 +35,8 @@ presents everything in a clean, color-coded web dashboard.
 
 ## Features
 
- - **Automatic QSO slicing** — listens to N1MM Logger+ UDP broadcasts or the
-   N3FJP TCP API and records a few seconds before/after each contact
-   (pre-roll / post-roll). Edited/deleted N3FJP QSOs are kept in sync
-   automatically via reconciliation.
+ - **Automatic QSO slicing** — listens to N1MM Logger+ UDP broadcasts and
+   records a few seconds before/after each contact (pre-roll / post-roll).
  - **Continuous recording** — records the whole band into time-sliced chunks
    so no QSO is ever missed. Controlled by the **Continuous recording
    autostart** setting and the dashboard **Start/Stop recording** button.
