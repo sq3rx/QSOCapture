@@ -1980,22 +1980,22 @@
 
         let reset = ''
           + `<div class="flex items-center gap-2 sm:col-span-2 flex-wrap">`
-          +   `<button id="resetConfigBtn" class="text-xs px-3 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300">&#9881; Reset config</button>`
-          +   `<button id="clearQsosBtn" class="text-xs px-3 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300">&#128465; Clear QSO log</button>`
-          +   `<button id="deleteRecordingsBtn" class="text-xs px-3 py-1.5 rounded-md bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300">&#127925; Delete all data</button>`
-          +   `<button id="factoryReset" class="text-xs px-3 py-1.5 rounded-md bg-red-600 text-white font-semibold hover:bg-red-700">&#9888; Factory Reset</button>`
+          +   `<button id="resetConfigBtn" title="Restore all settings to factory defaults. Services will restart. Recordings and QSO log are kept." class="text-xs px-3 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300">&#9881; Reset config</button>`
+          +   `<button id="clearQsosBtn" title="Delete ALL QSO records from the database. Audio files stay on disk." class="text-xs px-3 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300">&#128465; Clear QSO log</button>`
+          +   `<button id="deleteRecordingsBtn" title="Permanently delete ALL audio files and ALL QSO records. Cannot be undone." class="text-xs px-3 py-1.5 rounded-md bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300">&#127925; Delete all data</button>`
+          +   `<button id="factoryReset" title="Reset everything to defaults: QSO log, audio, config and log buffer. Type RESET to confirm." class="text-xs px-3 py-1.5 rounded-md bg-red-600 text-white font-semibold hover:bg-red-700">&#9888; Factory Reset</button>`
           + `</div>`
           + `<hr class="border-slate-700 sm:col-span-2 my-1" />`
           + `<div class="sm:col-span-2 flex flex-col gap-1">`
           +   `<label class="text-xs uppercase tracking-wide text-slate-400">Contest</label>`
           +   `<div class="flex items-center gap-2">`
           +     `<select id="delContestInput" class="flex-1 bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-sm">${contestOpts}</select>`
-          +     `<button id="deleteContestBtn" class="text-xs px-3 py-1.5 rounded-md bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 whitespace-nowrap">Delete contest</button>`
-          +     `<button id="deleteContestRecBtn" class="text-xs px-3 py-1.5 rounded-md bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 whitespace-nowrap">Delete contest recordings</button>`
+          +     `<button id="deleteContestBtn" title="Delete all audio files AND QSO records for the selected contest. Cannot be undone." class="text-xs px-3 py-1.5 rounded-md bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 whitespace-nowrap">Delete contest</button>`
+          +     `<button id="deleteContestRecBtn" title="Delete only the audio files for the selected contest. QSO records are kept." class="text-xs px-3 py-1.5 rounded-md bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 whitespace-nowrap">Delete contest recordings</button>`
           +   `</div>`
           + `</div>`
           + `<div class="sm:col-span-2 flex flex-col gap-1">`
-          +   `<label class="text-xs uppercase tracking-wide text-slate-400">Date range</label>`
+          +   `<label class="text-xs uppercase tracking-wide text-slate-400">Continuous recordings - date range</label>`
           +   `<div class="flex items-center gap-2">`
           +     `<div class="relative flex-1">`
           +       `<input id="delContFrom" type="text" placeholder="YYYY-MM-DD" class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-sm pr-8" />`
@@ -2014,7 +2014,7 @@
           +         `</svg>`
           +       `</button>`
           +     `</div>`
-          +     `<button id="deleteContinuousBtn" class="text-xs px-3 py-1.5 rounded-md bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 whitespace-nowrap">Delete continuous</button>`
+          +     `<button id="deleteContinuousBtn" title="Delete continuous recordings in the date range (or ALL if the fields are empty). Cannot be undone." class="text-xs px-3 py-1.5 rounded-md bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 whitespace-nowrap">Delete continuous</button>`
           +   `</div>`
           + `</div>`;
         form.innerHTML += group('⚠️ Resets and deletes', reset);

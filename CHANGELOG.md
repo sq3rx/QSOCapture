@@ -3,11 +3,10 @@
 All notable changes to QSOCapture are documented here. This file is written
 in plain business language, without going into implementation details.
 
-## Unreleased
+## Version 0.8.0beta
 
-> This section will become version 0.8.0beta.
-
-### 🐛 Bug Fixes
+### ✨ Improvements
+* **Clearer "Resets and deletes" settings section:** Destructive buttons now show a tooltip describing exactly what they do before you click, and the date range for deleting continuous recordings is now clearly labelled.
 * **Deleting a QSO in N1MM Logger+ now actually removes it:** Previously the database row and its audio recording were left in place because the delete packet was not processed correctly. Deleted QSOs are now properly removed from the dashboard.
 * **Correct QSO times:** N1MM sends the QSO `<timestamp>` in UTC, but QSOCapture was interpreting it in your computer's local timezone, shifting every displayed QSO time by the UTC offset (up to 11 hours). Timestamps are now interpreted correctly as UTC. Existing QSOs are automatically migrated to the correct time on first start.
 * **Exchange column no longer shows a stale `0` for most contests:** For contests that do not use zones, N1MM sends `<zone>0</zone>`, which previously hijacked the Exch column and hid the real serial, section or exchange. The zone value `0` is now ignored, so the correct exchange (serial, section, etc.) is shown instead.

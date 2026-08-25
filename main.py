@@ -37,7 +37,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("QSOCapture.main")
 
-APP_VERSION = "0.7.0beta"
+APP_VERSION = "0.8.0beta"
 GITHUB_REPO = "sq3rx/QSOCapture"
 
 # Version comparison helpers
