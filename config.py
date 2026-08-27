@@ -106,6 +106,7 @@ def load_config(path: str = "config.cfg") -> AppConfig:
         continuous_autostart=_get(parser, "general", "continuous_autostart", AppConfig.continuous_autostart),
         continuous_chunk_minutes=_get(parser, "general", "continuous_chunk_minutes", AppConfig.continuous_chunk_minutes),
         normalize_continuous=_get(parser, "general", "normalize_continuous", AppConfig.normalize_continuous),
+        max_recordings_gb=_get(parser, "general", "max_recordings_gb", AppConfig.max_recordings_gb),
 
         audio_mode=_get(parser, "audio", "mode", AppConfig.audio_mode).lower(),
         audio_format=_get(parser, "audio", "audio_format", AppConfig.audio_format).lower(),
@@ -143,6 +144,8 @@ def load_config(path: str = "config.cfg") -> AppConfig:
 CONFIG_SCHEMA = [
     ("general", "station_name", "Station name", "text", None,
      "Your station callsign / identifier shown in the header and used as a label in logs."),
+    ("general", "continuous_recording", "Continuous recording", "bool", None,
+     "Master switch for continuous recording. When OFF, no continuous chunks are written (QSO slices are still recorded)."),
     ("general", "continuous_autostart", "Continuous recording autostart", "bool", None,
      "When ON, continuous recording starts automatically on app startup."),
     ("general", "continuous_chunk_minutes", "Continuous chunk (min)", "int", None,
@@ -165,8 +168,6 @@ CONFIG_SCHEMA = [
      "Seconds of audio kept BEFORE the N1MM contact timestamp."),
     ("audio", "post_roll", "Post-roll (s)", "float", None,
      "Seconds to wait AFTER the N1MM packet before slicing."),
-    ("audio", "sample_width", "Sample width (bytes)", "int", [1, 2, 4],
-     "Bytes per sample (2 = 16-bit, standard for WAV)."),
     ("audio", "audio_format", "Audio format", "text", ["wav", "mp3"],
      "WAV is lossless; MP3 saves disk space (requires lameenc)."),
     ("audio", "so2r_mode", "SO2R mode", "select", ["stereo", "dual_card"],

@@ -1907,9 +1907,11 @@
               <div class="text-xs text-slate-400 break-all flex-1 px-2 py-1.5 bg-slate-950 border border-slate-800 rounded">${pr.recordings_abs || ''}</div>
               <button id="openRecFolder" type="button" class="text-xs px-3 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-700 whitespace-nowrap">&#128193; Open</button>
             </div>`)
+          + fieldBlock('Continuous recording', boolInput('cfg_continuous_recording', v.continuous_recording), helpMap.continuous_recording)
           + fieldBlock('Continuous recording autostart', boolInput('cfg_continuous_autostart', v.continuous_autostart), helpMap.continuous_autostart)
           + fieldBlock('Continuous chunk (min)', numberInput('cfg_continuous_chunk_minutes', v.continuous_chunk_minutes), helpMap.continuous_chunk_minutes)
           + fieldBlock('Normalize continuous recordings', boolInput('cfg_normalize_continuous', v.normalize_continuous), helpMap.normalize_continuous)
+          + fieldBlock('Max recordings (GB)', numberInput('cfg_max_recordings_gb', v.max_recordings_gb, 'any'), helpMap.max_recordings_gb)
           + fieldBlock('Web address (host:port)', webAddrWidget(`${v.web_host}:${v.web_port}`), helpMap.web_host)
           + fieldBlock('TCI address (host:port)', tciAddrWidget(`${v.tci_host}:${v.tci_port}`), helpMap.tci_host)
           + fieldBlock('N1MM address (bind_ip:udp_port)', n1mmAddrWidget(`${v.n1mm_bind_ip}:${v.n1mm_udp_port}`), helpMap.n1mm_bind_ip);
@@ -1921,8 +1923,7 @@
           + fieldBlock('Channels (1=SO1R,2=SO2R)', selectInput('cfg_channels', v.channels, [1,2]), helpMap.channels)
           + fieldBlock('SO2R mode', toggleWidget(v.so2r_mode, 'cfg_so2r_mode'), helpMap.so2r_mode)
           + fieldBlock('Pre-roll (s)', numberInput('cfg_pre_roll', v.pre_roll, 'any'), helpMap.pre_roll)
-          + fieldBlock('Post-roll (s)', numberInput('cfg_post_roll', v.post_roll, 'any'), helpMap.post_roll)
-          + fieldBlock('Sample width (bytes)', selectInput('cfg_sample_width', v.sample_width, [1,2,4]), helpMap.sample_width);
+          + fieldBlock('Post-roll (s)', numberInput('cfg_post_roll', v.post_roll, 'any'), helpMap.post_roll);
         form.innerHTML += group('Audio', audio);
 
         let sc = fieldBlock('Soundcard device (RX1)', soundcardWidget(v.soundcard_device, 'cfg_soundcard_device'), helpMap.soundcard_device)

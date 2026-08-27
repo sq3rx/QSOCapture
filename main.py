@@ -363,6 +363,8 @@ def api_export(contest: Optional[str] = Query(None)) -> FileResponse:
     root = RECORDINGS_DIR
     if not os.path.isdir(root):
         raise HTTPException(status_code=404, detail="no recordings")
+    if contest:
+        contest = _safe_contest(contest)
     base = root if not contest else os.path.join(root, contest)
     if contest and not os.path.isdir(base):
         raise HTTPException(status_code=404, detail="contest not found")
@@ -543,6 +545,17 @@ def api_set_config(payload: dict) -> JSONResponse:
                                     detail=f"Invalid value for {field}: {e}")
             _validate_field_range(field, value)
             setattr(cfg, field, value)
+    if cfg.so2r_mode == "dual_card":
+        if cfg.channels < 2:
+            raise HTTPException(
+                status_code=400,
+                detail="dual_card SO2R mode requires channels=2 (two receivers)",
+            )
+        if not cfg.soundcard_device2:
+            raise HTTPException(
+                status_code=400,
+                detail="dual_card SO2R mode requires a second soundcard device (RX2)",
+            )
     save_config(cfg, "config.cfg")
     _apply_and_restart()
     return JSONResponse({"ok": True, "values": config_to_dict(cfg)})
@@ -589,9 +602,7 @@ def api_delete_recordings() -> JSONResponse:
 
 @app.post("/api/delete_contest")
 def api_delete_contest(payload: dict) -> JSONResponse:
-    contest = (payload.get("contest") or "").strip()
-    if not contest:
-        raise HTTPException(status_code=400, detail="contest name is required")
+    contest = _safe_contest(payload.get("contest"))
     contest_dir = os.path.join(RECORDINGS_DIR, contest)
     removed_files = 0
     if os.path.isdir(contest_dir):
@@ -604,9 +615,7 @@ def api_delete_contest(payload: dict) -> JSONResponse:
 
 @app.post("/api/delete_contest_recordings")
 def api_delete_contest_recordings(payload: dict) -> JSONResponse:
-    contest = (payload.get("contest") or "").strip()
-    if not contest:
-        raise HTTPException(status_code=400, detail="contest name is required")
+    contest = _safe_contest(payload.get("contest"))
     contest_dir = os.path.join(RECORDINGS_DIR, contest)
     removed_files = 0
     if os.path.isdir(contest_dir):
@@ -679,6 +688,20 @@ def api_factory_reset() -> JSONResponse:
     return JSONResponse({"ok": True, "values": config_to_dict(cfg)})
 
 
+def _safe_contest(raw) -> str:
+    """Sanitize a contest name to a single path-safe entry (rejects path traversal).
+
+    Strips surrounding whitespace, normalizes backslashes, and reduces to the
+    basename so values like ``../../etc`` or absolute paths cannot escape the
+    recordings directory.
+    """
+    name = (raw or "").strip().replace("\\", "/")
+    name = os.path.basename(name)
+    if not name or name in (".", "..") or name.startswith("/"):
+        raise HTTPException(status_code=400, detail="invalid contest name")
+    return name
+
+
 def _validate_field_range(field: str, value) -> None:
     """Reject invalid config values before they are applied."""
     limits = {
@@ -686,11 +709,11 @@ def _validate_field_range(field: str, value) -> None:
         "pre_roll": (0.0, 120.0), "post_roll": (0.0, 120.0),
         "continuous_chunk_minutes": (1, 1440),
         "tci_port": (1, 65535), "n1mm_udp_port": (1, 65535),
-        "web_port": (1, 65535), "sample_width": (1, 4),
-        "max_recordings_gb": (0.0, 100000.0),
+        "web_port": (1, 65535), "max_recordings_gb": (0.0, 100000.0),
     }
     choices = {
         "so2r_mode": ["stereo", "dual_card"],
+        "audio_mode": ["tci", "soundcard"],
     }
     if field in choices and value not in choices[field]:
         raise HTTPException(

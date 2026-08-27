@@ -408,9 +408,9 @@ class AudioSource(ABC):
         logger.debug("[%s] slice window for %s: start_off=%.1f end_off=%.1f (ref_ts=%.1f, now=%.1f)",
                      self.label, req.call, start_off, end_off, ref_ts, now)
         safe_call = "".join(ch for ch in req.call if ch.isalnum() or ch in "-_")
-        stamp = time.strftime("%Y-%m-%d_%H%M", time.localtime(req.timestamp))
+        stamp = time.strftime("%Y-%m-%d_%H%M", time.gmtime(req.timestamp))
         ext = "mp3" if self.cfg.audio_format == "mp3" else "wav"
-        year = time.strftime("%Y", time.localtime(req.timestamp))
+        year = time.strftime("%Y", time.gmtime(req.timestamp))
         contest_dir = f"{year}_{req.contest}" if req.contest else f"{year}_GENERAL"
         out_dir = os.path.join(RECORDINGS_DIR, contest_dir)
 
@@ -567,7 +567,7 @@ class AudioSource(ABC):
 
     def _open_cont_files(self) -> None:
         """Open new chunk file(s) with a unique millisecond component for the filename."""
-        stamp = time.strftime("%Y%m%d_%H%M%S", time.localtime()) + \
+        stamp = time.strftime("%Y%m%d_%H%M%S", time.gmtime()) + \
                 f"{int(time.time() * 1000) % 100000:05d}"
         out_dir = os.path.join(RECORDINGS_DIR, "_continuous")
         os.makedirs(out_dir, exist_ok=True)

@@ -595,7 +595,7 @@ def rename_qso_audio(n1mm_id: str, new_call: str, new_band: str,
             return None
 
     safe_call = "".join(ch for ch in new_call if ch.isalnum() or ch in "-_")
-    stamp = time.strftime("%Y-%m-%d_%H%M", time.localtime(timestamp))
+    stamp = time.strftime("%Y-%m-%d_%H%M", time.gmtime(timestamp))
     ext = os.path.splitext(old_rel)[1]  # preserve existing extension
     new_fname = f"{stamp}_{safe_call}_{new_band}_{new_rx_label}{ext}"
     new_rel = f"{new_contest_dir}/{new_fname}"
@@ -704,7 +704,7 @@ def update_qso_file_path(old_path: str, new_path: str) -> None:
 def _fmt_ts(ts: float) -> str:
     if not ts:
         return ""
-    return time.strftime("%Y-%m-%d %H:%M", time.localtime(ts))
+    return time.strftime("%Y-%m-%d %H:%M", time.gmtime(ts))
 
 
 def _file_duration(path: str) -> float:

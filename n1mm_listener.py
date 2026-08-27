@@ -309,7 +309,7 @@ class N1MMListener:
         qso_epoch = self._parse_ts(ts_raw)
         rx_label = "RX2" if (g("radionr") or "1").strip() == "2" else "RX1"
         contest = g("ContestName") or "GENERAL"
-        year = time.strftime("%Y", time.localtime(qso_epoch))
+        year = time.strftime("%Y", time.gmtime(qso_epoch))
         contest_dir = f"{year}_{contest}" if contest else f"{year}_GENERAL"
 
         logger.info("N1MM contactreplace: %s -> %s (n1mm_id=%s)", n1mm_id, new_call, n1mm_id)
