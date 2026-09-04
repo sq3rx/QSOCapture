@@ -167,7 +167,7 @@ CONFIG_SCHEMA = [
     ("general", "normalize_continuous", "Normalize continuous recordings", "bool", None,
      "When ON, continuous WAV chunks are normalized after each chunk. Disable to save CPU on long recordings (QSO slices are always normalized)."),
     ("general", "max_recordings_gb", "Max recordings (GB)", "float", None,
-     "Hard cap on recordings folder disk usage. Oldest continuous chunks deleted when exceeded (0 = unlimited)."),
+     "Hard cap on the recordings folder disk usage. Oldest continuous chunks are deleted automatically when the total exceeds the limit. Set 'Unlimited' to never delete recordings."),
     ("tci", "tci_host", "TCI host", "text", None,
      "IP address of the ExpertSDR TCI server (usually 127.0.0.1)."),
     ("tci", "tci_port", "TCI port", "int", None,

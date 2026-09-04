@@ -5,21 +5,29 @@ in plain business language, without going into implementation details.
 
 ## Version 0.8.0beta
 
+### 🚀 New Features
+* **Continuous recording can be turned on/off in Settings:** The master switch for continuous recording is now exposed in Settings (separate from its autostart). Turning it off stops writing continuous chunks — QSO slices are still recorded.
+
 ### ✨ Improvements
 * **Clearer "Resets and deletes" settings section:** Destructive buttons now show a tooltip describing exactly what they do before you click, and the date range for deleting continuous recordings is now clearly labelled.
+* **"Max recordings (GB)" is now clearer:** The limit field no longer shows a bare "0" for "no limit" — it is now presented as an **Unlimited** toggle switch next to a GB number field, so it is obvious that recordings will never be deleted automatically. When Unlimited is on the GB field is dimmed; when it is off you must enter a value.
+* **Options that depend on Continuous recording are greyed out:** When Continuous recording is switched off in Settings, the options that only apply to continuous chunks — autostart, chunk length, normalisation and the disk limit — are now dimmed and disabled, and they light up again the moment Continuous recording is turned back on.
+* **"Start recording" button explains itself when Continuous is off:** With Continuous recording disabled, the dashboard's Start/Stop button is shown greyed out with a tooltip telling you to enable Continuous recording in Settings, instead of appearing active and doing nothing.
+
+### 🐛 Bug Fixes
+* **Fixed a Settings lock‑out where saving was blocked with "Error HTTP 400":** A leftover Dual‑card SO2R setting could get stuck and reject *every* attempt to save Settings, even after no changes and a reboot. The app now automatically fixes such a configuration on startup, and saving no longer sends the hidden Dual‑card value — you can open and save Settings again.
+* **Settings errors now say why:** When a Settings save is rejected, the message now shows the actual reason (e.g. a missing second soundcard) instead of just a bare "HTTP 400".
+* **Safer Settings validation:** Saving Settings now politely rejects invalid audio configurations instead of silently applying them — for example, Dual-card SO2R without the second soundcard selected, an unrecognised audio mode, or a missing second device.
 * **Deleting a QSO in N1MM Logger+ now actually removes it:** Previously the database row and its audio recording were left in place because the delete packet was not processed correctly. Deleted QSOs are now properly removed from the dashboard.
 * **Correct QSO times:** N1MM sends the QSO `<timestamp>` in UTC, but QSOCapture was interpreting it in your computer's local timezone, shifting every displayed QSO time by the UTC offset (up to 11 hours). Timestamps are now interpreted correctly as UTC, and existing QSOs are automatically migrated to the correct time on first start.
 * **Dashboard always shows QSO times in UTC:** Recording playback and the QSO list used to display times in your local timezone, while the underlying data was UTC — so the two could disagree. The dashboard and file names now consistently use UTC, matching the time N1MM Logger+ actually logged, no matter what timezone your computer is set to.
 * **Exchange column no longer shows a stale `0` for most contests:** For contests that do not use zones, N1MM sends `<zone>0</zone>`, which previously hijacked the Exch column and hid the real serial, section or exchange. The zone value `0` is now ignored, so the correct exchange (serial, section, etc.) is shown instead.
 * **60 m QSOs now show the correct band:** QSOs made on the 60 m band (5.3 MHz) were previously labelled `5.3` instead of `60M`, sorting and filtering apart from every other band. 60 m is now recognized and displayed as `60M`.
 * **Editing a QSO in N1MM Logger+ now updates the QSO and audio:** Editing a contact (contactreplace) previously had no effect when the packet did not wrap the details in a `<contactinfo>` element, so the callsign/band change never reached the dashboard and the audio file kept its old name. The packet is now processed regardless of its layout, updating the QSO in place and renaming the recording to match.
-* **Hardened the delete/export endpoints:** Deleting or exporting a contest by name no longer accepts arbitrary paths — only a valid contest folder inside the recordings directory can be removed or exported, protecting against attempts to delete or pull files outside it.
+* **Fixed Settings header scrolling over the content:** While scrolling the long Settings window, controls no longer overlap the fixed "Configuration" title bar or the Save & Apply footer.
 * **"Max recordings (GB)" limit now actually persists:** The disk-space cap you set in Settings (oldest continuous chunks are removed when exceeded) was silently reset back to unlimited every time the app restarted. The value is now saved and remembered correctly.
-* **Continuous recording can be turned on/off in Settings:** The master switch for continuous recording is now exposed in Settings (separate from its autostart). Turning it off stops writing continuous chunks — QSO slices are still recorded.
-* **Safer Settings validation:** Saving Settings now politely rejects invalid audio configurations instead of silently applying them — for example, Dual-card SO2R without the second soundcard selected, an unrecognised audio mode, or a missing second device.
 * **Removed the misleading "Sample width" setting:** Audio is always captured and stored as 16-bit, so the sample-width option (1/2/4 bytes) had no effect and confused users. It has been removed from the Settings window.
-* **Fixed a Settings lock‑out where saving was blocked with "Error HTTP 400":** A leftover Dual‑card SO2R setting could get stuck and reject *every* attempt to save Settings, even after no changes and a reboot. The app now automatically fixes such a configuration on startup, and saving no longer sends the hidden Dual‑card value — you can open and save Settings again.
-* **Settings errors now say why:** When a Settings save is rejected, the message now shows the actual reason (e.g. a missing second soundcard) instead of just a bare "HTTP 400".
+* **Hardened the delete/export endpoints:** Deleting or exporting a contest by name no longer accepts arbitrary paths — only a valid contest folder inside the recordings directory can be removed or exported, protecting against attempts to delete or pull files outside it.
 
 ## Version 0.7.0beta
 

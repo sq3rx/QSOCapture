@@ -113,6 +113,7 @@ Click **⚙ Settings** to open the configuration panel. All changes are applied 
 | **Continuous recording autostart** | When ON, continuous recording starts automatically when the program launches. |
 | **Continuous chunk (min)** | Length of each continuous recording file in minutes. |
 | **Normalize continuous recordings** | When ON, continuous WAV chunks are normalized (volume levelled). Disable to save CPU on long recordings. QSO slices are always normalized. |
+| **Max recordings (GB)** | Hard cap on the recordings folder disk usage. When the oldest continuous chunks push the total over the limit, they are deleted automatically. Set **Unlimited** to never delete recordings automatically (default). |
 | **Web address (host:port)** | Web interface address and port. Default `127.0.0.1:8000` (local only). Set to `0.0.0.0:8000` to expose the dashboard on your LAN. |
 | **TCI address (host:port)** | ExpertSDR TCI server address (default `127.0.0.1:50001`). |
 | **N1MM address (bind_ip:udp_port)** | UDP address and port for receiving N1MM Logger+ broadcasts (default `127.0.0.1:12060`). |
@@ -128,7 +129,6 @@ Click **⚙ Settings** to open the configuration panel. All changes are applied 
 | **SO2R mode** | SO2R mode selector (visible only when **Audio mode = soundcard** and **Channels = 2**). |
 | **Pre-roll (s)** | Seconds of audio kept **before** the N1MM contact timestamp. |
 | **Post-roll (s)** | Seconds to wait **after** receiving the N1MM packet before slicing. |
-| **Sample width (bytes)** | Bytes per sample (2 = 16-bit, standard for WAV). |
 
 #### SO2R mode details
 

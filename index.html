@@ -100,7 +100,7 @@
     .overflow-y-auto { overflow-y:auto; } .overflow-x-auto { overflow-x:auto; }
     .whitespace-nowrap { white-space:nowrap; } .whitespace-pre-wrap { white-space:pre-wrap; }
     .break-all { word-break:break-all; } .leading-relaxed { line-height:1.625; }
-    .sticky { position:sticky; } .top-0 { top:0; } .bottom-0 { bottom:0; }
+    .sticky { position:sticky; } .top-0 { top:0; } .bottom-0 { bottom:0; } .z-10 { z-index:10; }
     .cursor-pointer { cursor:pointer; } .cursor-help { cursor:help; }
     .antialiased { -webkit-font-smoothing:antialiased; }
     .fixed { position:fixed; } .inset-0 { top:0; right:0; bottom:0; left:0; }
@@ -416,14 +416,14 @@
 
   <div id="cfgModal" class="fixed inset-0 bg-black/70 hidden items-center justify-center z-50 p-4">
     <div class="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-3xl max-h-[85vh] overflow-y-auto">
-        <div class="flex items-center justify-between px-5 py-3 border-b border-slate-700 sticky top-0 bg-slate-900">
+<div class="flex items-center justify-between px-5 py-3 border-b border-slate-700 sticky top-0 z-10 bg-slate-900">
           <h2 class="text-lg font-semibold">&#9881; Configuration</h2>
           <div class="flex items-center gap-3">
             <button id="closeCfg" class="text-slate-400 hover:text-white text-xl leading-none">&times;</button>
           </div>
         </div>
       <div id="cfgForm" class="p-5 grid grid-cols-1 md:grid-cols-2 gap-6"></div>
-      <div class="px-5 py-3 border-t border-slate-700 flex items-center justify-end gap-3 sticky bottom-0 bg-slate-900">
+      <div class="px-5 py-3 border-t border-slate-700 flex items-center justify-end gap-3 sticky bottom-0 z-10 bg-slate-900">
         <span id="cfgMsg" class="text-xs text-slate-400"></span>
         <button id="saveCfg"
                 class="text-sm px-4 py-2 rounded-md bg-brand text-slate-950 font-semibold hover:opacity-90">
@@ -620,6 +620,7 @@
     }
 
     let recPaused = false;
+    let continuousEnabled = false;
     // Whether the audio source (TCI radio) is actually connected. In TCI mode
     // the continuous "Start recording" button must be disabled until the
     // radio is linked, otherwise we would record silent gap files. In
@@ -789,6 +790,7 @@
         // continuous feature is always available; the button reflects whether
         // recording is currently paused (off) or running.
         const recBtn = $('toggleRec');
+        continuousEnabled = !!s.continuous;
         recPaused = !!(s.audio && s.audio.continuous_paused);
         updateRecButton();
         updateRecordingBadge();
@@ -1805,6 +1807,36 @@
       return `<input id="${id}" type="number" step="${step}" value="${val}"
                       class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-sm">`;
     }
+    function diskLimitWidget(val) {
+      const unlimited = !(val > 0);
+      // The GB field is dimmed while "Unlimited" is ticked.
+      const numCls = unlimited
+        ? 'w-full bg-slate-800/50 border border-slate-700 rounded px-2 py-1.5 text-sm flex-1 opacity-60 cursor-not-allowed'
+        : 'w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-sm flex-1';
+      return `<div class="flex items-center gap-2">
+                <label class="relative inline-flex items-center cursor-pointer">
+                  <input id="cfg_max_unlimited" type="checkbox" ${unlimited ? 'checked' : ''} class="sr-only peer">
+                  <div class="w-9 h-5 bg-slate-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-brand/30 rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand"></div>
+                  <span class="ml-2 text-xs text-slate-300 whitespace-nowrap">Unlimited</span>
+                </label>
+                <input id="cfg_max_recordings_gb" type="number" step="any" min="0" ${unlimited ? 'disabled' : ''} value="${unlimited ? '' : val}" placeholder="GB"
+                       class="${numCls}">
+              </div>`;
+    }
+    function wireDiskLimitToggle() {
+      const cb = $('cfg_max_unlimited');
+      const num = $('cfg_max_recordings_gb');
+      if (!cb || !num) return;
+      const dimmedCls = 'w-full bg-slate-800/50 border border-slate-700 rounded px-2 py-1.5 text-sm flex-1 opacity-60 cursor-not-allowed';
+      const normalCls = 'w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-sm flex-1';
+      const update = () => {
+        num.disabled = cb.checked;
+        num.className = cb.checked ? dimmedCls : normalCls;
+        if (cb.checked) num.value = '';
+      };
+      cb.addEventListener('change', update);
+      update();
+    }
     function boolInput(id, val) {
       return `<label class="relative inline-flex items-center cursor-pointer">
         <input type="checkbox" id="${id}" ${val ? 'checked' : ''} class="sr-only peer">
@@ -1818,20 +1850,21 @@
       }).join('');
       return `<select id="${id}" class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-sm">${opts}</select>`;
     }
-    function fieldBlock(label, inputHtml, help) {
+    function fieldBlock(label, inputHtml, help, wrapId) {
       const tip = help
         ? `<span class="ml-1 inline-flex items-center justify-center w-4 h-4 rounded-full bg-slate-700 text-slate-200 text-[10px] cursor-help align-middle" title="${esc(help)}">?</span>`
         : '';
+      const id = wrapId ? ` id="${wrapId}"` : '';
       // Toggle switches (bool) are rendered inline with their label instead of
       // stacked vertically, so the label text sits next to the switch rather
       // than above it — this looks much cleaner.
       if (inputHtml.includes('peer-checked:bg-brand')) {
-        return `<div class="flex items-center justify-between gap-2">
+        return `<div${id} class="flex items-center justify-between gap-2">
                   <label class="text-xs uppercase tracking-wide text-slate-400">${label}${tip}</label>
                   ${inputHtml}
                 </div>`;
       }
-      return `<div class="flex flex-col gap-1">
+      return `<div${id} class="flex flex-col gap-1">
                 <label class="text-xs uppercase tracking-wide text-slate-400">${label}${tip}</label>
                 ${inputHtml}
               </div>`;
@@ -1908,10 +1941,10 @@
               <button id="openRecFolder" type="button" class="text-xs px-3 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-700 whitespace-nowrap">&#128193; Open</button>
             </div>`)
           + fieldBlock('Continuous recording', boolInput('cfg_continuous_recording', v.continuous_recording), helpMap.continuous_recording)
-          + fieldBlock('Continuous recording autostart', boolInput('cfg_continuous_autostart', v.continuous_autostart), helpMap.continuous_autostart)
-          + fieldBlock('Continuous chunk (min)', numberInput('cfg_continuous_chunk_minutes', v.continuous_chunk_minutes), helpMap.continuous_chunk_minutes)
-          + fieldBlock('Normalize continuous recordings', boolInput('cfg_normalize_continuous', v.normalize_continuous), helpMap.normalize_continuous)
-          + fieldBlock('Max recordings (GB)', numberInput('cfg_max_recordings_gb', v.max_recordings_gb, 'any'), helpMap.max_recordings_gb)
+          + fieldBlock('Continuous recording autostart', boolInput('cfg_continuous_autostart', v.continuous_autostart), helpMap.continuous_autostart, 'cfg-w-autostart')
+          + fieldBlock('Continuous chunk (min)', numberInput('cfg_continuous_chunk_minutes', v.continuous_chunk_minutes), helpMap.continuous_chunk_minutes, 'cfg-w-chunk')
+          + fieldBlock('Normalize continuous recordings', boolInput('cfg_normalize_continuous', v.normalize_continuous), helpMap.normalize_continuous, 'cfg-w-normalize')
+          + fieldBlock('Max recordings (GB)', diskLimitWidget(v.max_recordings_gb), helpMap.max_recordings_gb, 'cfg-w-maxgb')
           + fieldBlock('Web address (host:port)', webAddrWidget(`${v.web_host}:${v.web_port}`), helpMap.web_host)
           + fieldBlock('TCI address (host:port)', tciAddrWidget(`${v.tci_host}:${v.tci_port}`), helpMap.tci_host)
           + fieldBlock('N1MM address (bind_ip:udp_port)', n1mmAddrWidget(`${v.n1mm_bind_ip}:${v.n1mm_udp_port}`), helpMap.n1mm_bind_ip);
@@ -1969,7 +2002,31 @@
           if (channels) channels.addEventListener('change', updateDualCardVisibility);
           if (modeEl) modeEl.addEventListener('change', updateDualCardVisibility);
           updateDualCardVisibility();
+          wireDiskLimitToggle();
+          const master = $('cfg_continuous_recording');
+          if (master) {
+            master.addEventListener('change', applyContinuousDependentState);
+            master.addEventListener('click', applyContinuousDependentState);
+          }
+          applyContinuousDependentState();
         }, 150);
+
+        // Grey out the options that only make sense when continuous recording
+        // is switched on (autostart, chunk length, normalisation and the
+        // disk limit all depend on continuous chunks being recorded).
+        function applyContinuousDependentState() {
+          const master = $('cfg_continuous_recording');
+          if (!master) return;
+          const on = master.checked;
+          const apply = () => {
+            ['cfg-w-autostart', 'cfg-w-chunk', 'cfg-w-normalize', 'cfg-w-maxgb'].forEach(id => {
+              const el = $(id);
+              if (el) el.classList.toggle('filter-disabled', !on);
+            });
+          };
+          apply();
+          setTimeout(apply, 0);
+        }
 
         // Build Reset group
         let contestOpts = '<option value="">— Select contest —</option>';
@@ -2099,6 +2156,16 @@
           // (SO1R) toggle would otherwise send a stale 'dual_card' and the
           // backend would reject the whole save with HTTP 400.
           payload[f] = (toggle?.checked && channels >= 2) ? 'dual_card' : 'stereo';
+        } else if (f === 'max_recordings_gb') {
+          if ($('cfg_max_unlimited').checked) {
+            payload[f] = 0;
+          } else {
+            const gb = parseFloat($('cfg_max_recordings_gb').value);
+            if (!Number.isFinite(gb) || gb <= 0) {
+              throw new Error('Enter a limit in GB or enable Unlimited');
+            }
+            payload[f] = gb;
+          }
         } else if (f === 'soundcard_device') {
           payload[f] = $('cfg_soundcard_device').value;
         } else if (f === 'soundcard_device2') {
@@ -2114,9 +2181,9 @@
     }
 
     async function saveConfig() {
-      const payload = await collectConfig();
       $('cfgMsg').textContent = 'Applying…';
       try {
+        const payload = await collectConfig();
         const r = await fetch('/api/config', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -2325,6 +2392,15 @@
     // --- Continuous recording start/stop toggle ---------------------------
     function updateRecButton() {
       const btn = $('toggleRec');
+      // Continuous recording is switched off in Settings -> show the button
+      // greyed out with an explanatory tooltip instead of a working control.
+      if (!continuousEnabled) {
+        btn.disabled = true;
+        btn.innerHTML = '&#9654; Start recording';
+        btn.className = 'text-xs px-3 py-1.5 rounded-md bg-slate-800 border border-slate-700 text-slate-500 font-medium cursor-not-allowed opacity-60';
+        btn.title = 'Enable Continuous recording in Settings to start';
+        return;
+      }
       // In TCI mode the audio source must be linked before recording can
       // start. If it is not connected, the "Start recording" action is
       // disabled (and greyed out) so we never create silent gap files.
@@ -2348,6 +2424,7 @@
       }
     }
     async function toggleRecording() {
+      if (!continuousEnabled) return;
       const btn = $('toggleRec');
       btn.disabled = true;
       try {

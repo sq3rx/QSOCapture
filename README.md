@@ -40,6 +40,9 @@ clean, color-coded web dashboard.
  - **Continuous recording** — records the whole band into time-sliced chunks
    so no QSO is ever missed. Controlled by the **Continuous recording
    autostart** setting and the dashboard **Start/Stop recording** button.
+   You can cap total disk usage with the **Max recordings (GB)** setting
+   (oldest continuous chunks are deleted when exceeded); set it to
+   **Unlimited** to never delete recordings automatically.
  - **Two audio sources** — ExpertSDR via the TCI WebSocket protocol, or any
    system soundcard input device.
  - **WAV / MP3 output** — recordings are saved as lossless WAV by default;
