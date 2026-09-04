@@ -135,7 +135,21 @@ def load_config(path: str = "config.cfg") -> AppConfig:
         web_port=_get(parser, "web", "port", AppConfig.web_port),
         dashboard_file=_get(parser, "web", "dashboard_file", AppConfig.dashboard_file),
     )
+    reject_invalid_config(cfg)
     return cfg
+
+
+def reject_invalid_config(cfg: AppConfig) -> None:
+    """Fall back to safe values when the loaded config is self-inconsistent.
+
+    Prior to 0.8.0beta the UI could save ``so2r_mode=dual_card`` with
+    ``channels=1`` or without a second soundcard device. The config POST
+    endpoint hard-fails on that combination (HTTP 400), which permanently
+    blocked saving any settings. Normalize to ``stereo`` on load so those
+    legacy files work again.
+    """
+    if cfg.so2r_mode == "dual_card" and (cfg.channels < 2 or not cfg.soundcard_device2):
+        cfg.so2r_mode = "stereo"
 
 
 # UI schema: (section, field, label, type, choices, help_text)

@@ -18,6 +18,8 @@ in plain business language, without going into implementation details.
 * **Continuous recording can be turned on/off in Settings:** The master switch for continuous recording is now exposed in Settings (separate from its autostart). Turning it off stops writing continuous chunks — QSO slices are still recorded.
 * **Safer Settings validation:** Saving Settings now politely rejects invalid audio configurations instead of silently applying them — for example, Dual-card SO2R without the second soundcard selected, an unrecognised audio mode, or a missing second device.
 * **Removed the misleading "Sample width" setting:** Audio is always captured and stored as 16-bit, so the sample-width option (1/2/4 bytes) had no effect and confused users. It has been removed from the Settings window.
+* **Fixed a Settings lock‑out where saving was blocked with "Error HTTP 400":** A leftover Dual‑card SO2R setting could get stuck and reject *every* attempt to save Settings, even after no changes and a reboot. The app now automatically fixes such a configuration on startup, and saving no longer sends the hidden Dual‑card value — you can open and save Settings again.
+* **Settings errors now say why:** When a Settings save is rejected, the message now shows the actual reason (e.g. a missing second soundcard) instead of just a bare "HTTP 400".
 
 ## Version 0.7.0beta
 
