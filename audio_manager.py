@@ -16,7 +16,7 @@ from typing import Optional
 
 import numpy as np
 
-from config import RECORDINGS_DIR
+from config import RECORDINGS_DIR, sanitize_contest
 
 logger = logging.getLogger("QSOCapture.audio")
 
@@ -175,10 +175,6 @@ def _write_pcm(path: str, frames: np.ndarray, sample_rate: int, channels: int,
             wf.writeframes(pcm.tobytes())
 
 
-def write_pcm_to_wav(path: str, frames: np.ndarray, sample_rate: int, channels: int) -> None:
-    """Legacy alias for _write_pcm with fmt=wav."""
-    _write_pcm(path, frames, sample_rate, channels, fmt="wav")
-
 
 # Audio normalization constants (always-on, no UI)
 NORM_TARGET_DBFS = -24.0
@@ -240,7 +236,13 @@ class AudioSource(ABC):
         self.cfg = cfg
         self.label = label
         cap = max(cfg.pre_roll + cfg.post_roll + 5.0, 30.0)
-        self.buffer = CircularAudioBuffer(cfg.sample_rate, cfg.channels, cap)
+        # The 2-channel self.buffer is only consumed in SO1R (channels == 1) and
+        # TCI modes. In soundcard SO2R (channels >= 2) the subclass replaces
+        # rx_buffers with two mono buffers, so skip this allocation there.
+        if cfg.audio_mode != "soundcard" or cfg.channels < 2:
+            self.buffer = CircularAudioBuffer(cfg.sample_rate, cfg.channels, cap)
+        else:
+            self.buffer = None
         self.rx_buffers = [('RX1', self.buffer)]
         self._running = False
         self._thread: Optional[threading.Thread] = None
@@ -306,6 +308,7 @@ class AudioSource(ABC):
                         import db as qso_db
                         qso_db.update_qso_file_path(db_old_rel, new_rel)
                         qso_db.update_qso_duration(new_rel, duration)
+                        _emit_event("continuous_chunk_saved")
                     except Exception as e:
                         logger.debug("encoder db update failed: %s", e)
                 except Exception as e:
@@ -411,7 +414,7 @@ class AudioSource(ABC):
         stamp = time.strftime("%Y-%m-%d_%H%M", time.gmtime(req.timestamp))
         ext = "mp3" if self.cfg.audio_format == "mp3" else "wav"
         year = time.strftime("%Y", time.gmtime(req.timestamp))
-        contest_dir = f"{year}_{req.contest}" if req.contest else f"{year}_GENERAL"
+        contest_dir = f"{year}_{sanitize_contest(req.contest)}" if req.contest else f"{year}_GENERAL"
         out_dir = os.path.join(RECORDINGS_DIR, contest_dir)
 
         # For SO2R: slice only the matching receiver's buffer (by radio_nr).
@@ -503,8 +506,8 @@ class AudioSource(ABC):
         }
 
     def is_connected(self) -> bool:
-        """For soundcard always True; TCI overrides to reflect WebSocket state."""
-        return True
+        """Soundcard input is available while the source is running."""
+        return self._running
 
     def _buffers_detail(self) -> list:
         detail = []
@@ -525,7 +528,8 @@ class AudioSource(ABC):
             except queue.Full:
                 try:
                     self._cont_queue.get_nowait()
-                    self._cont_dropped += 1
+                    with self._cont_lock:
+                        self._cont_dropped += 1
                     if self._cont_dropped == 1:
                         _emit_event("continuous_dropped", {"dropped": self._cont_dropped})
                 except queue.Empty:
@@ -556,12 +560,15 @@ class AudioSource(ABC):
                 item = self._cont_queue.get(timeout=0.5)
             except queue.Empty:
                 item = None
-            if item is not None:
-                rx_label, frames = item
-                self._write_cont(rx_label, frames)
-            if time.time() - self._cont_start >= chunk_sec:
-                self._roll_cont_files()
-                self._cont_start = time.time()
+            try:
+                if item is not None:
+                    rx_label, frames = item
+                    self._write_cont(rx_label, frames)
+                if time.time() - self._cont_start >= chunk_sec:
+                    self._roll_cont_files()
+                    self._cont_start = time.time()
+            except Exception as e:
+                logger.warning("[%s] continuous write error: %s", self.label, e)
         logger.debug("[%s] continuous loop exiting", self.label)
         self._close_cont_files()
 
@@ -1043,4 +1050,6 @@ class TCIAudioSource(AudioSource):
 def create_audio_source(cfg, label: str = "RX1") -> AudioSource:
     if cfg.audio_mode == "tci":
         return TCIAudioSource(cfg, label)
+    if cfg.audio_mode != "soundcard":
+        logger.warning("Unknown audio_mode '%s'; falling back to soundcard", cfg.audio_mode)
     return SoundcardAudioSource(cfg, label)

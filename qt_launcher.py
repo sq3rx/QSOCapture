@@ -111,6 +111,7 @@ class MainWindow(QMainWindow):
         self.resize(1280, 800)
 
         self._icon_path = icon_path
+        self._taskbar_hicon = 0
         if icon_path and os.path.isfile(icon_path):
             self.setWindowIcon(QIcon(icon_path))
 
@@ -159,7 +160,6 @@ class MainWindow(QMainWindow):
         try:
             if event.type() == QEvent.Type.WindowStateChange:
                 if self.windowState() & Qt.WindowMinimized:
-                    event.ignore()
                     self.hide()
                     self.tray_icon.showMessage(
                         "QSOCapture", "Application minimized to system tray.\n"
@@ -216,6 +216,11 @@ class MainWindow(QMainWindow):
             if not hicon:
                 return
             hwnd = int(self.winId())
+            # Destroy our previously loaded icon to avoid leaking GDI handles
+            # across repeated show events.
+            if self._taskbar_hicon:
+                ctypes.windll.user32.DestroyIcon(self._taskbar_hicon)
+            self._taskbar_hicon = hicon
             ctypes.windll.user32.SendMessageW(hwnd, 0x80, 0, hicon)
             ctypes.windll.user32.SendMessageW(hwnd, 0x80, 1, hicon)
             ctypes.windll.user32.SendMessageW(hwnd, 0x80, 2, hicon)

@@ -1,7 +1,8 @@
 """Generate a multi-size Windows .ico from icon.svg.
 
 Produces icon.ico (16/32/48/64/128/256 px) for PyInstaller and Inno Setup.
-The SVG is rendered with Pillow (no cairo required). Run: python gen_icon.py
+Renders the SVG with cairosvg when available, otherwise falls back to a
+pure-Pillow vector renderer (no cairo required). Run: python gen_icon.py
 """
 
 import os
@@ -134,7 +135,7 @@ def main():
         base = render_master()
 
     base.save(PNG)
-    frames = [base.resize((s, s), Image.LANCZOS) for s in SIZES]
+    frames = [base.resize((s, s), Image.Resampling.LANCZOS) for s in SIZES]
     frames[0].save(ICO, format="ICO", append_images=frames[1:])
     print("Wrote", ICO, "sizes", [f.size for f in frames])
 

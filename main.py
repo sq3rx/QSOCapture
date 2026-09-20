@@ -109,7 +109,8 @@ def get_latest_version():
         _version_cache["value"] = result
         _version_cache["ts"] = now
         return result
-    except Exception:
+    except Exception as e:
+        logger.debug("version check failed: %s", e)
         return (None, None)
 
 
@@ -118,6 +119,17 @@ cfg: AppConfig = load_config()
 audio_source = None
 n1mm = None
 _config_lock = threading.Lock()
+
+
+def _read_cfg() -> AppConfig:
+    """Return the current config reference, consistent with concurrent writers.
+
+    Writers mutate ``cfg`` (or replace it) while holding ``_config_lock``; reading
+    the global under the same lock avoids observing a half-applied configuration.
+    """
+    with _config_lock:
+        return cfg
+
 
 DEBUG_LOGGING = False
 
@@ -194,10 +206,11 @@ def on_contact(contact: N1MMContact) -> None:
     from n1mm_listener import schedule_qso_slice
 
     logger.info("Scheduling slice for %s", contact.call)
+    cfg_local = _read_cfg()
     logger.debug("on_contact: call=%s contest=%s freq=%s recv_ts=%.1f pre=%.1f post=%.1f",
                  contact.call, contact.contest, contact.freq,
-                 contact.receive_ts, cfg.pre_roll, cfg.post_roll)
-    SLICE_POOL.submit(schedule_qso_slice, contact, audio_source, cfg)
+                 contact.receive_ts, cfg_local.pre_roll, cfg_local.post_roll)
+    SLICE_POOL.submit(schedule_qso_slice, contact, audio_source, cfg_local)
 
 
 @asynccontextmanager
@@ -225,7 +238,7 @@ async def lifespan(app: FastAPI):
     logger.info("QSOCapture started (mode=%s)", cfg.audio_mode)
     try:
         yield
-    except _asyncio.CancelledError:
+    except asyncio.CancelledError:
         pass
     finally:
         if n1mm:
@@ -236,19 +249,18 @@ async def lifespan(app: FastAPI):
             SLICE_POOL.shutdown(wait=False, cancel_futures=True)
         except TypeError:
             SLICE_POOL.shutdown(wait=False)
+        qso_db.close_db()
         logger.info("QSOCapture stopped")
 
 
 app = FastAPI(title="QSOCapture", version=APP_VERSION, lifespan=lifespan)
-
-import asyncio as _asyncio
 
 
 async def _cancel_safe_app(scope, receive, send):
     """ASGI wrapper that catches CancelledError on shutdown for clean exit."""
     try:
         await app(scope, receive, send)
-    except _asyncio.CancelledError:
+    except asyncio.CancelledError:
         return
 
 
@@ -395,7 +407,8 @@ def api_audio_devices() -> JSONResponse:
         for i, d in enumerate(sd.query_devices()):
             name = d.get("name", f"Device {i}")
             devices.append({"index": i, "name": name})
-    except Exception:
+    except Exception as e:
+        logger.debug("audio device enumeration failed: %s", e)
         pass
     return JSONResponse({"devices": devices})
 
@@ -426,17 +439,18 @@ def api_open_folder() -> JSONResponse:
 
 @app.get("/api/status")
 def api_status() -> JSONResponse:
+    cfg_local = _read_cfg()
     audio_running = audio_source is not None and getattr(audio_source, "_running", False)
     audio_status = audio_source.get_status() if audio_source else {}
     n1mm_running = n1mm is not None and getattr(n1mm, "_running", False)
-    tci_connected = bool(audio_status.get("connected", False)) if cfg.audio_mode == "tci" else False
+    tci_connected = bool(audio_status.get("connected", False)) if cfg_local.audio_mode == "tci" else False
     return JSONResponse({
-        "station": cfg.station_name,
-        "mode": cfg.audio_mode,
+        "station": cfg_local.station_name,
+        "mode": cfg_local.audio_mode,
         "running": audio_running,
-        "sample_rate": cfg.sample_rate,
-        "channels": cfg.channels,
-        "continuous": cfg.continuous_recording,
+        "sample_rate": cfg_local.sample_rate,
+        "channels": cfg_local.channels,
+        "continuous": cfg_local.continuous_recording,
         "audio": {
             "connected": tci_connected,
             "frames_received": audio_status.get("frames_received", 0),
@@ -448,7 +462,7 @@ def api_status() -> JSONResponse:
         },
         "n1mm": {
             "running": n1mm_running,
-            "bind": f"{cfg.n1mm_bind_ip}:{cfg.n1mm_udp_port}",
+            "bind": f"{cfg_local.n1mm_bind_ip}:{cfg_local.n1mm_udp_port}",
         },
     })
 
@@ -640,8 +654,16 @@ def api_delete_continuous(payload: dict) -> JSONResponse:
             date_to = float(date_to)
         except (ValueError, TypeError):
             raise HTTPException(status_code=400, detail="invalid date_to")
-    if audio_source:
-        audio_source._close_cont_files()
+    was_paused = bool(audio_source and getattr(audio_source, "_continuous_paused", False))
+    if audio_source and not was_paused:
+        audio_source.pause_continuous()
+        # Wait for the continuous loop to finalise and close its chunk files so
+        # we don't race with it re-opening/writing files concurrently.
+        deadline = time.time() + 2.0
+        while getattr(audio_source, "_cont_files", None):
+            if time.time() > deadline:
+                break
+            time.sleep(0.05)
     deleted_rows, file_paths = qso_db.delete_continuous_range(date_from, date_to)
     removed_files = 0
     failed_files = 0
@@ -656,9 +678,11 @@ def api_delete_continuous(payload: dict) -> JSONResponse:
         except OSError as e:
             logger.warning("Cannot delete continuous file %s: %s", fp, e)
             failed_files += 1
-    if audio_source and not audio_source._continuous_paused:
-        audio_source._open_cont_files()
-        audio_source._cont_start = time.time()
+    if audio_source and not was_paused:
+        # resume_continuous() re-acquires the chunk-file lock, reopens fresh
+        # chunk files and re-checks the audio connection (so we never reopen
+        # while TCI is disconnected) — and emits the resumed event itself.
+        audio_source.resume_continuous()
     logger.info("Continuous recordings deleted (%d files, %d DB rows, %d failed)",
                 removed_files, deleted_rows, failed_files)
     return JSONResponse({"ok": True, "deleted_files": removed_files, "deleted_rows": deleted_rows})
@@ -766,6 +790,7 @@ def enforce_disk_limit() -> int:
             break
     if removed:
         logger.info("Disk limit enforced: removed %d old continuous chunk(s)", removed)
+        push_event("continuous_chunk_saved")
     return removed
 
 
@@ -790,7 +815,8 @@ def _debug_heartbeat_loop() -> None:
                     f"{b.get('label','?')}={b.get('filled_sec',0)}s" for b in buffers
                 ) or "—"
                 n1mm_running = n1mm is not None and getattr(n1mm, "_running", False)
-                tci_connected = bool(status.get("connected")) if status and cfg.audio_mode == "tci" else False
+                cfg_local = _read_cfg()
+                tci_connected = bool(status.get("connected")) if status and cfg_local.audio_mode == "tci" else False
                 logger.debug(
                     "heartbeat: audio_running=%s buf=[%s] tci_connected=%s "
                     "n1mm_running=%s continuous_paused=%s",

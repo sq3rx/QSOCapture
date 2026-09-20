@@ -303,8 +303,13 @@ def get_continent(call: str) -> str:
     return "EU"
 
 
-def make_audio(path: str, duration: float, fmt: str = "mp3", sr: int = 16000) -> None:
-    """Create a short audio file (WAV or MP3) with sine tones + noise."""
+def make_audio(path: str, duration: float, fmt: str = "mp3", sr: int = 16000) -> str:
+    """Create a short audio file (WAV or MP3) with sine tones + noise.
+
+    Returns the actual file path written. If ``fmt`` is "mp3" but the lameenc
+    encoder is unavailable, the file is written as WAV (with a .wav extension)
+    and that path is returned so callers can record the correct extension.
+    """
     os.makedirs(os.path.dirname(path), exist_ok=True)
     n = int(sr * duration)
     t = np.arange(n, dtype=np.float32) / sr
@@ -334,6 +339,7 @@ def make_audio(path: str, duration: float, fmt: str = "mp3", sr: int = 16000) ->
             wf.setsampwidth(2)
             wf.setframerate(sr)
             wf.writeframes(sig.tobytes())
+    return path
 
 
 def generate_synthetic(name: str, modes: List[str], bands: List[str],
@@ -363,13 +369,15 @@ def seed_qsos(qsos: List[dict], contest_dir: str, recordings_dir: str,
     n = len(qsos)
     for i, q in enumerate(qsos):
         ts = q["timestamp"]
-        stamp = time.strftime("%Y-%m-%d_%H%M", time.localtime(ts))
+        stamp = time.strftime("%Y-%m-%d_%H%M", time.gmtime(ts))
         call_safe = safe_call(q["call"])
         label = random.choice(["RX1", "RX2"])
         fname = f"{stamp}_{call_safe}_{q['band']}_{label}.{fmt}"
         rel = f"{contest_dir}/{fname}"
         dur = random.uniform(*dur_range)
-        make_audio(os.path.join(recordings_dir, rel), dur, fmt)
+        final_path = make_audio(os.path.join(recordings_dir, rel), dur, fmt)
+        ext = os.path.splitext(final_path)[1]
+        rel = f"{contest_dir}/{stamp}_{call_safe}_{q['band']}_{label}{ext}"
         continent = get_continent(q["call"])
         qso_db.insert_qso(
             contest=contest_dir, call=q["call"], band=q["band"],
@@ -387,7 +395,7 @@ def seed_qsos(qsos: List[dict], contest_dir: str, recordings_dir: str,
             n1mm_id="{" + "".join(random.choice("0123456789abcdef") for _ in range(36)) + "}",
             is_claimed="", sent_exchange=q["sntnr"],
             timestamp=ts,
-            raw_ts=time.strftime("%Y-%m-%d %H:%M", time.localtime(ts)),
+            raw_ts=time.strftime("%Y-%m-%d %H:%M", time.gmtime(ts)),
             duration=dur, file_path=rel,
         )
         if (i + 1) % 200 == 0:
@@ -409,11 +417,13 @@ def seed_continuous(start_ts: float, end_ts: float, recordings_dir: str,
     os.makedirs(out_dir, exist_ok=True)
 
     while cur < end_ts:
-        stamp = time.strftime("%Y%m%d_%H%M%S", time.localtime(cur))
+        stamp = time.strftime("%Y%m%d_%H%M%S", time.gmtime(cur))
         fname = f"{stamp}_{label}.{fmt}"
         rel = f"_continuous/{fname}"
         dur = max(min(chunk_sec, end_ts - cur), 1.0)
-        make_audio(os.path.join(out_dir, fname), min(5.0, dur), fmt)
+        final_path = make_audio(os.path.join(out_dir, fname), min(5.0, dur), fmt)
+        ext = os.path.splitext(final_path)[1]
+        rel = f"_continuous/{stamp}_{label}{ext}"
         qso_db.insert_qso(
             contest="_continuous", call="CONTINUOUS", band="", mode="",
             timestamp=cur, duration=dur, file_path=rel,

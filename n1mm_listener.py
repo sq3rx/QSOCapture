@@ -26,9 +26,22 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Callable, Optional
 
-from config import RECORDINGS_DIR
+from config import RECORDINGS_DIR, sanitize_contest
 
 logger = logging.getLogger("QSOCapture.n1mm")
+
+
+def _emit_event(name: str, data: Optional[dict] = None) -> None:
+    """Push a dashboard refresh event, lazily importing ``push_event`` from main.
+
+    The lazy import avoids a circular import (main imports this module at
+    startup). Failures are swallowed so listener errors never break parsing.
+    """
+    try:
+        from main import push_event
+        push_event(name, data)
+    except Exception:
+        pass
 
 
 @dataclass
@@ -209,7 +222,7 @@ class N1MMListener:
             call=call.strip().upper(),
             band=self._normalize_band(band),
             mode=mode.strip().upper(),
-            contest=contest.strip() or "GENERAL",
+            contest=sanitize_contest(contest.strip()) or "GENERAL",
             timestamp=qso_epoch,
             raw_ts=ts_raw,
             receive_ts=receive_ts,
@@ -278,6 +291,7 @@ class N1MMListener:
                     logger.warning("Could not remove audio file %s: %s", full, e)
         except Exception as e:
             logger.error("N1MM delete handling error: %s", e)
+        _emit_event("qso_saved")
 
     def _handle_replace(self, root: ET.Element) -> None:
         """Handle a <contactreplace> packet: rename audio file + update DB in-place.
@@ -308,7 +322,14 @@ class N1MMListener:
         ts_raw = g("timestamp")
         qso_epoch = self._parse_ts(ts_raw)
         rx_label = "RX2" if (g("radionr") or "1").strip() == "2" else "RX1"
-        contest = g("ContestName") or "GENERAL"
+        contest_raw = g("ContestName").strip()
+        if contest_raw:
+            contest = sanitize_contest(contest_raw)
+        else:
+            # Missing ContestName: keep the QSO in its existing contest bucket
+            # instead of silently re-categorizing it as GENERAL.
+            import db as qso_db
+            contest = sanitize_contest(qso_db.get_qso_contest(n1mm_id) or "") or "GENERAL"
         year = time.strftime("%Y", time.gmtime(qso_epoch))
         contest_dir = f"{year}_{contest}" if contest else f"{year}_GENERAL"
 
@@ -387,6 +408,7 @@ class N1MMListener:
                 logger.info("Audio file renamed and DB updated for edited QSO: %s", new_path)
             else:
                 logger.debug("N1MM contactreplace: no existing record for %s (may be first contact)", n1mm_id)
+            _emit_event("qso_saved")
         except Exception as e:
             logger.error("N1MM contactreplace handling error: %s", e)
 
@@ -418,6 +440,7 @@ class N1MMListener:
                 return datetime.strptime(ts, fmt).replace(tzinfo=timezone.utc).timestamp()
             except ValueError:
                 continue
+        logger.warning("Could not parse N1MM timestamp %r; using current time", ts)
         return time.time()
 
     @staticmethod

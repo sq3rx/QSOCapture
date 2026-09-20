@@ -14,14 +14,16 @@ import re
 import sqlite3
 import threading
 import time
+from datetime import datetime, timezone
 from typing import List, Optional
 
-from config import RECORDINGS_DIR
+from config import RECORDINGS_DIR, sanitize_contest
 
 DB_PATH = "qsos.db"
 logger = logging.getLogger("QSOCapture.db")
 _lock = threading.Lock()
 _local = threading.local()
+_connections: set = set()  # all live connections, for clean shutdown
 
 
 def _extract_rx(file_path: Optional[str]) -> str:
@@ -61,7 +63,18 @@ def _connect() -> sqlite3.Connection:
 
     con.create_function("REGEXP", 2, _regexp)
     _local.con = con
+    _connections.add(con)
     return con
+
+
+def close_db() -> None:
+    """Close every open connection (called on application shutdown)."""
+    for con in list(_connections):
+        try:
+            con.close()
+        except Exception:
+            pass
+    _connections.clear()
 
 
 def init_db() -> None:
@@ -285,41 +298,6 @@ def insert_qso(
     return superseded
 
 
-def insert_contact(contact, file_path: Optional[str] = None) -> None:
-    """Convenience wrapper pulling fields from an N1MMContact."""
-    insert_qso(
-        contest=getattr(contact, "contest", ""), call=contact.call,
-        band=contact.band, mode=getattr(contact, "mode", ""),
-        freq=getattr(contact, "freq", ""), name=getattr(contact, "name", ""),
-        qth=getattr(contact, "qth", ""), grid=getattr(contact, "grid", ""),
-        comment=getattr(contact, "comment", ""),
-        exchange=getattr(contact, "exchange", ""),
-        exchange2=getattr(contact, "exchange2", ""),
-        exchange3=getattr(contact, "exchange3", ""),
-        rcv=getattr(contact, "rcv", ""), snt=getattr(contact, "snt", ""),
-        rcvnr=getattr(contact, "rcvnr", ""), sntnr=getattr(contact, "sntnr", ""),
-        section=getattr(contact, "section", ""),
-        mycall=getattr(contact, "mycall", ""),
-        countryprefix=getattr(contact, "countryprefix", ""),
-        wpxprefix=getattr(contact, "wpxprefix", ""),
-        continent=getattr(contact, "continent", ""),
-        operator=getattr(contact, "operator", ""),
-        station=getattr(contact, "station", ""),
-        contest_nr=getattr(contact, "contest_nr", ""),
-        points=getattr(contact, "points", ""),
-        multiplier=getattr(contact, "multiplier", ""),
-        multiplier2=getattr(contact, "multiplier2", ""),
-        multiplier3=getattr(contact, "multiplier3", ""),
-        prec=getattr(contact, "prec", ""), ck=getattr(contact, "ck", ""),
-        power=getattr(contact, "power", ""),
-        n1mm_id=getattr(contact, "n1mm_id", ""),
-        is_claimed=getattr(contact, "is_claimed", ""),
-        sent_exchange=getattr(contact, "sent_exchange", ""),
-        timestamp=contact.timestamp,
-        raw_ts=getattr(contact, "raw_ts", ""), file_path=file_path,
-    )
-
-
 def format_contest_name(raw: str) -> str:
     """Format a raw contest name like '20256_CQWW_CW' into a readable label.
 
@@ -345,41 +323,6 @@ def format_contest_name(raw: str) -> str:
     if year:
         label = f"{year} {label}".strip()
     return label or name
-
-
-def _normalize_contest_key(s: str) -> str:
-    """Normalize a contest name for fuzzy matching: lowercase, strip separators."""
-    return re.sub(r"[_\-\s]+", "", (s or "").lower())
-
-
-def resolve_contest(user_input: str) -> Optional[str]:
-    """Resolve a user-entered contest name to the raw DB value.
-
-    Tries exact match first, then normalized (case-insensitive, ignoring
-    underscores/hyphens/spaces) match against all known contests.
-    Returns None if no match found.
-    """
-    if not user_input:
-        return None
-    inp = user_input.strip()
-    con = _connect()
-    rows = con.execute(
-        "SELECT DISTINCT contest FROM qsos "
-        "WHERE contest != '' AND contest IS NOT NULL "
-        "AND contest NOT GLOB '_*'"
-    ).fetchall()
-    # Exact match first.
-    for (raw,) in rows:
-        if raw == inp:
-            return raw
-    # Normalized match.
-    key = _normalize_contest_key(inp)
-    if not key:
-        return None
-    for (raw,) in rows:
-        if _normalize_contest_key(raw) == key:
-            return raw
-    return None
 
 
 def list_contests() -> List[dict]:
@@ -563,6 +506,16 @@ def delete_qso_by_n1mm_id(n1mm_id: str) -> Optional[str]:
         return fp
 
 
+def get_qso_contest(n1mm_id: str) -> Optional[str]:
+    """Return the existing contest directory for a QSO, or None if unknown."""
+    con = _connect()
+    with _lock:
+        row = con.execute(
+            "SELECT contest FROM qsos WHERE n1mm_id=?", (n1mm_id,)
+        ).fetchone()
+    return row[0] if row else None
+
+
 def rename_qso_audio(n1mm_id: str, new_call: str, new_band: str,
                      new_contest_dir: str, new_rx_label: str,
                      timestamp: float, **metadata) -> Optional[str]:
@@ -597,11 +550,21 @@ def rename_qso_audio(n1mm_id: str, new_call: str, new_band: str,
     safe_call = "".join(ch for ch in new_call if ch.isalnum() or ch in "-_")
     stamp = time.strftime("%Y-%m-%d_%H%M", time.gmtime(timestamp))
     ext = os.path.splitext(old_rel)[1]  # preserve existing extension
+    contest_dir = sanitize_contest(new_contest_dir)
     new_fname = f"{stamp}_{safe_call}_{new_band}_{new_rx_label}{ext}"
-    new_rel = f"{new_contest_dir}/{new_fname}"
+
+    # Build a collision-free target so we never overwrite another recording or
+    # hit the UNIQUE(file_path) constraint when two QSOs share minute/call/band/RX.
+    new_rel = f"{contest_dir}/{new_fname}"
+    new_abs = os.path.join(RECORDINGS_DIR, new_rel)
+    suffix = 2
+    while os.path.exists(new_abs):
+        new_fname = f"{stamp}_{safe_call}_{new_band}_{new_rx_label}_{suffix}{ext}"
+        new_rel = f"{contest_dir}/{new_fname}"
+        new_abs = os.path.join(RECORDINGS_DIR, new_rel)
+        suffix += 1
 
     old_abs = os.path.join(RECORDINGS_DIR, old_rel)
-    new_abs = os.path.join(RECORDINGS_DIR, new_rel)
 
     if os.path.isfile(old_abs):
         os.makedirs(os.path.dirname(new_abs), exist_ok=True)
@@ -633,9 +596,20 @@ def rename_qso_audio(n1mm_id: str, new_call: str, new_band: str,
     set_params.append(n1mm_id)
     sql = f"UPDATE qsos SET {', '.join(set_clauses)} WHERE n1mm_id=?"
 
-    with _lock:
-        con.execute(sql, set_params)
-        con.commit()
+    try:
+        with _lock:
+            con.execute(sql, set_params)
+            con.commit()
+    except Exception:
+        # Roll back the file rename so the recording is not orphaned under a path
+        # the database no longer references.
+        if os.path.isfile(new_abs) and not os.path.exists(old_abs):
+            try:
+                os.rename(new_abs, old_abs)
+            except OSError:
+                pass
+        logger.warning("rename_qso_audio: DB update failed for %s, reverted rename", n1mm_id)
+        return None
 
     return new_rel
 
@@ -759,9 +733,9 @@ def migrate_existing(recordings_dir: str) -> None:
                 ts = 0.0
                 if len(parts) >= 2:
                     try:
-                        ts = time.mktime(
-                            time.strptime(f"{parts[0]} {parts[1]}", "%Y%m%d %H%M%S")
-                        )
+                        ts = datetime.strptime(
+                            f"{parts[0]} {parts[1]}", "%Y%m%d %H%M%S"
+                        ).replace(tzinfo=timezone.utc).timestamp()
                     except Exception:
                         ts = 0.0
                 rows.append(("_continuous", "CONTINUOUS", "", ts, fp, dur, _extract_rx(fp)))
@@ -770,9 +744,9 @@ def migrate_existing(recordings_dir: str) -> None:
             parts = fname[:-4].split("_")
             if len(parts) >= 5:
                 try:
-                    ts = time.mktime(
-                        time.strptime(f"{parts[0]} {parts[1]}", "%Y-%m-%d %H%M")
-                    )
+                    ts = datetime.strptime(
+                        f"{parts[0]} {parts[1]}", "%Y-%m-%d %H%M"
+                    ).replace(tzinfo=timezone.utc).timestamp()
                 except Exception:
                     ts = 0.0
                 call = parts[2]

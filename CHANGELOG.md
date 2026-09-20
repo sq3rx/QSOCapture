@@ -3,6 +3,30 @@
 All notable changes to QSOCapture are documented here. This file is written
 in plain business language, without going into implementation details.
 
+## Unreleased
+
+### 🐛 Bug Fixes
+* **QSO list now refreshes after editing or deleting a contact in N1MM:** Changing or removing a QSO in N1MM Logger+ immediately updates the dashboard — previously the list kept showing the old entry (or kept a deleted one) until you refreshed manually.
+* **Deleting continuous recordings by date range is now safe while recording:** Removing a block of continuous recordings (Settings → Resets and deletes → delete continuous by date range) no longer risks leaving a half-written file behind or disturbing other recordings when it is done while recording is running.
+* **Editing a QSO in N1MM no longer moves it to the wrong contest:** When you change a contact in N1MM Logger+ and the edit packet does not include the contest name, the QSO is now kept in its original contest instead of being filed under "GENERAL".
+* **Imported recordings from an older version keep the correct time:** Audio files found on first launch from a previous install are now migrated with the proper UTC timestamp, matching the time N1MM actually logged the QSO.
+* **Custom dashboard location is now remembered:** The dashboard file setting is saved correctly, so a custom dashboard path is no longer reset to the default after a restart.
+* **Recordings always stay inside the recordings folder:** Contest names with unusual characters can no longer cause audio files to be written outside the designated recordings directory.
+* **Continuous recording survives disk write errors:** A temporary failure while writing a continuous chunk no longer permanently stops recording — the problem is logged and recording keeps going.
+* **MP3 playback links always work:** In MP3 mode the continuous recordings list now always points to the converted files, so playback links are never broken.
+* **Automatic disk-limit cleanup refreshes the list:** When old recordings are removed to stay under the "Max recordings" limit, the dashboard now updates immediately to reflect it.
+* **Edited QSO audio files no longer overwrite each other:** Two contacts logged in the same minute now get unique file names, so renaming an edited QSO can no longer clobber another recording.
+* **Deleting continuous recordings is robust even when the radio is offline:** Removing a date range while recording is running no longer conflicts with the live recorder, including on TCI setups where the radio is briefly disconnected.
+
+### ✨ Improvements
+* **Cleaner shutdown and fewer resource leaks:** The application now releases its database and taskbar-icon resources properly when closed, avoiding small memory/resource leaks that built up over many open/close or minimise-to-tray cycles.
+* **Easier troubleshooting:** Failures during the version check and when listing soundcard devices are now written to the log (instead of being silently ignored), so connection and audio problems are simpler to diagnose.
+* **Accurate dropped-frames count in SO2R:** The dropped-frames counter now stays correct in dual-receiver (SO2R) setups under heavy load.
+* **Clearer fallback when audio mode is unknown:** An unrecognised audio mode now logs a warning and falls back to soundcard instead of failing silently.
+* **Clearer warning for unreadable N1MM timestamps:** When N1MM sends a timestamp QSOCapture can't parse, it now logs a warning instead of failing silently.
+* **Accurate soundcard connection status:** The "connected" indicator for soundcard mode now reflects the real state instead of always showing connected.
+* **Lower memory use in dual-card SO2R:** Memory usage is reduced when using two separate soundcards (dual-card SO2R).
+
 ## Version 0.8.0beta
 
 ### 🚀 New Features

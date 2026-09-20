@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import configparser
 import os
+import re
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -22,6 +23,20 @@ def _get_base_dir() -> str:
 
 BASE_DIR = _get_base_dir()
 RECORDINGS_DIR = os.path.join(BASE_DIR, "recordings")
+
+
+def sanitize_contest(name: str) -> str:
+    """Make a contest name safe to use as a filesystem path component.
+
+    Strips any directory components (so a name containing ``/`` or ``..`` cannot
+    escape the recordings directory) and removes characters that are invalid or
+    dangerous in paths. A safe value is always returned (falls back to GENERAL),
+    so callers can use the result directly to build file paths.
+    """
+    name = (name or "").strip().replace("\\", "/")
+    name = os.path.basename(name)
+    safe = re.sub(r"[^A-Za-z0-9 _.\-]", "", name).strip(". ")
+    return safe or "GENERAL"
 
 
 @dataclass
@@ -43,7 +58,6 @@ class AppConfig:
     channels: int = 2                      # 1 = mono (SO1R), 2 = stereo (SO2R)
     pre_roll: float = 8.0
     post_roll: float = 5.0
-    sample_width: int = 2
     so2r_mode: str = "stereo"            # "stereo" | "dual_card"  — how SO2R is wired
     soundcard_device2: str = ""           # second device name for dual_card mode
 
@@ -62,17 +76,6 @@ class AppConfig:
     web_host: str = "127.0.0.1"
     web_port: int = 8000
     dashboard_file: str = "index.html"
-
-    # ---- derived helpers -------------------------------------------------
-    @property
-    def is_stereo(self) -> bool:
-        """True when the source provides two channels (SO2R)."""
-        return self.channels >= 2
-
-    @property
-    def frames_per_second(self) -> int:
-        return self.sample_rate
-
 
 def _get(config: configparser.ConfigParser, section: str, key: str, default):
     """Return a value from *config* falling back to *default*.
@@ -114,7 +117,6 @@ def load_config(path: str = "config.cfg") -> AppConfig:
         channels=_get(parser, "audio", "channels", AppConfig.channels),
         pre_roll=_get(parser, "audio", "pre_roll", AppConfig.pre_roll),
         post_roll=_get(parser, "audio", "post_roll", AppConfig.post_roll),
-        sample_width=_get(parser, "audio", "sample_width", AppConfig.sample_width),
         so2r_mode=_get(parser, "audio", "so2r_mode", AppConfig.so2r_mode).lower(),
         soundcard_device2=_get(parser, "audio", "soundcard_device2", AppConfig.soundcard_device2),
 
@@ -198,6 +200,8 @@ CONFIG_SCHEMA = [
      "Interface the web dashboard binds to. 127.0.0.1 = local only."),
     ("web", "web_port", "Web port", "int", None,
      "TCP port for the web dashboard."),
+    ("web", "dashboard_file", "Dashboard file", "text", None,
+     "Path to the HTML dashboard file served at the web root."),
 ]
 
 
