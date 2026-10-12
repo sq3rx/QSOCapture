@@ -3,7 +3,7 @@
 All notable changes to QSOCapture are documented here. This file is written
 in plain business language, without going into implementation details.
 
-## Unreleased
+## Version 0.9.0beta
 
 ### 🐛 Bug Fixes
 * **QSO list now refreshes after editing or deleting a contact in N1MM:** Changing or removing a QSO in N1MM Logger+ immediately updates the dashboard — previously the list kept showing the old entry (or kept a deleted one) until you refreshed manually.
