@@ -16,6 +16,7 @@ Key facts about the N1MM schema:
 
 from __future__ import annotations
 
+import copy
 import logging
 import os
 import socket
@@ -102,20 +103,34 @@ class N1MMListener:
     """Bind to a UDP port and dispatch decoded contacts to a callback."""
 
     def __init__(self, cfg, on_contact: ContactCallback):
-        self.cfg = cfg
+        self.cfg = copy.deepcopy(cfg)
         self.on_contact = on_contact
         self._sock: Optional[socket.socket] = None
         self._running = False
         self._thread: Optional[threading.Thread] = None
+        self._bind_error = ""
 
     def start(self) -> None:
         if self._running:
             return
+        self._bind_error = ""
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.bind((self.cfg.n1mm_bind_ip, self.cfg.n1mm_udp_port))
+            sock.setblocking(False)
+        except OSError as exc:
+            self._bind_error = str(exc)
+            self._running = False
+            try:
+                sock.close()
+            except Exception:
+                pass
+            logger.error("N1MM listener cannot bind %s:%d: %s",
+                         self.cfg.n1mm_bind_ip, self.cfg.n1mm_udp_port, exc)
+            return
+        self._sock = sock
         self._running = True
-        self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self._sock.bind((self.cfg.n1mm_bind_ip, self.cfg.n1mm_udp_port))
-        self._sock.setblocking(False)
         self._thread = threading.Thread(target=self._loop, daemon=True,
                                         name="n1mm-listener")
         self._thread.start()
@@ -129,6 +144,7 @@ class N1MMListener:
                 self._sock.close()
             except Exception:
                 pass
+            self._sock = None
 
     def _loop(self) -> None:
         assert self._sock is not None
@@ -273,8 +289,12 @@ class N1MMListener:
         for child in root.iter():
             if child.text is not None and child.tag.lower() not in fields:
                 fields[child.tag.lower()] = child.text
-        n1mm_id = (fields.get("id") or "").strip()
+        n1mm_id = (fields.get("id")
+                   or fields.get("contactid")
+                   or fields.get("contact_id")
+                   or "").strip()
         if not n1mm_id:
+            logger.debug("N1MM contactdelete without id, ignoring")
             return
         logger.debug("N1MM raw delete packet:\n%s", ET.tostring(root, encoding="unicode"))
         logger.info("N1MM contactdelete: %s", n1mm_id)
@@ -362,7 +382,7 @@ class N1MMListener:
             else:
                 exchange = ""
 
-            new_path = qso_db.rename_qso_audio(
+            rename_kwargs = dict(
                 n1mm_id=n1mm_id,
                 new_call=new_call,
                 new_band=new_band,
@@ -404,13 +424,38 @@ class N1MMListener:
                 sent_exchange=g("sentexchange").strip(),
                 raw_ts=ts_raw,
             )
+            new_path = qso_db.rename_qso_audio(**rename_kwargs)
             if new_path:
                 logger.info("Audio file renamed and DB updated for edited QSO: %s", new_path)
             else:
-                logger.debug("N1MM contactreplace: no existing record for %s (may be first contact)", n1mm_id)
+                # The QSO slice is delayed by post_roll; an edit can arrive
+                # before the row exists. Retry briefly instead of losing the
+                # edit. Harmless if the row never appears.
+                logger.debug("N1MM contactreplace: no row yet for %s; scheduling retry", n1mm_id)
+                threading.Thread(
+                    target=self._retry_replace,
+                    args=(rename_kwargs,),
+                    daemon=True,
+                    name="n1mm-replace-retry",
+                ).start()
             _emit_event("qso_saved")
         except Exception as e:
             logger.error("N1MM contactreplace handling error: %s", e)
+
+    def _retry_replace(self, kwargs: dict) -> None:
+        """Retry a contactreplace after the delayed slice has been written."""
+        import db as qso_db
+        delay = max(float(getattr(self.cfg, "post_roll", 0.0)), 1.0)
+        for attempt in range(3):
+            time.sleep(delay)
+            try:
+                if qso_db.rename_qso_audio(**kwargs):
+                    logger.info("Delayed contactreplace applied for %s", kwargs.get("n1mm_id"))
+                    _emit_event("qso_saved")
+                    return
+            except Exception as exc:
+                logger.debug("Delayed contactreplace retry failed: %s", exc)
+            delay = min(delay * 2, 15.0)
 
     @staticmethod
     def _parse_freq(raw: str) -> str:

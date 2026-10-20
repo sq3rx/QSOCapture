@@ -5,8 +5,9 @@ Renders the SVG with cairosvg when available, otherwise falls back to a
 pure-Pillow vector renderer (no cairo required). Run: python gen_icon.py
 """
 
-import os
 import math
+import os
+
 from PIL import Image, ImageDraw
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -122,8 +123,9 @@ def render_master():
 
 def main():
     try:
-        import cairosvg
         import io
+
+        import cairosvg
         buf = io.BytesIO()
         cairosvg.svg2png(url=SVG, write_to=buf, output_width=N,
                          output_height=N)

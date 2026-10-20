@@ -22,19 +22,27 @@ from config import RECORDINGS_DIR, sanitize_contest
 DB_PATH = "qsos.db"
 logger = logging.getLogger("QSOCapture.db")
 _lock = threading.Lock()
+_conn_lock = threading.Lock()
 _local = threading.local()
 _connections: set = set()  # all live connections, for clean shutdown
 
 
 def _extract_rx(file_path: Optional[str]) -> str:
-    """Extract the RX label (RX1/RX2) from an audio file path. Defaults to RX1."""
+    """Extract the RX label (RX1/RX2) from an audio file path.
+
+    Older recordings did not carry an RX suffix at all; anything that is not
+    explicitly RX1/RX2 is treated as RX1 rather than leaking a band name into
+    the RX column.
+    """
     if not file_path:
         return "RX1"
     base = os.path.basename(file_path)
     if not base:
         return "RX1"
-    parts = base[:-4].split("_")
-    return parts[-1] if parts else "RX1"
+    stem = base[:-4] if base.lower().endswith((".wav", ".mp3")) else base
+    parts = stem.split("_")
+    label = parts[-1].upper() if parts else ""
+    return label if label in ("RX1", "RX2") else "RX1"
 
 
 def _connect() -> sqlite3.Connection:
@@ -63,18 +71,49 @@ def _connect() -> sqlite3.Connection:
 
     con.create_function("REGEXP", 2, _regexp)
     _local.con = con
-    _connections.add(con)
+    with _conn_lock:
+        _connections.add(con)
     return con
 
 
 def close_db() -> None:
     """Close every open connection (called on application shutdown)."""
-    for con in list(_connections):
+    with _conn_lock:
+        connections = list(_connections)
+        _connections.clear()
+    for con in connections:
         try:
             con.close()
         except Exception:
             pass
-    _connections.clear()
+
+
+def backup_database(dest_path: Optional[str] = None) -> Optional[str]:
+    """Create a consistent SQLite backup (WAL-safe) next to the database."""
+    if dest_path is None:
+        dest_path = DB_PATH + ".bak"
+    try:
+        src = _connect()
+        dst = sqlite3.connect(dest_path)
+        try:
+            with dst:
+                src.backup(dst)
+        finally:
+            dst.close()
+        logger.info("Database backup written to %s", dest_path)
+        return dest_path
+    except Exception as exc:
+        logger.warning("Database backup failed: %s", exc)
+        return None
+
+
+def checkpoint() -> None:
+    """Flush the WAL so the main database file is self-contained."""
+    try:
+        con = _connect()
+        con.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    except Exception as exc:
+        logger.debug("WAL checkpoint failed: %s", exc)
 
 
 def init_db() -> None:
@@ -732,9 +771,13 @@ def migrate_existing(recordings_dir: str) -> None:
                 parts = fname[:-4].split("_")
                 ts = 0.0
                 if len(parts) >= 2:
+                    # New filenames append a 5-digit millisecond component to
+                    # HHMMSS (e.g. 20260804_19444812345_RX1); use the first six
+                    # digits so both old and new names migrate correctly.
+                    time_part = parts[1][:6]
                     try:
                         ts = datetime.strptime(
-                            f"{parts[0]} {parts[1]}", "%Y%m%d %H%M%S"
+                            f"{parts[0]} {time_part}", "%Y%m%d %H%M%S"
                         ).replace(tzinfo=timezone.utc).timestamp()
                     except Exception:
                         ts = 0.0

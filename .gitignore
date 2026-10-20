@@ -22,14 +22,19 @@ qsos.db
 *.db-shm
 *.db-wal
 config.cfg
+config.cfg.bak
+*.bak
 recordings/
+.qsocapture.lock
+QSOCapture.lock
 test_recordings_api/
 
 # Logs
 *.log
 
-# Tests (local test scripts and fixtures — not committed)
-tests/
+
+# Local CBR fixtures (not used by the test suite)
+tests/*.cbr
 
 # CBR import tooling (local helper — not committed)
 cbr/

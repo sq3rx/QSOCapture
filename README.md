@@ -6,9 +6,9 @@
 
 [![Build and Release](https://github.com/sq3rx/QSOCapture/actions/workflows/main.yml/badge.svg)](https://github.com/sq3rx/QSOCapture/actions/workflows/main.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org)
+[![Python](https://img.shields.io/badge/python-3.13-blue.svg)](https://www.python.org)
 
-**Version:** 0.9.0beta
+**Version:** 1.0.0
 
 **QSOCapture** is a lightweight contest audio recorder and log player for
 amateur radio operators. It captures audio from your receiver (via the
@@ -40,8 +40,8 @@ clean, color-coded web dashboard.
  - **Continuous recording** — records the whole band into time-sliced chunks
    so no QSO is ever missed. Controlled by the **Continuous recording
    autostart** setting and the dashboard **Start/Stop recording** button.
-   You can cap total disk usage with the **Max recordings (GB)** setting
-   (oldest continuous chunks are deleted when exceeded); set it to
+   You can cap continuous-recording disk usage with the **Max recordings (GB)**
+   setting (oldest continuous chunks are deleted when exceeded); set it to
    **Unlimited** to never delete recordings automatically.
  - **Two audio sources** — ExpertSDR via the TCI WebSocket protocol, or any
    system soundcard input device.
@@ -62,6 +62,8 @@ clean, color-coded web dashboard.
  - **Web dashboard** — browse, filter and replay recordings from the local
    machine (binds to 127.0.0.1 by default; change `web_host` to `0.0.0.0` in
    settings only if you intentionally want to expose it on the network).
+   The dashboard also works fully offline: CDN assets are optional and an
+   inline fallback keeps all views usable without internet access.
  - **Rich filtering** — by contest, callsign / prefix (supports regex), band,
    mode, **RX (All / RX1 / RX2)**, and an exact date/time range.
  - **Separate views** — N1MM QSOs and Continuous recordings are kept apart,
@@ -75,8 +77,8 @@ clean, color-coded web dashboard.
   - **Desktop app with system tray** — the application runs in its own window
      and can be minimised to the system tray. Click the tray
     icon to restore, or use the tray menu to quit.
-  - **Single build for all Windows versions** — no separate legacy build for
-    Windows 7/8 is needed.
+  - **Windows 7/8 and Windows 10/11 support** — the same build runs on all
+    supported Windows versions; no separate legacy build is needed.
 ---
 
 ## Building
@@ -121,7 +123,7 @@ QSOCapture/
 ├── audio_manager.py   # Audio capture (TCI / soundcard) + circular buffer
 ├── n1mm_listener.py   # N1MM Logger+ UDP listener
 ├── index.html         # Tailwind dashboard (served by main.py)
-├── build.spec         # PyInstaller spec for building the standalone EXE
+├── build_nuitka.py    # Nuitka build script (onedir / onefile)
 ├── installer.iss      # Inno Setup script for the Windows installer
 ├── BUILDING.md        # Build instructions (requirements, EXE, installer)
 ├── gen_icon.py        # Icon generator (SVG → ICO)

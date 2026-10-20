@@ -14,27 +14,30 @@ On launch:
 
 from __future__ import annotations
 
-import os
-import sys
-import time
-import threading
-import shutil
-import urllib.request
 import logging
+import os
+import shutil
+import socket
+import sys
+import threading
+import time
+import urllib.request
 
 if sys.stdout is None:
     sys.stdout = open(os.devnull, "w")
 if sys.stderr is None:
     sys.stderr = open(os.devnull, "w")
 
-import uvicorn
-import config as config_module
 import ctypes
-from PySide6.QtCore import QUrl, QObject, Slot, Signal, Qt, QEvent
-from PySide6.QtGui import QIcon, QAction, QCloseEvent, QPixmap
-from PySide6.QtWidgets import QApplication, QMainWindow, QSystemTrayIcon, QMenu, QMessageBox
-from PySide6.QtWebEngineWidgets import QWebEngineView
+
+import uvicorn
+from PySide6.QtCore import QEvent, QLockFile, QObject, Qt, QUrl, Slot
+from PySide6.QtGui import QAction, QCloseEvent, QIcon
 from PySide6.QtWebChannel import QWebChannel
+from PySide6.QtWebEngineWidgets import QWebEngineView
+from PySide6.QtWidgets import QApplication, QMainWindow, QMenu, QMessageBox, QSystemTrayIcon
+
+import config as config_module
 
 logger = logging.getLogger("QSOCapture.qt_launcher")
 
@@ -67,14 +70,22 @@ class Bridge(QObject):
         import json
         try:
             rel = os.path.normpath(rel_path or "").lstrip("./\\")
-            if not rel or rel.startswith("..") or os.path.isabs(rel):
+            if (not rel or rel.startswith("..") or os.path.isabs(rel)
+                    or ":" in rel):
                 return json.dumps({"ok": False, "error": "invalid path"})
-            src = os.path.join(self.recordings_dir, rel)
-            if not os.path.isfile(src):
+            root = os.path.realpath(self.recordings_dir)
+            src = os.path.realpath(os.path.join(root, rel))
+            try:
+                inside = os.path.commonpath(
+                    [os.path.normcase(root), os.path.normcase(src)]
+                ) == os.path.normcase(root)
+            except ValueError:
+                inside = False
+            if not inside or not os.path.isfile(src):
                 return json.dumps({"ok": False, "error": "recording not found"})
 
-            from PySide6.QtWidgets import QFileDialog
             from PySide6.QtCore import QDir
+            from PySide6.QtWidgets import QFileDialog
 
             parent_widget = None
             for w in QApplication.topLevelWidgets():
@@ -236,7 +247,9 @@ class MainWindow(QMainWindow):
 
 
 def _is_frozen() -> bool:
-    return getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS")
+    return bool(getattr(sys, "frozen", False)
+                or "__compiled__" in globals()
+                or hasattr(sys, "_MEIPASS"))
 
 
 def _app_dir() -> str:
@@ -249,15 +262,30 @@ def _app_dir() -> str:
 ICON_BASENAME = "icon.ico"
 
 
+def _bundle_dirs() -> list:
+    """Candidate directories that may contain bundled data files."""
+    dirs = []
+    if hasattr(sys, "_MEIPASS"):
+        dirs.append(sys._MEIPASS)
+    dirs.append(os.path.dirname(os.path.abspath(__file__)))
+    if getattr(sys, "executable", ""):
+        dirs.append(os.path.dirname(os.path.abspath(sys.executable)))
+    if getattr(sys, "argv", None):
+        dirs.append(os.path.dirname(os.path.abspath(sys.argv[0])))
+    dirs.append(os.getcwd())
+    unique = []
+    for d in dirs:
+        if d and os.path.isdir(d) and d not in unique:
+            unique.append(d)
+    return unique
+
+
 def _ensure_assets(app_dir: str) -> None:
     """Copy index.html and icons from bundle to writable app dir."""
     for basename in ("index.html", "icon.svg", ICON_BASENAME):
         target = os.path.join(app_dir, basename)
-        candidates = []
-        if _is_frozen():
-            candidates.append(os.path.join(sys._MEIPASS, basename))
-        candidates.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), basename))
-        for src in candidates:
+        for directory in _bundle_dirs():
+            src = os.path.join(directory, basename)
             if os.path.isfile(src):
                 try:
                     shutil.copyfile(src, target)
@@ -278,12 +306,38 @@ def _wait_for_server(url: str, timeout: float = 10.0) -> bool:
     return False
 
 
+def _port_available(host: str, port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        try:
+            sock.bind((host, port))
+            return True
+        except OSError:
+            return False
+
+
+def _pick_port(host: str, preferred: int) -> int:
+    if _port_available(host, preferred):
+        return preferred
+    for port in range(preferred + 1, min(preferred + 20, 65536)):
+        if _port_available(host, port):
+            logger.warning("Web port %d is busy; using %d", preferred, port)
+            return port
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind((host, 0))
+        port = sock.getsockname()[1]
+    logger.warning("Web port %d is busy; using ephemeral port %d", preferred, port)
+    return port
+
+
+def _legacy_dir() -> str:
+    if _is_frozen():
+        return os.path.dirname(os.path.abspath(sys.executable))
+    return os.path.dirname(os.path.abspath(__file__))
+
+
 def _migrate_legacy_data(app_dir: str) -> None:
     """Move user data from the executable directory into the per-user app_dir."""
-    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
-        legacy_dir = os.path.dirname(sys.executable)
-    else:
-        legacy_dir = os.path.dirname(os.path.abspath(__file__))
+    legacy_dir = _legacy_dir()
     if os.path.normcase(os.path.abspath(legacy_dir)) == os.path.normcase(os.path.abspath(app_dir)):
         return
     items = ["config.cfg", "qsos.db", "qsos.db-wal", "qsos.db-shm", "recordings"]
@@ -325,24 +379,11 @@ def main() -> None:
     qso_main.cfg.web_host = "127.0.0.1"
     qso_main.cfg.web_port = int(qso_main.cfg.web_port)
 
-    port = qso_main.cfg.web_port
-    base_url = f"http://127.0.0.1:{port}/"
-
-    config = uvicorn.Config(
-        qso_main.app,
-        host="127.0.0.1",
-        port=port,
-        log_level="warning",
-        access_log=False,
-        log_config=None,
-    )
-    server = uvicorn.Server(config)
-
     icon_path = ""
     for cand in (
         os.path.join(app_dir, ICON_BASENAME),
-        os.path.join(sys._MEIPASS, ICON_BASENAME) if _is_frozen() else "",
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), ICON_BASENAME),
+        os.path.join(sys._MEIPASS, ICON_BASENAME) if hasattr(sys, "_MEIPASS") else "",
+        *[os.path.join(d, ICON_BASENAME) for d in _bundle_dirs()],
     ):
         if cand and os.path.isfile(cand):
             icon_path = cand
@@ -359,11 +400,43 @@ def main() -> None:
         except Exception:
             pass
 
+    # Only one instance may record and write the database at a time.
+    lock = QLockFile(os.path.join(app_dir, "QSOCapture.lock"))
+    # A crashed instance leaves a lock file behind; allow Qt to reclaim it
+    # after 30 seconds while still preventing a second live instance.
+    lock.setStaleLockTime(30000)
+    if not lock.tryLock(100):
+        QMessageBox.information(
+            None, "QSOCapture",
+            "QSOCapture is already running.\n"
+            "Use the existing window or tray icon.",
+        )
+        return
+
+    port = _pick_port("127.0.0.1", qso_main.cfg.web_port)
+    qso_main.cfg.web_port = port
+    base_url = f"http://127.0.0.1:{port}/"
+
+    config = uvicorn.Config(
+        qso_main.app,
+        host="127.0.0.1",
+        port=port,
+        log_level="warning",
+        access_log=False,
+        log_config=None,
+    )
+    server = uvicorn.Server(config)
+
     server_thread = threading.Thread(target=server.run, daemon=True)
     server_thread.start()
 
     if not _wait_for_server(base_url, timeout=10.0):
-        print("ERROR: QSOCapture server failed to start.", file=sys.stderr)
+        server.should_exit = True
+        QMessageBox.critical(
+            None, "QSOCapture",
+            f"The local dashboard server failed to start on port {port}.\n"
+            "See QSOCapture.log in the application data folder for details.",
+        )
         return
 
     window = MainWindow(app_dir, base_url, icon_path)
@@ -374,6 +447,10 @@ def main() -> None:
     server.should_exit = True
     try:
         server_thread.join(timeout=2.0)
+    except Exception:
+        pass
+    try:
+        lock.unlock()
     except Exception:
         pass
 

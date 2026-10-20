@@ -33,6 +33,10 @@ QSOCapture is a lightweight contest audio recorder and log player for amateur ra
 2. Run the installer and follow the on-screen instructions.
 3. After installation, launch the program from the Start Menu or desktop shortcut.
 4. The dashboard opens automatically in the program's built-in window.
+5. The dashboard works without internet access. CDN styling and the calendar
+   pop-up are optional; if they cannot be loaded, the fallback layout is used
+   and date fields can be typed manually as `YYYY-MM-DD HH:mm` (or
+   `YYYY-MM-DD` in the delete dialog).
 
 ---
 
@@ -290,7 +294,9 @@ The **⚠️ Resets and deletes** section in Settings provides the following ope
 | **Delete continuous** | Deletes continuous recordings within a specified date range. |
 | **Factory Reset** | Wipes the entire QSO database, all audio files, restores default settings and clears the log buffer. |
 
-> **Note:** Before any file-deleting operation, a confirmation dialog appears listing exactly what will be removed.
+> **Note:** Before any file-deleting operation, a confirmation dialog appears listing exactly what will be removed. While continuous recording is active, QSOCapture pauses it, closes the current chunk and waits for the encoder before deleting files, so an open recording cannot block the operation on Windows. A database backup (`qsos.db.bak` in the application data folder) is created before destructive actions.
+
+> **Note:** Only one instance of QSOCapture can run at a time. A second launch shows an "already running" message; this prevents two recorders from writing to the same database. If the configured web port is busy, the application selects the next free port automatically.
 
 ---
 

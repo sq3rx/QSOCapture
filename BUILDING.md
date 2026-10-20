@@ -6,7 +6,9 @@
 
 ## Requirements
 
-- Python **3.13** (Windows 7+). Nuitka works best with Python 3.13.
+- Python **3.13** (Windows 7 SP1 / 8.1 / 10 / 11, x64). The 1.0.0 build keeps
+  the same Python/Qt stack that is already validated on Windows 7/8; do not
+  upgrade those dependencies without re-testing on those systems.
 - A C compiler (MSVC or MinGW). On Windows with Python 3.13, MSVC is included
   in the Python installer (Build Tools for Visual Studio).
 - The following Python packages (see `requirements.txt`):
@@ -17,11 +19,12 @@
   - `lameenc` (optional — only if you want MP3 output instead of WAV)
   - `PySide6` (needed for the desktop EXE / embedded Qt WebEngine browser — `qt_launcher.py`)
   - `nuitka` (compiler for building the standalone EXE)
+- `pytest`, `httpx`, `ruff` for development (see `requirements-dev.txt`)
 
 Install everything with:
 
 ```bash
-pip install -r requirements.txt
+pip install -r requirements.txt -c constraints.txt
 ```
 
 ## Desktop EXE & Windows Installer
@@ -42,7 +45,7 @@ shortcut and an uninstall entry.
 ### Build it yourself (Windows)
 
 ```bash
-pip install -r requirements.txt
+pip install -r requirements.txt -c constraints.txt
 
 # Installer source (folder, used by Inno Setup)
 python build_nuitka.py
@@ -110,6 +113,14 @@ iscc installer.iss
 ```
 
 This produces ``installer/QSOCapture-setup-<version>.exe``.
+
+Run the test suite before building a release:
+
+```bash
+pip install -r requirements-dev.txt
+python -m pytest
+python -m ruff check .
+```
 
 To run the desktop wrapper directly (without building):
 

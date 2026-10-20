@@ -7,10 +7,15 @@ dataclass with sensible defaults.
 from __future__ import annotations
 
 import configparser
+import logging
 import os
 import re
-from dataclasses import dataclass, field
+import shutil
+import tempfile
+from dataclasses import dataclass
 from typing import Optional
+
+logger = logging.getLogger("QSOCapture.config")
 
 
 def _get_base_dir() -> str:
@@ -37,6 +42,37 @@ def sanitize_contest(name: str) -> str:
     name = os.path.basename(name)
     safe = re.sub(r"[^A-Za-z0-9 _.\-]", "", name).strip(". ")
     return safe or "GENERAL"
+
+
+def encode_device(index: Optional[int], name: str) -> str:
+    """Encode a sound device as ``"<index>|<name>"`` for stable identification.
+
+    Older config files store only the device name. Both forms are accepted by
+    :func:`decode_device`; using the index disambiguates two identical cards
+    (common in dual-card SO2R setups).
+    """
+    if index is None:
+        return name or ""
+    return f"{int(index)}|{name or ''}"
+
+
+def decode_device(value: str) -> tuple[Optional[int], str]:
+    """Split a stored device value into ``(index, name)``.
+
+    Plain names (legacy configs) return ``(None, name)``. The index is only
+    trusted when it is a non-negative integer.
+    """
+    raw = (value or "").strip()
+    if "|" not in raw:
+        return None, raw
+    head, _sep, name = raw.partition("|")
+    try:
+        index = int(head)
+    except (TypeError, ValueError):
+        return None, raw
+    if index < 0:
+        return None, name
+    return index, name
 
 
 @dataclass
@@ -80,17 +116,24 @@ class AppConfig:
 def _get(config: configparser.ConfigParser, section: str, key: str, default):
     """Return a value from *config* falling back to *default*.
 
-    The type of *default* drives the conversion (bool/int/float/str).
+    The type of *default* drives the conversion (bool/int/float/str). A malformed
+    value is logged and treated as missing so a single hand-edited bad line can
+    never stop the application from starting.
     """
     if not config.has_section(section) or not config.has_option(section, key):
         return default
     raw = config.get(section, key).strip()
-    if isinstance(default, bool):
-        return config.getboolean(section, key)
-    if isinstance(default, int):
-        return config.getint(section, key)
-    if isinstance(default, float):
-        return config.getfloat(section, key)
+    try:
+        if isinstance(default, bool):
+            return config.getboolean(section, key)
+        if isinstance(default, int):
+            return config.getint(section, key)
+        if isinstance(default, float):
+            return config.getfloat(section, key)
+    except (ValueError, configparser.Error) as exc:
+        logger.warning("Invalid config value [%s] %s=%r (%s); using %r",
+                       section, key, raw, exc, default)
+        return default
     return raw
 
 
@@ -101,7 +144,11 @@ def load_config(path: str = "config.cfg") -> AppConfig:
     """
     parser = configparser.ConfigParser()
     if os.path.isfile(path):
-        parser.read(path, encoding="utf-8")
+        try:
+            parser.read(path, encoding="utf-8")
+        except (configparser.Error, UnicodeDecodeError, OSError) as exc:
+            logger.warning("Could not read config %s (%s); using defaults", path, exc)
+            parser = configparser.ConfigParser()
 
     cfg = AppConfig(
         station_name=_get(parser, "general", "station_name", AppConfig.station_name),
@@ -138,7 +185,49 @@ def load_config(path: str = "config.cfg") -> AppConfig:
         dashboard_file=_get(parser, "web", "dashboard_file", AppConfig.dashboard_file),
     )
     reject_invalid_config(cfg)
+    normalize_config(cfg)
     return cfg
+
+
+def _clamp_int(value: int, low: int, high: int, field_name: str) -> int:
+    if low <= value <= high:
+        return value
+    fixed = min(max(value, low), high)
+    logger.warning("Config %s=%s out of range %s..%s; using %s",
+                   field_name, value, low, high, fixed)
+    return fixed
+
+
+def _clamp_float(value: float, low: float, high: float, field_name: str) -> float:
+    if low <= value <= high:
+        return value
+    fixed = min(max(value, low), high)
+    logger.warning("Config %s=%s out of range %s..%s; using %s",
+                   field_name, value, low, high, fixed)
+    return fixed
+
+
+def normalize_config(cfg: AppConfig) -> None:
+    """Clamp/repair values loaded from a hand-edited or legacy config file."""
+    cfg.sample_rate = _clamp_int(int(cfg.sample_rate), 8000, 192000, "sample_rate")
+    cfg.channels = _clamp_int(int(cfg.channels), 1, 2, "channels")
+    cfg.pre_roll = _clamp_float(float(cfg.pre_roll), 0.0, 120.0, "pre_roll")
+    cfg.post_roll = _clamp_float(float(cfg.post_roll), 0.0, 120.0, "post_roll")
+    cfg.continuous_chunk_minutes = _clamp_int(
+        int(cfg.continuous_chunk_minutes), 1, 1440, "continuous_chunk_minutes")
+    cfg.max_recordings_gb = _clamp_float(
+        float(cfg.max_recordings_gb), 0.0, 100000.0, "max_recordings_gb")
+    cfg.tci_port = _clamp_int(int(cfg.tci_port), 1, 65535, "tci_port")
+    cfg.n1mm_udp_port = _clamp_int(int(cfg.n1mm_udp_port), 1, 65535, "n1mm_udp_port")
+    cfg.web_port = _clamp_int(int(cfg.web_port), 1, 65535, "web_port")
+    if cfg.audio_mode not in ("tci", "soundcard"):
+        logger.warning("Unknown audio mode %r; falling back to soundcard", cfg.audio_mode)
+        cfg.audio_mode = "soundcard"
+    if cfg.audio_format not in ("wav", "mp3"):
+        logger.warning("Unknown audio format %r; falling back to wav", cfg.audio_format)
+        cfg.audio_format = "wav"
+    if cfg.so2r_mode not in ("stereo", "dual_card"):
+        cfg.so2r_mode = "stereo"
 
 
 def reject_invalid_config(cfg: AppConfig) -> None:
@@ -169,7 +258,7 @@ CONFIG_SCHEMA = [
     ("general", "normalize_continuous", "Normalize continuous recordings", "bool", None,
      "When ON, continuous WAV chunks are normalized after each chunk. Disable to save CPU on long recordings (QSO slices are always normalized)."),
     ("general", "max_recordings_gb", "Max recordings (GB)", "float", None,
-     "Hard cap on the recordings folder disk usage. Oldest continuous chunks are deleted automatically when the total exceeds the limit. Set 'Unlimited' to never delete recordings."),
+     "Hard cap on continuous recording disk usage. Oldest continuous chunks are deleted automatically when their total exceeds the limit. QSO slices are never deleted. Set 'Unlimited' to never delete recordings automatically."),
     ("tci", "tci_host", "TCI host", "text", None,
      "IP address of the ExpertSDR TCI server (usually 127.0.0.1)."),
     ("tci", "tci_port", "TCI port", "int", None,
@@ -177,7 +266,7 @@ CONFIG_SCHEMA = [
     ("audio", "audio_mode", "Audio mode", "text", ["tci", "soundcard"],
      "'tci' streams from ExpertSDR, 'soundcard' captures a system input device."),
     ("audio", "sample_rate", "Sample rate (Hz)", "int", [8000, 16000, 22050, 44100, 48000, 96000],
-     "Audio sample rate. Must match your radio/TCI or soundcard setting."),
+     "Audio sample rate. Must match your radio/TCI or soundcard setting. TCI is limited to 48000 Hz; higher values are reduced to 48000 for TCI."),
     ("audio", "channels", "Channels (1=SO1R,2=SO2R)", "int", [1, 2],
      "1 = mono single receiver (SO1R), 2 = stereo two receivers (SO2R)."),
     ("audio", "pre_roll", "Pre-roll (s)", "float", None,
@@ -197,7 +286,7 @@ CONFIG_SCHEMA = [
     ("n1mm", "n1mm_bind_ip", "N1MM bind IP", "text", None,
      "Interface to listen on for N1MM packets. 127.0.0.1 = local only."),
     ("web", "web_host", "Web host", "text", None,
-     "Interface the web dashboard binds to. 127.0.0.1 = local only."),
+     "Interface the web dashboard binds to. 127.0.0.1 = local only. A changed host or port takes effect after the application is restarted."),
     ("web", "web_port", "Web port", "int", None,
      "TCP port for the web dashboard."),
     ("web", "dashboard_file", "Dashboard file", "text", None,
@@ -225,7 +314,12 @@ INI_KEYS = {
 
 
 def save_config(cfg: AppConfig, path: str = "config.cfg") -> None:
-    """Persist *cfg* to an INI file grouped by section (matching load_config layout)."""
+    """Persist *cfg* atomically to an INI file grouped by section.
+
+    Writes to a temporary file in the same directory and replaces the target
+    with ``os.replace`` so a crash or power loss can never leave a half-written
+    config behind. The previous file is kept as ``<path>.bak``.
+    """
     parser = configparser.ConfigParser()
     for section, field, _label, _ftype, _choices, _help in CONFIG_SCHEMA:
         ini_section, ini_key = INI_KEYS.get(field, (section, field))
@@ -235,8 +329,28 @@ def save_config(cfg: AppConfig, path: str = "config.cfg") -> None:
         if isinstance(value, bool):
             value = "true" if value else "false"
         parser.set(ini_section, ini_key, str(value))
-    with open(path, "w", encoding="utf-8") as f:
-        parser.write(f)
+
+    target = os.path.abspath(path)
+    directory = os.path.dirname(target) or "."
+    os.makedirs(directory, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(prefix=".config-", suffix=".tmp", dir=directory)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            parser.write(f)
+            f.flush()
+            os.fsync(f.fileno())
+        if os.path.isfile(target):
+            try:
+                shutil.copyfile(target, target + ".bak")
+            except OSError as exc:
+                logger.warning("Could not create config backup: %s", exc)
+        os.replace(tmp_path, target)
+    finally:
+        if os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
 
 
 if __name__ == "__main__":

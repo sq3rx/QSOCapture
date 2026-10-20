@@ -2,26 +2,56 @@ name: Build and Release
 
 on:
   push:
+    branches:
+      - main
     tags:
-      - 'v*'  # Uruchomi się tylko przy tagach zaczynających się od 'v'
-  workflow_dispatch:  # Pozwala uruchomić pipeline ręcznie z zakładki Actions (bez tagu, bez Release)
+      - 'v*'
+  pull_request:
+  workflow_dispatch:
 
 jobs:
-  build:
-    name: Build (Python 3.13)
-    runs-on: windows-latest  # Budujemy na Windowsie, aby uzyskać plik .exe
+  test:
+    name: Tests (Python ${{ matrix.python-version }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.13']
     steps:
       - name: Checkout code
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.13'  # Nuitka najlepiej wspiera Python 3.13
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install test dependencies
+        run: python -m pip install -r requirements-test.txt
+
+      - name: Run lint
+        run: python -m ruff check .
+
+      - name: Run unit tests
+        run: python -m pytest -q
+
+  build:
+    name: Build (Python 3.13)
+    needs: [test]
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
 
       - name: Install dependencies
         run: |
-          pip install -r requirements.txt
+          python -m pip install -r requirements.txt
 
       - name: Install Inno Setup
         run: choco install innosetup -y
@@ -44,28 +74,33 @@ jobs:
       - name: Build Windows installer
         run: iscc installer.iss /dMyAppVersion="${{ steps.version.outputs.version }}"
 
+      - name: Create SHA-256 checksum
+        shell: pwsh
+        run: |
+          $file = "installer/QSOCapture-setup-${{ steps.version.outputs.version }}.exe"
+          $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $file).Hash.ToLower()
+          "$hash  $(Split-Path -Leaf $file)" | Out-File -Encoding ascii "installer/SHA256SUMS.txt"
+
       - name: Upload artifacts
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: nuitka-build
           path: |
             installer/QSOCapture-setup-${{ steps.version.outputs.version }}.exe
+            installer/SHA256SUMS.txt
           if-no-files-found: error
 
   release:
     name: Create Release
     needs: [build]
-    # Release powstaje TYLKO przy pushu tagu 'v*'. Przy ręcznym uruchomieniu
-    # (workflow_dispatch) buildy się wykonają i zostaną jako artefakty, ale
-    # żadna wersja nie zostanie opublikowana.
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
 
       - name: Download build artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v4
         with:
           name: nuitka-build
           path: artifacts
@@ -82,14 +117,28 @@ jobs:
             /^## Version / && capture { exit }
             capture { print }
           ' CHANGELOG.md > release_body.md
+          if [ ! -s release_body.md ]; then
+            echo "No CHANGELOG section found for $VERSION" >&2
+            exit 1
+          fi
           echo "--- release body (first 40 lines) ---"
           sed -n '1,40p' release_body.md
 
+      - name: Append checksums
+        shell: bash
+        run: |
+          echo "" >> release_body.md
+          echo "### SHA-256" >> release_body.md
+          echo '```' >> release_body.md
+          cat artifacts/SHA256SUMS.txt >> release_body.md
+          echo '```' >> release_body.md
+
       - name: Create Release
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@v2
         with:
           files: |
             artifacts/*.exe
+            artifacts/SHA256SUMS.txt
           body_path: release_body.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

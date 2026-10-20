@@ -27,12 +27,19 @@ def main():
     version_suffix = f"-{app_version}" if app_version else ""
 
     import re
-    numeric_version = re.sub(r"[^0-9.]", "", app_version) or "0.9.0"
+
+    from version import APP_VERSION as DEFAULT_APP_VERSION
+    if not app_version:
+        app_version = DEFAULT_APP_VERSION
+    version_suffix = f"-{app_version}" if app_version else ""
+
+    numeric_version = re.sub(r"[^0-9.]", "", app_version) or DEFAULT_APP_VERSION
     # Nuitka requires each version part to be a 16-bit number (0-65535).
-    # Timestamps like 20260804.194448 exceed this, so fall back to 0.9.0.
+    # Timestamps like 20260804.194448 exceed this, so fall back to 0.0.0
+    # rather than a stale hard-coded release version.
     parts = [p for p in numeric_version.split(".") if p != ""]
     if any(int(p) > 65535 for p in parts):
-        numeric_version = "0.9.0"
+        numeric_version = "0.0.0"
 
     main_script = "qt_launcher.py"
     data_files = ["index.html", "icon.svg", "icon.ico"]
@@ -42,7 +49,7 @@ def main():
         "--standalone" if not args.onefile else "--onefile",
         "--enable-plugin=pyside6",
         "--windows-console-mode=disable",
-        f"--windows-icon-from-ico=icon.ico",
+        "--windows-icon-from-ico=icon.ico",
         "--assume-yes-for-downloads",
         "--lto=yes",
         "--disable-ccache",

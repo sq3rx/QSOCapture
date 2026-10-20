@@ -3,20 +3,21 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import logging
 import math
 import os
-import time
-import threading
-import wave
 import queue
+import threading
+import time
+import wave
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Optional
 
 import numpy as np
 
-from config import RECORDINGS_DIR, sanitize_contest
+from config import RECORDINGS_DIR, decode_device, sanitize_contest
 
 logger = logging.getLogger("QSOCapture.audio")
 
@@ -76,7 +77,6 @@ class CircularAudioBuffer:
             if start_back <= end_back:
                 return np.zeros((0, self.channels), dtype=np.int16)
             head = self._write_idx
-            oldest = (head - filled) % total
             start_pos = (head - start_back) % total
             end_pos = (head - end_back) % total
             if start_pos < end_pos:
@@ -146,8 +146,13 @@ class QSORequest:
 
 
 def _write_pcm(path: str, frames: np.ndarray, sample_rate: int, channels: int,
-               fmt: str = "wav") -> None:
-    """Write int16 frames to a WAV or MP3 file."""
+               fmt: str = "wav") -> str:
+    """Write int16 frames to a WAV or MP3 file and return the actual path.
+
+    If MP3 output was requested but ``lameenc`` is unavailable, the audio is
+    written as WAV and the returned path reflects that. Callers must use the
+    returned path (not the originally requested one) for the database entry.
+    """
     os.makedirs(os.path.dirname(path), exist_ok=True)
     pcm = np.ascontiguousarray(frames, dtype=np.int16)
     if fmt == "mp3":
@@ -173,6 +178,7 @@ def _write_pcm(path: str, frames: np.ndarray, sample_rate: int, channels: int,
             wf.setsampwidth(2)
             wf.setframerate(sample_rate)
             wf.writeframes(pcm.tobytes())
+    return path
 
 
 
@@ -233,14 +239,27 @@ class AudioSource(ABC):
     """Common interface for all audio capture backends."""
 
     def __init__(self, cfg, label: str = "RX1"):
-        self.cfg = cfg
+        # Take an immutable-ish snapshot: a live settings change must never
+        # alter the sample rate/format of an already-running source or of the
+        # QSO slices still waiting in the thread pool.
+        self.cfg = copy.deepcopy(cfg)
         self.label = label
+        # TCI is capped at 48 kHz. Buffers and WAV headers must use the rate
+        # that is actually streamed, not the (possibly higher) configured one.
+        if self.cfg.audio_mode == "tci":
+            self.sample_rate = min(max(int(self.cfg.sample_rate), 8000), 48000)
+            if self.sample_rate != int(self.cfg.sample_rate):
+                logger.warning(
+                    "[%s] TCI supports up to 48000 Hz; using %d Hz (configured %d Hz)",
+                    label, self.sample_rate, self.cfg.sample_rate)
+        else:
+            self.sample_rate = int(self.cfg.sample_rate)
         cap = max(cfg.pre_roll + cfg.post_roll + 5.0, 30.0)
         # The 2-channel self.buffer is only consumed in SO1R (channels == 1) and
         # TCI modes. In soundcard SO2R (channels >= 2) the subclass replaces
         # rx_buffers with two mono buffers, so skip this allocation there.
         if cfg.audio_mode != "soundcard" or cfg.channels < 2:
-            self.buffer = CircularAudioBuffer(cfg.sample_rate, cfg.channels, cap)
+            self.buffer = CircularAudioBuffer(self.sample_rate, cfg.channels, cap)
         else:
             self.buffer = None
         self.rx_buffers = [('RX1', self.buffer)]
@@ -258,6 +277,8 @@ class AudioSource(ABC):
         self._enc_started = False
         self._enc_busy = False
         self._continuous_paused = False
+        self._last_error = ""
+
 
     @abstractmethod
     def _capture_loop(self) -> None:
@@ -319,8 +340,8 @@ class AudioSource(ABC):
 
     def stop(self) -> None:
         """Stop capture and clean up threads (finalises chunks, no shutdown hang)."""
-        self._close_cont_files()
         self._running = False
+        self._close_cont_files()
         try:
             self._cont_queue.put_nowait(('RX1', np.zeros((0, 1), dtype=np.int16)))
         except queue.Full:
@@ -347,8 +368,27 @@ class AudioSource(ABC):
         if self._continuous:
             self._continuous.join(timeout=2.0)
         self._close_cont_files()
+        # Give the encoder a chance to finalise the last chunk before the DB is
+        # closed by the application shutdown path.
+        self._drain_encoder(timeout=10.0)
         if self._enc_thread:
             self._enc_thread.join(timeout=2.0)
+
+    def wait_continuous_idle(self, timeout: float = 5.0) -> bool:
+        """Wait until no chunk file is open and the encoder queue is drained.
+
+        Used before destructive filesystem operations so an open WAV cannot
+        make deletion fail on Windows. Returns True when idle.
+        """
+        deadline = time.time() + max(0.0, timeout)
+        while time.time() < deadline:
+            with self._cont_lock:
+                open_files = bool(self._cont_files)
+            if not open_files and self._enc_queue.empty() and not self._enc_busy:
+                return True
+            time.sleep(0.05)
+        with self._cont_lock:
+            return not self._cont_files
 
     def _drain_encoder(self, timeout: float = 30.0) -> None:
         """Block until encoder queue is empty and current encode finishes."""
@@ -394,9 +434,9 @@ class AudioSource(ABC):
             logger.warning("[%s] cannot resume continuous recording: audio source "
                            "not connected (TCI not linked)", self.label)
             return
+        self._continuous_paused = False
         self._open_cont_files()
         self._cont_start = time.time()
-        self._continuous_paused = False
         _emit_event("continuous_resumed")
         for label, _buf in self.rx_buffers:
             logger.info("[%s] continuous recording resumed (new chunk)", label)
@@ -443,8 +483,9 @@ class AudioSource(ABC):
         frames, gain_db = _normalize_frames(frames)
         fname = f"{stamp}_{safe_call}_{req.band}_{rx_label}.{ext}"
         out_path = os.path.join(out_dir, fname)
-        _write_pcm(out_path, frames, self.cfg.sample_rate, 1,
-                   fmt=self.cfg.audio_format)
+        out_path = _write_pcm(out_path, frames, self.sample_rate, 1,
+                              fmt=self.cfg.audio_format)
+        actual_fname = os.path.basename(out_path)
         logger.info("[%s] saved QSO slice -> %s (%d frames, gain=%+.1f dB)",
                      rx_label, out_path, frames.shape[0], gain_db)
         saved.append((rx_label, out_path))
@@ -467,7 +508,7 @@ class AudioSource(ABC):
                 power=req.power, n1mm_id=req.n1mm_id, is_claimed=req.is_claimed,
                 sent_exchange=req.sent_exchange, timestamp=req.timestamp,
                 raw_ts=req.raw_ts,
-                file_path=f"{contest_dir}/{fname}",
+                file_path=f"{contest_dir}/{actual_fname}",
             )
             if superseded:
                 old_path = os.path.join(RECORDINGS_DIR, superseded)
@@ -490,7 +531,7 @@ class AudioSource(ABC):
         total = 0
         for _label, buf in self.rx_buffers:
             total = max(total, getattr(buf, "_filled", 0))
-        return total / max(self.cfg.sample_rate, 1)
+        return total / max(self.sample_rate, 1)
 
     def get_status(self) -> dict:
         qsize = getattr(self._cont_queue, 'qsize', lambda: 0)()
@@ -503,18 +544,24 @@ class AudioSource(ABC):
             "continuous_paused": getattr(self, "_continuous_paused", False),
             "cont_queue_fill_pct": round(100.0 * qsize / qmax, 1) if qmax else 0.0,
             "cont_queue_dropped": getattr(self, "_cont_dropped", 0),
+            "error": getattr(self, "_last_error", ""),
         }
 
     def is_connected(self) -> bool:
         """Soundcard input is available while the source is running."""
         return self._running
 
+    def get_open_files(self) -> list:
+        """Absolute paths of continuous chunk files currently being written."""
+        with self._cont_lock:
+            return [f["path"] for f in self._cont_files.values() if f.get("path")]
+
     def _buffers_detail(self) -> list:
         detail = []
         for label, buf in self.rx_buffers:
             detail.append({
                 "label": label,
-                "filled_sec": round(getattr(buf, "_filled", 0) / max(self.cfg.sample_rate, 1), 1),
+                "filled_sec": round(getattr(buf, "_filled", 0) / max(self.sample_rate, 1), 1),
             })
         return detail
 
@@ -574,6 +621,8 @@ class AudioSource(ABC):
 
     def _open_cont_files(self) -> None:
         """Open new chunk file(s) with a unique millisecond component for the filename."""
+        if self._continuous_paused or not self._running:
+            return
         stamp = time.strftime("%Y%m%d_%H%M%S", time.gmtime()) + \
                 f"{int(time.time() * 1000) % 100000:05d}"
         out_dir = os.path.join(RECORDINGS_DIR, "_continuous")
@@ -585,7 +634,7 @@ class AudioSource(ABC):
                 wf = wave.open(path, "wb")
                 wf.setnchannels(1)
                 wf.setsampwidth(2)
-                wf.setframerate(self.cfg.sample_rate)
+                wf.setframerate(self.sample_rate)
                 self._cont_files[rx_label] = {
                     "wf": wf, "path": path, "frames": 0, "start": time.time()
                 }
@@ -614,7 +663,7 @@ class AudioSource(ABC):
         except Exception:
             pass
         path = f["path"]
-        duration = f["frames"] / max(self.cfg.sample_rate, 1)
+        duration = f["frames"] / max(self.sample_rate, 1)
         rel = "_continuous/" + os.path.basename(path)
         if f["frames"] == 0:
             try:
@@ -643,7 +692,7 @@ class AudioSource(ABC):
                 logger.info("[%s] continuous WAV normalized (gain=%+.1f dB) %s",
                             rx_label, gain_db, os.path.basename(path))
         if self.cfg.audio_format == "mp3":
-            self._enc_queue.put((rx_label, path, self.cfg.sample_rate, rel, duration))
+            self._enc_queue.put((rx_label, path, self.sample_rate, rel, duration))
 
     def _roll_cont_files(self) -> None:
         with self._cont_lock:
@@ -712,26 +761,39 @@ class SoundcardAudioSource(AudioSource):
         self._stream = None
         self._stream2 = None
         if cfg.channels >= 2:
-            self.rx1_buf = CircularAudioBuffer(cfg.sample_rate, 1,
+            self.rx1_buf = CircularAudioBuffer(self.sample_rate, 1,
                                                max(cfg.pre_roll + cfg.post_roll + 5.0, 30.0))
-            self.rx2_buf = CircularAudioBuffer(cfg.sample_rate, 1,
+            self.rx2_buf = CircularAudioBuffer(self.sample_rate, 1,
                                                max(cfg.pre_roll + cfg.post_roll + 5.0, 30.0))
             self.rx_buffers = [('RX1', self.rx1_buf), ('RX2', self.rx2_buf)]
 
     def _resolve_device(self, name_attr: str = "soundcard_device"):
-        """Resolve device index from config attribute *name_attr* (exact name match)."""
-        dev_name = getattr(self.cfg, name_attr, "")
-        if not dev_name:
+        """Resolve a stored device to an input index.
+
+        Stored values are either legacy names (``"USB Audio"``) or the newer
+        ``"<index>|<name>"`` form. Index-first lookup disambiguates two
+        identical cards, which is essential for dual-card SO2R.
+        """
+        dev_value = getattr(self.cfg, name_attr, "")
+        index, dev_name = decode_device(dev_value)
+        if not dev_value:
             return None
         try:
             import sounddevice as sd
             devices = sd.query_devices()
+            if index is not None and 0 <= index < len(devices):
+                candidate = devices[index]
+                if candidate.get("max_input_channels", 0) > 0:
+                    return index
             for i, d in enumerate(devices):
-                if d["name"] == dev_name:
+                if d.get("max_input_channels", 0) <= 0:
+                    continue
+                if d.get("name") == dev_name:
                     return i
             logger.warning("Soundcard device '%s' not found, using default",
-                           dev_name)
+                           dev_name or dev_value)
         except Exception as e:
+            self._last_error = str(e)
             logger.error("sounddevice query failed: %s", e)
         return None
 
@@ -743,7 +805,7 @@ class SoundcardAudioSource(AudioSource):
             self._running = False
             return
 
-        sr = self.cfg.sample_rate
+        sr = self.sample_rate
 
         if self.cfg.channels >= 2 and self.cfg.so2r_mode == "dual_card":
             # ── dual_card mode: two separate mono streams ──────────────
@@ -783,6 +845,7 @@ class SoundcardAudioSource(AudioSource):
                     while self._running:
                         time.sleep(0.1)
             except Exception as e:
+                self._last_error = str(e)
                 logger.error("[%s] dual_card capture error: %s", self.label, e)
             finally:
                 self._running = False
@@ -817,6 +880,7 @@ class SoundcardAudioSource(AudioSource):
                     while self._running:
                         time.sleep(0.1)
             except Exception as e:
+                self._last_error = str(e)
                 logger.error("[%s] soundcard capture error: %s", self.label, e)
             finally:
                 self._running = False
@@ -832,9 +896,9 @@ class TCIAudioSource(AudioSource):
         self._frames_received = 0
         self._last_log_time = time.monotonic()
         if cfg.channels >= 2:
-            self.rx1_buf = CircularAudioBuffer(cfg.sample_rate, 1,
+            self.rx1_buf = CircularAudioBuffer(self.sample_rate, 1,
                                                max(cfg.pre_roll + cfg.post_roll + 5.0, 30.0))
-            self.rx2_buf = CircularAudioBuffer(cfg.sample_rate, 1,
+            self.rx2_buf = CircularAudioBuffer(self.sample_rate, 1,
                                                max(cfg.pre_roll + cfg.post_roll + 5.0, 30.0))
             self.rx_buffers = [('RX1', self.rx1_buf), ('RX2', self.rx2_buf)]
             self._rx_map = {0: self.rx1_buf, 1: self.rx2_buf}
@@ -846,7 +910,8 @@ class TCIAudioSource(AudioSource):
     def _capture_loop(self) -> None:
         try:
             import asyncio
-            import websockets
+
+            import websockets  # noqa: F401 - availability check
         except ImportError:
             logger.error("websockets/asyncio not available - cannot use TCI mode")
             self._running = False
@@ -876,6 +941,7 @@ class TCIAudioSource(AudioSource):
 
     async def _ws_client(self) -> None:
         import asyncio
+
         import websockets
 
         uri = f"ws://{self.cfg.tci_host}:{self.cfg.tci_port}"
@@ -887,7 +953,6 @@ class TCIAudioSource(AudioSource):
                     logger.info("[%s] TCI connected to %s (receiver=0)",
                                 self.label, uri)
                     self._connected = True
-                    rx = 0
 
                     # Wait for READY before requesting audio stream.
                     ready = False
@@ -920,7 +985,7 @@ class TCIAudioSource(AudioSource):
                     await _tci_send("SET_CLIENT_NAME:QSOCapture;")
                     await _tci_send("AUDIO_STREAM_SAMPLE_TYPE:int16;")
                     await _tci_send(f"AUDIO_STREAM_CHANNELS:{self.cfg.channels};")
-                    audio_sr = min(max(int(self.cfg.sample_rate), 8000), 48000)
+                    audio_sr = self.sample_rate
                     await _tci_send(f"AUDIO_SAMPLERATE:{audio_sr};")
                     await _tci_send("AUDIO_STREAM_SAMPLES:1024;")
                     if self.cfg.channels >= 2:
@@ -944,6 +1009,7 @@ class TCIAudioSource(AudioSource):
                 break
             except Exception as e:
                 self._connected = False
+                self._last_error = str(e)
                 logger.warning("[%s] TCI connection error, reconnect in 3s: %s",
                                self.label, e)
                 try:
@@ -1023,7 +1089,7 @@ class TCIAudioSource(AudioSource):
             self._enqueue_cont(label, pcm)
         now = time.monotonic()
         if now - self._last_log_time >= 5.0:
-            secs = self._frames_received / max(self.cfg.sample_rate, 1)
+            secs = self._frames_received / max(self.sample_rate, 1)
             logger.info("[%s] TCI audio flowing (rx=%d): +%d frames (%.1f s buffered total)",
                         self.label, rx_index, n, secs)
             self._last_log_time = now
@@ -1041,6 +1107,7 @@ class TCIAudioSource(AudioSource):
             "continuous_paused": getattr(self, "_continuous_paused", False),
             "cont_queue_fill_pct": round(100.0 * qsize / qmax, 1) if qmax else 0.0,
             "cont_queue_dropped": getattr(self, "_cont_dropped", 0),
+            "error": getattr(self, "_last_error", ""),
         }
 
     def is_connected(self) -> bool:
