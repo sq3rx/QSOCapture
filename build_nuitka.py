@@ -24,7 +24,6 @@ def main():
     args = parser.parse_args()
 
     app_version = os.environ.get("APP_VERSION", "")
-    version_suffix = f"-{app_version}" if app_version else ""
 
     import re
 
@@ -35,11 +34,11 @@ def main():
 
     numeric_version = re.sub(r"[^0-9.]", "", app_version) or DEFAULT_APP_VERSION
     # Nuitka requires each version part to be a 16-bit number (0-65535).
-    # Timestamps like 20260804.194448 exceed this, so fall back to 0.0.0
-    # rather than a stale hard-coded release version.
+    # Manual builds use a timestamp (e.g. 20261020.191530) in the installer
+    # filename, but the EXE metadata should still carry a sane release version.
     parts = [p for p in numeric_version.split(".") if p != ""]
     if any(int(p) > 65535 for p in parts):
-        numeric_version = "0.0.0"
+        numeric_version = re.sub(r"[^0-9.]", "", DEFAULT_APP_VERSION) or "0.0.0"
 
     main_script = "qt_launcher.py"
     data_files = ["index.html", "icon.svg", "icon.ico"]

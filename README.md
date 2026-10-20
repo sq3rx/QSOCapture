@@ -4,6 +4,7 @@
   <img src="logo_with_text.png" alt="QSOCapture logo" width="600" />
 </p>
 
+[![Tests](https://github.com/sq3rx/QSOCapture/actions/workflows/tests.yml/badge.svg)](https://github.com/sq3rx/QSOCapture/actions/workflows/tests.yml)
 [![Build and Release](https://github.com/sq3rx/QSOCapture/actions/workflows/main.yml/badge.svg)](https://github.com/sq3rx/QSOCapture/actions/workflows/main.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.13-blue.svg)](https://www.python.org)

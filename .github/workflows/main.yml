@@ -2,50 +2,20 @@ name: Build and Release
 
 on:
   push:
-    branches:
-      - main
     tags:
       - 'v*'
-  pull_request:
   workflow_dispatch:
 
 jobs:
-  test:
-    name: Tests (Python ${{ matrix.python-version }})
-    runs-on: windows-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ['3.13']
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-
-      - name: Install test dependencies
-        run: python -m pip install -r requirements-test.txt
-
-      - name: Run lint
-        run: python -m ruff check .
-
-      - name: Run unit tests
-        run: python -m pytest -q
-
   build:
     name: Build (Python 3.13)
-    needs: [test]
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.13'
 
@@ -56,14 +26,14 @@ jobs:
       - name: Install Inno Setup
         run: choco install innosetup -y
 
-      - name: Compute clean version (strip leading 'v', or use timestamp for manual runs)
+      - name: Compute version (tag name, or UTC date/time for manual runs)
         id: version
         shell: bash
         run: |
           if [[ "${{ github.ref_type }}" == "tag" ]]; then
             echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
           else
-            echo "version=$(date +'%Y%m%d.%H%M%S')" >> "$GITHUB_OUTPUT"
+            echo "version=$(date -u +'%Y%m%d.%H%M%S')" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build installer source (onedir)
@@ -82,9 +52,9 @@ jobs:
           "$hash  $(Split-Path -Leaf $file)" | Out-File -Encoding ascii "installer/SHA256SUMS.txt"
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: nuitka-build
+          name: nuitka-build-${{ steps.version.outputs.version }}
           path: |
             installer/QSOCapture-setup-${{ steps.version.outputs.version }}.exe
             installer/SHA256SUMS.txt
@@ -97,12 +67,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
+
+      - name: Compute version from tag
+        id: version
+        shell: bash
+        run: |
+          echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
       - name: Download build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
-          name: nuitka-build
+          name: nuitka-build-${{ steps.version.outputs.version }}
           path: artifacts
 
       - name: List downloaded files
@@ -134,7 +110,7 @@ jobs:
           echo '```' >> release_body.md
 
       - name: Create Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             artifacts/*.exe
