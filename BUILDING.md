@@ -69,6 +69,22 @@ python build_nuitka.py --onefile
 > launch any data left behind in an older ``Program Files`` install is moved
 > automatically into that folder.
 
+### Chrome / SmartScreen warnings
+
+Chrome and Windows SmartScreen judge downloaded executables by reputation. A
+freshly built, unsigned installer has a new hash and therefore no reputation,
+so Chrome may show "this file is dangerous" even though the binary is clean.
+This is not caused by the build workflow or by the installer contents.
+
+The only reliable fix is code signing with a trusted certificate. A signing
+hook is available in `installer.iss`: pass `/dMySignTool=<tool-name>` to
+`iscc` after configuring the tool in Inno Setup. Without signing, you can:
+
+1. Publish the installer as a GitHub Release asset (release downloads build
+   reputation more reliably than Actions artifacts).
+2. Provide the `SHA256SUMS.txt` file so users can verify the download.
+3. Report a Safe Browsing false positive to Google and/or Microsoft.
+
 ### Antivirus false positives
 
 Windows Defender and other antivirus engines may occasionally flag the

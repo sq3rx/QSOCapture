@@ -31,10 +31,15 @@ jobs:
         shell: bash
         run: |
           if [[ "${{ github.ref_type }}" == "tag" ]]; then
-            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+            version="${GITHUB_REF_NAME#v}"
+            fileversion=$(echo "$version" | sed 's/[^0-9.]//g')
           else
-            echo "version=$(date -u +'%Y%m%d.%H%M%S')" >> "$GITHUB_OUTPUT"
+            version=$(date -u +'%Y%m%d.%H%M%S')
+            fileversion=$(python -c "from version import APP_VERSION; print(APP_VERSION)" | sed 's/[^0-9.]//g')
           fi
+          [ -n "$fileversion" ] || fileversion="1.0.0"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "fileversion=$fileversion" >> "$GITHUB_OUTPUT"
 
       - name: Build installer source (onedir)
         run: |
@@ -42,7 +47,7 @@ jobs:
           python build_nuitka.py
 
       - name: Build Windows installer
-        run: iscc installer.iss /dMyAppVersion="${{ steps.version.outputs.version }}"
+        run: iscc installer.iss /dMyAppVersion="${{ steps.version.outputs.version }}" /dMyVersionInfoVersion="${{ steps.version.outputs.fileversion }}"
 
       - name: Create SHA-256 checksum
         shell: pwsh

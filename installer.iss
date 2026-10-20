@@ -9,6 +9,13 @@
   #define MyAppVersion "1.0.0"
 #endif
 
+; Numeric version used for the Windows file properties. Manual builds keep a
+; date/time in the installer filename, but the EXE metadata must stay a valid
+; semantic version (otherwise FileVersion is empty and heuristics distrust it).
+#ifndef MyVersionInfoVersion
+  #define MyVersionInfoVersion "1.0.0"
+#endif
+
 ; Optional suffix in the output filename to tell builds apart (e.g.
 ; "-Win7" for the legacy Windows 7/8 build). Empty by default.
 #ifndef MyAppNameSuffix
@@ -26,6 +33,12 @@
 AppId={{8F3C9A1E-2B4D-4E7A-9C6F-1A2B3C4D5E6F}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
+VersionInfoVersion={#MyVersionInfoVersion}
+VersionInfoTextVersion={#MyAppVersion}
+VersionInfoProductTextVersion={#MyVersionInfoVersion}
+VersionInfoCompany={#MyAppPublisher}
+VersionInfoDescription={#MyAppName} Setup
+VersionInfoProductName={#MyAppName}
 AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}
@@ -44,6 +57,13 @@ ArchitecturesInstallIn64BitMode=x64os
 PrivilegesRequired=admin
 PrivilegesRequiredOverridesAllowed=commandline
 CloseApplications=force
+
+; Optional code signing hook. Leave unset for the normal build; pass
+; /dMySignTool=<tool-name> to iscc once a certificate/signing tool is configured.
+#ifdef MySignTool
+SignTool={#MySignTool}
+SignedUninstaller=yes
+#endif
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
