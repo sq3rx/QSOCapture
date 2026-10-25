@@ -74,6 +74,14 @@ def main():
     for mod in hidden_modules:
         cmd.append(f"--include-module={mod}")
 
+    # websockets resolves its public API (e.g. websockets.connect) lazily via
+    # lazy_import, so Nuitka's static analysis misses the websockets.asyncio
+    # subpackage and the TCI client fails with "No module named
+    # 'websockets.asyncio'" in the packaged build. Include the whole package.
+    hidden_packages = ["websockets"]
+    for pkg in hidden_packages:
+        cmd.append(f"--include-package={pkg}")
+
     if args.onefile:
         exe_name = f"QSOCapture-portable{version_suffix}"
     else:

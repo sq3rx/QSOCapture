@@ -5,6 +5,10 @@ in plain business language, without going into implementation details.
 
 ## Unreleased
 
+### Bug fixes
+* **TCI mode works in the installed build:** selecting the TCI audio source no longer fails with a "missing module" error. The WebSocket support that TCI needs is now bundled into the packaged application.
+* **No more flickering options in Settings:** opening the configuration window with TCI selected no longer briefly shows options that do not apply (SO2R mode and the second soundcard device) before they vanish. The window now shows the correct fields straight away.
+
 ### Reliability and contest safety
 * **Dashboard works without internet:** the dashboard now remains fully usable when the Tailwind CDN or the flatpickr CDN cannot be reached. Date fields stay editable as plain text, calendar buttons are hidden, and the offline stylesheet covers all dashboard views.
 * **Settings are applied atomically:** a rejected setting can no longer leave the running application in a half-changed state. Configuration files are written atomically and a backup (`config.cfg.bak`) is kept.
