@@ -6,48 +6,51 @@ in plain business language, without going into implementation details.
 ## Unreleased
 
 ### Bug fixes
-* **TCI mode works in the installed build:** selecting the TCI audio source no longer fails with a "missing module" error. The WebSocket support that TCI needs is now bundled into the packaged application.
-* **No more flickering options in Settings:** opening the configuration window with TCI selected no longer briefly shows options that do not apply (SO2R mode and the second soundcard device) before they vanish. The window now shows the correct fields straight away.
+* **TCI mode works in the installed build:** selecting the TCI audio source no longer fails with a "missing module" error — the WebSocket support TCI needs is now bundled.
+* **No more flickering options in Settings:** opening the configuration window with TCI selected no longer briefly shows options that do not apply. The correct fields are shown straight away.
 
 ### Reliability and contest safety
-* **Dashboard works without internet:** the dashboard now remains fully usable when the Tailwind CDN or the flatpickr CDN cannot be reached. Date fields stay editable as plain text, calendar buttons are hidden, and the offline stylesheet covers all dashboard views.
-* **Settings are applied atomically:** a rejected setting can no longer leave the running application in a half-changed state. Configuration files are written atomically and a backup (`config.cfg.bak`) is kept.
-* **Saving settings no longer interrupts recording unnecessarily:** only the audio or N1MM services affected by the change are restarted. Changing the station name or the disk limit does not stop continuous recording.
-* **Deleting recordings is safe while recording:** "Delete all data" and "Factory reset" pause continuous recording, close the open chunk, wait for the encoder and only then delete files. A database backup is written first.
-* **Large exports no longer exhaust memory:** ZIP export is streamed from a temporary file instead of being built entirely in RAM. The chunk currently being written is skipped.
-* **Single instance protection:** a second launch shows a clear message instead of starting a second recorder and writing to the same database.
-* **Port conflicts are handled:** if the configured dashboard port is busy, the application picks the next free port (or shows a clear error if the server cannot start).
-* **Audio device selection is stable:** input devices are identified by index as well as name, so two identical soundcards in dual-card SO2R no longer resolve to the same device. Output-only devices are no longer offered.
-* **N1MM port errors do not stop the application:** if the UDP port is already in use, QSOCapture keeps running, reports the problem in the status area and in the log, and audio recording continues.
+* **Dashboard works without internet:** the dashboard remains fully usable when the Tailwind or flatpickr CDN cannot be reached.
+* **Settings are applied atomically:** a rejected setting can no longer leave the application in a half-changed state; a configuration backup is kept.
+* **Saving settings no longer interrupts recording unnecessarily:** only the affected audio or N1MM service is restarted.
+* **Deleting recordings is safe while recording:** destructive actions pause continuous recording, close the open chunk and wait for the encoder; a database backup is written first.
+* **Large exports no longer exhaust memory:** ZIP export is streamed from a temporary file, and the chunk currently being written is skipped.
+* **Single instance protection:** a second launch shows a clear message instead of starting a second recorder.
+* **Port conflicts are handled:** a busy dashboard port is replaced automatically, or a clear error is shown.
+* **Audio device selection is stable:** devices are identified by index and name, so two identical soundcards in dual-card SO2R no longer collide; output-only devices are not offered.
+* **N1MM port errors do not stop the application:** a busy UDP port is reported in the status area and the log while recording continues.
 
 ### Audio correctness
-* **TCI recordings use the real sample rate:** TCI is limited to 48 kHz; buffers, WAV headers, durations and pre/post-roll now all use the rate that is actually streamed. Selecting 96 kHz in TCI mode can no longer produce fast-playing or mis-timed recordings.
-* **MP3 fallback is consistent:** if MP3 was selected but the encoder is unavailable, the audio is saved as WAV and the database points to the WAV file, so playback links never break.
-* **Continuous recording stops cleanly:** the stop sequence now closes the chunk before the worker can reopen it, drains the encoder and waits for the database to be free before shutdown.
-* **Correct UTC "Stop" time:** the continuous recordings table now calculates and displays the stop time in UTC, matching the rest of the dashboard.
+* **TCI recordings use the real sample rate:** TCI is capped at 48 kHz; buffers, headers, durations and pre/post-roll all use the streamed rate, so a 96 kHz selection can no longer mis-time recordings.
+* **MP3 fallback is consistent:** if the encoder is unavailable the audio is saved as WAV and the database points to the WAV file, so playback links never break.
+* **Continuous recording stops cleanly,** and the continuous list shows the correct UTC stop time.
 
 ### N1MM and database
-* **Contact deletion from N1MM works with both packet layouts:** `id` and `contactid` are accepted.
-* **Edits arriving before the delayed audio slice:** a `contactreplace` received before the slice exists is retried automatically, so an edited call/band is not lost.
-* **Continuous recordings migrated from older versions keep the right time:** filenames with the newer millisecond suffix are parsed correctly.
-* **RX labels are reliable:** files without an RX suffix are shown as RX1 instead of displaying a band name as the receiver.
-* **Database backup and WAL checkpoint:** destructive operations create a consistent backup and flush the write-ahead log.
+* **Contact deletion works with both packet layouts** (`id` and `contactid`), and an edit arriving before the delayed audio slice is retried automatically.
+* **Continuous recordings migrated from older versions keep the right time,** including filenames with the newer millisecond suffix.
+* **RX labels are reliable:** files without an RX suffix are shown as RX1.
 
-### Hardening and diagnostics
+### Hardening, logging and diagnostics
 * **Path safety:** audio serving, export and delete operations reject absolute, drive-relative and traversal paths.
-* **UI escaping:** QSO details, log lines, contest names and audio device names are escaped before rendering.
-* **Persistent log file:** a rotating `QSOCapture.log` is written to the application data folder; unhandled exceptions are recorded there.
+* **UI escaping:** QSO details, log lines, contest names and device names are escaped before rendering.
+* **Quiet, useful TCI reconnect logging:** retries back off from 3 s to 60 s, and the first failure plus at most one reminder per minute is logged, so a long outage no longer floods the log.
+* **UTC log timestamps:** every line carries a UTC (`Z`) timestamp plus the logger and thread name, matching N1MM and the dashboard; the log viewer understands the format and highlights CRITICAL lines.
+* **Readable error messages:** connection errors show the numeric `errno`/`winerror` code instead of a language-specific message.
+* **Debug reaches the log file:** with debug enabled, DEBUG lines are written to `QSOCapture.log` (library noise excluded); the file returns to INFO-only when debug is off.
+* **Startup summary and traceable settings:** each launch logs the environment and effective settings, and every saved change is logged field by field.
+* **Failures are no longer silent:** database write errors, disk-cleanup errors, TCI audio-decode errors, a missing MP3 encoder and dropped dashboard events are now logged.
+* **Clean interruption instead of a crash report:** Ctrl+C during startup is logged as a plain warning.
 * **Better status information:** audio and N1MM errors are exposed in the status API and shown in the dashboard.
-* **Disk-limit cleanup:** oldest chunks are selected by their recording timestamp, the chunk currently being written is never deleted, and the documentation now states that the limit applies to continuous chunks.
+* **Disk-limit cleanup:** oldest chunks are chosen by recording timestamp, and the chunk being written is never deleted.
 * **Update checker:** uses the latest GitHub release first and picks the highest semantic version when falling back to tags.
 * **Settings help:** changing the web host or port is clearly marked as requiring an application restart.
 
 ### Build and release
 * **Version 1.0.0** is defined in a single place and used by the application, installer and build script.
-* **Reproducible dependency set:** exact runtime versions are pinned; a separate test-requirements file and constraints file were added.
+* **Reproducible dependency set:** exact runtime versions are pinned; separate test-requirements and constraints files were added.
 * **CI runs tests on every push and pull request;** tagged builds run tests before creating the installer and release.
 * **Release checksums:** each release includes `SHA256SUMS.txt`.
-* **Documentation updated:** Windows 7/8 remain supported as before, offline CDN fallback is described, and the stale `build.spec` reference was removed.
+* **Documentation updated:** Windows 7/8 support and the offline CDN fallback are documented.
 
 ## Version 0.9.0beta
 

@@ -245,6 +245,7 @@ def _migrate_timestamps(con: sqlite3.Connection) -> None:
         "SELECT id, raw_ts FROM qsos "
         "WHERE raw_ts IS NOT NULL AND raw_ts != ''"
     ).fetchall()
+    updated = 0
     for rid, raw in rows:
         raw = raw.strip()
         new_ts = None
@@ -256,8 +257,12 @@ def _migrate_timestamps(con: sqlite3.Connection) -> None:
                 continue
         if new_ts is not None:
             con.execute("UPDATE qsos SET timestamp=? WHERE id=?", (new_ts, rid))
+            updated += 1
     con.execute(f"PRAGMA user_version = {_TIMESTAMP_MIGRATION_VERSION}")
     con.commit()
+    if updated:
+        logger.info("Rewrote %d QSO timestamp(s) to UTC (legacy local-time migration)",
+                    updated)
 
 
 def insert_qso(
@@ -808,3 +813,5 @@ def migrate_existing(recordings_dir: str) -> None:
             rows,
         )
         con.commit()
+    logger.info("Migrated %d existing recording(s) from disk into the database",
+                len(rows))

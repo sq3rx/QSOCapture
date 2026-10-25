@@ -18,6 +18,7 @@ from typing import Optional
 import numpy as np
 
 from config import RECORDINGS_DIR, decode_device, sanitize_contest
+from logging_setup import describe_exception
 
 logger = logging.getLogger("QSOCapture.audio")
 
@@ -278,6 +279,8 @@ class AudioSource(ABC):
         self._enc_busy = False
         self._continuous_paused = False
         self._last_error = ""
+        self._frames_received = 0
+        self._last_retry_warn = 0.0
 
 
     @abstractmethod
@@ -298,9 +301,8 @@ class AudioSource(ABC):
                                                 daemon=True, name=f"cont-{self.label}")
             self._continuous.start()
         rxs = ",".join(lbl for lbl, _ in self.rx_buffers)
-        for label, _buf in self.rx_buffers:
-            logger.info("[%s] audio source started (mode=%s, rx=%s, so2r=%s)",
-                        label, self.cfg.audio_mode, rxs, self.cfg.channels >= 2)
+        logger.info("[%s] audio source started (mode=%s, rx=%s, so2r=%s)",
+                    self.label, self.cfg.audio_mode, rxs, self.cfg.channels >= 2)
 
     def _ensure_encoder(self) -> None:
         """Start the MP3 encoder worker thread (idempotent)."""
@@ -331,7 +333,8 @@ class AudioSource(ABC):
                         qso_db.update_qso_duration(new_rel, duration)
                         _emit_event("continuous_chunk_saved")
                     except Exception as e:
-                        logger.debug("encoder db update failed: %s", e)
+                        logger.warning("[%s] encoder DB update failed for %s: %s",
+                                       rx_label, new_rel, e)
                 except Exception as e:
                     logger.warning("[%s] MP3 encode failed for %s: %s",
                                    rx_label, wav_path, e)
@@ -521,7 +524,8 @@ class AudioSource(ABC):
                     logger.warning("Could not remove superseded file %s: %s",
                                    old_path, e)
         except Exception as e:
-            logger.debug("qso db insert failed: %s", e)
+            logger.warning("[%s] QSO DB insert failed for %s: %s",
+                           rx_label, req.call, e, exc_info=True)
         if saved:
             _emit_event("qso_saved")
         return saved[0][1] if saved else None
@@ -538,7 +542,7 @@ class AudioSource(ABC):
         qmax = self._cont_queue.maxsize
         return {
             "connected": self._running,
-            "frames_received": 0,
+            "frames_received": getattr(self, "_frames_received", 0),
             "buffer_filled_sec": self._buffer_filled_sec(),
             "buffers": self._buffers_detail(),
             "continuous_paused": getattr(self, "_continuous_paused", False),
@@ -645,8 +649,9 @@ class AudioSource(ABC):
                         timestamp=time.time(), duration=0.0,
                         file_path="_continuous/" + os.path.basename(path),
                     )
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.warning("[%s] continuous DB record insert failed for %s: %s",
+                                   rx_label, os.path.basename(path), exc)
 
     def _write_cont(self, rx_label: str, frames: np.ndarray) -> None:
         with self._cont_lock:
@@ -674,8 +679,9 @@ class AudioSource(ABC):
             try:
                 import db as qso_db
                 qso_db.delete_qso(rel)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("[%s] could not remove DB row for empty chunk %s: %s",
+                               rx_label, rel, exc)
             logger.info("[%s] continuous chunk discarded (empty, no audio)", rx_label)
             return
         logger.info("[%s] continuous chunk saved (%s, %.1f s)",
@@ -685,7 +691,8 @@ class AudioSource(ABC):
             import db as qso_db
             qso_db.update_qso_duration(rel, duration)
         except Exception as e:
-            logger.debug("continuous db update failed: %s", e)
+            logger.warning("[%s] continuous DB duration update failed for %s: %s",
+                           rx_label, rel, e)
         if self.cfg.audio_format == "wav" and self.cfg.normalize_continuous:
             gain_db = _normalize_wav_inplace(path)
             if gain_db is not None:
@@ -714,6 +721,8 @@ class AudioSource(ABC):
         try:
             import lameenc
         except ImportError:
+            logger.warning("lameenc not installed; continuous chunk kept as WAV: %s",
+                           os.path.basename(wav_path))
             return wav_path
         with wave.open(wav_path, "rb") as wf:
             data = wf.readframes(wf.getnframes())
@@ -784,17 +793,22 @@ class SoundcardAudioSource(AudioSource):
             if index is not None and 0 <= index < len(devices):
                 candidate = devices[index]
                 if candidate.get("max_input_channels", 0) > 0:
+                    logger.info("[%s] using soundcard %s index=%d name=%r",
+                                self.label, name_attr, index,
+                                candidate.get("name", ""))
                     return index
             for i, d in enumerate(devices):
                 if d.get("max_input_channels", 0) <= 0:
                     continue
                 if d.get("name") == dev_name:
+                    logger.info("[%s] using soundcard %s index=%d name=%r",
+                                self.label, name_attr, i, dev_name)
                     return i
             logger.warning("Soundcard device '%s' not found, using default",
                            dev_name or dev_value)
         except Exception as e:
-            self._last_error = str(e)
-            logger.error("sounddevice query failed: %s", e)
+            self._last_error = describe_exception(e)
+            logger.error("sounddevice query failed: %s", e, exc_info=True)
         return None
 
     def _capture_loop(self) -> None:
@@ -819,6 +833,7 @@ class SoundcardAudioSource(AudioSource):
                 if pcm.ndim == 1:
                     pcm = pcm.reshape(-1, 1)
                 self.rx1_buf.write(pcm)
+                self._frames_received += pcm.shape[0]
                 if self.cfg.continuous_recording and self._running:
                     self._enqueue_cont('RX1', pcm)
 
@@ -829,6 +844,7 @@ class SoundcardAudioSource(AudioSource):
                 if pcm.ndim == 1:
                     pcm = pcm.reshape(-1, 1)
                 self.rx2_buf.write(pcm)
+                self._frames_received += pcm.shape[0]
                 if self.cfg.continuous_recording and self._running:
                     self._enqueue_cont('RX2', pcm)
 
@@ -845,8 +861,8 @@ class SoundcardAudioSource(AudioSource):
                     while self._running:
                         time.sleep(0.1)
             except Exception as e:
-                self._last_error = str(e)
-                logger.error("[%s] dual_card capture error: %s", self.label, e)
+                self._last_error = describe_exception(e)
+                logger.error("[%s] dual_card capture error: %s", self.label, e, exc_info=True)
             finally:
                 self._running = False
         else:
@@ -860,6 +876,7 @@ class SoundcardAudioSource(AudioSource):
                 pcm = (indata * 32767.0).astype(np.int16)
                 if pcm.ndim == 1:
                     pcm = pcm.reshape(-1, 1)
+                self._frames_received += pcm.shape[0]
                 if self.cfg.channels >= 2 and pcm.shape[1] >= 2:
                     self.rx1_buf.write(pcm[:, 0:1])
                     self.rx2_buf.write(pcm[:, 1:2])
@@ -880,8 +897,8 @@ class SoundcardAudioSource(AudioSource):
                     while self._running:
                         time.sleep(0.1)
             except Exception as e:
-                self._last_error = str(e)
-                logger.error("[%s] soundcard capture error: %s", self.label, e)
+                self._last_error = describe_exception(e)
+                logger.error("[%s] soundcard capture error: %s", self.label, e, exc_info=True)
             finally:
                 self._running = False
 
@@ -925,7 +942,7 @@ class TCIAudioSource(AudioSource):
         except asyncio.CancelledError:
             logger.debug("[%s] TCI client cancelled", self.label)
         except Exception as e:
-            logger.error("[%s] TCI client error: %s", self.label, e)
+            logger.error("[%s] TCI client error: %s", self.label, e, exc_info=True)
         finally:
             try:
                 if not self._loop.is_closed():
@@ -945,14 +962,26 @@ class TCIAudioSource(AudioSource):
         import websockets
 
         uri = f"ws://{self.cfg.tci_host}:{self.cfg.tci_port}"
+        backoff = 3.0
+        max_backoff = 60.0
+        attempt = 0
+        in_retry = False
         while self._running:
-            try:
+            if in_retry:
+                logger.debug("[%s] TCI reconnect attempt #%d to %s",
+                             self.label, attempt, uri)
+            else:
                 logger.info("[%s] TCI connecting to %s ...", self.label, uri)
+            try:
                 async with websockets.connect(uri, ping_interval=10,
                                               max_size=None) as ws:
                     logger.info("[%s] TCI connected to %s (receiver=0)",
                                 self.label, uri)
                     self._connected = True
+                    self._last_error = ""
+                    attempt = 0
+                    backoff = 3.0
+                    in_retry = False
 
                     # Wait for READY before requesting audio stream.
                     ready = False
@@ -971,9 +1000,7 @@ class TCIAudioSource(AudioSource):
                                 ready = True
                                 break
                     if not ready and not got_any:
-                        logger.warning("[%s] TCI: no init banner received, retrying",
-                                       self.label)
-                        continue
+                        raise ConnectionError("no init banner received")
                     if not ready:
                         logger.warning("[%s] TCI: 'READY' not seen, proceeding anyway "
                                        "(some servers omit it)", self.label)
@@ -1007,15 +1034,31 @@ class TCIAudioSource(AudioSource):
                         self._handle_tci_message(message)
             except asyncio.CancelledError:
                 break
-            except Exception as e:
+            except Exception as exc:
+                desc = describe_exception(exc)
                 self._connected = False
-                self._last_error = str(e)
-                logger.warning("[%s] TCI connection error, reconnect in 3s: %s",
-                               self.label, e)
+                self._last_error = desc
+                first_failure = not in_retry
+                in_retry = True
+                attempt += 1
+                if first_failure:
+                    # State change: log loudly once, then only periodically, so a
+                    # long outage cannot flood the rotating log or the dashboard.
+                    self._last_retry_warn = time.monotonic()
+                    logger.warning("[%s] TCI connection error, retrying with backoff: %s",
+                                   self.label, desc)
+                elif time.monotonic() - self._last_retry_warn >= 60.0:
+                    self._last_retry_warn = time.monotonic()
+                    logger.warning("[%s] TCI still unavailable (%d attempts): %s",
+                                   self.label, attempt, desc)
+                else:
+                    logger.debug("[%s] TCI reconnect failed (#%d): %s",
+                                 self.label, attempt, desc)
                 try:
-                    await asyncio.sleep(3.0)
+                    await asyncio.sleep(backoff)
                 except asyncio.CancelledError:
                     break
+                backoff = min(backoff * 2, max_backoff)
             finally:
                 self._connected = False
 
@@ -1034,7 +1077,7 @@ class TCIAudioSource(AudioSource):
                 return
             self._push_pcm(pcm, rx_index)
         except Exception as e:
-            logger.debug("TCI parse error: %s", e)
+            logger.warning("[%s] TCI message decode failed: %s", self.label, e, exc_info=True)
 
     def _decode_binary_audio(self, raw: bytes):
         HEADER = 64

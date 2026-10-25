@@ -38,6 +38,7 @@ from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import QApplication, QMainWindow, QMenu, QMessageBox, QSystemTrayIcon
 
 import config as config_module
+import logging_setup
 
 logger = logging.getLogger("QSOCapture.qt_launcher")
 
@@ -289,8 +290,8 @@ def _ensure_assets(app_dir: str) -> None:
             if os.path.isfile(src):
                 try:
                     shutil.copyfile(src, target)
-                except OSError:
-                    pass
+                except OSError as exc:
+                    logger.debug("Could not copy asset %s -> %s: %s", src, target, exc)
                 break
 
 
@@ -301,6 +302,11 @@ def _wait_for_server(url: str, timeout: float = 10.0) -> bool:
             with urllib.request.urlopen(url, timeout=1.0) as resp:
                 if resp.status == 200:
                     return True
+        except KeyboardInterrupt:
+            # A user abort during startup must not be reported as a crash; let
+            # the installed excepthook record it as a clean interruption.
+            logger.warning("Startup interrupted while waiting for the server")
+            raise
         except Exception:
             time.sleep(0.05)
     return False
@@ -348,8 +354,9 @@ def _migrate_legacy_data(app_dir: str) -> None:
             continue
         try:
             shutil.move(src, dst)
-        except OSError:
-            pass
+            logger.debug("Migrated legacy data: %s -> %s", src, dst)
+        except OSError as exc:
+            logger.warning("Could not migrate legacy data %s -> %s: %s", src, dst, exc)
 
 
 def main() -> None:
@@ -357,9 +364,14 @@ def main() -> None:
     os.makedirs(app_dir, exist_ok=True)
     os.chdir(app_dir)
 
+    # Configure logging first so even a failure to import the app is recorded.
+    logging_setup.setup_logging()
+    logging_setup.install_excepthooks()
+
     try:
         import main as qso_main
     except Exception as exc:
+        logger.critical("Failed to import the main application module", exc_info=True)
         try:
             err_path = os.path.join(app_dir, "launcher_error.log")
             with open(err_path, "a", encoding="utf-8") as lf:
@@ -432,6 +444,7 @@ def main() -> None:
 
     if not _wait_for_server(base_url, timeout=10.0):
         server.should_exit = True
+        logger.error("Local dashboard server failed to start on port %d", port)
         QMessageBox.critical(
             None, "QSOCapture",
             f"The local dashboard server failed to start on port {port}.\n"

@@ -324,10 +324,16 @@ Open the **About** modal (click the **?** button in the header) to see the curre
 
 Click the **📜 Log** button to open the log viewer.
 
-- Logs are colour-coded: **ERROR** – red, **WARNING** – amber, **INFO** – grey, **DEBUG** – dark grey.
-- Check the **debug** box to enable detailed logging (useful for diagnosing TCI connection issues, buffering, etc.).
-- Enable **auto-refresh** to update the log every 2 seconds automatically.
+- Logs are colour-coded: **CRITICAL** – bright red, **ERROR** – red, **WARNING** – amber, **INFO** – grey, **DEBUG** – dark grey.
+- Check the **debug** box to enable detailed logging (useful for diagnosing TCI connection issues, buffering, etc.). While debug is on, DEBUG lines are also written to `QSOCapture.log`; the file goes back to INFO-only when debug is switched off.
+- **auto-refresh** updates the log every 2 seconds automatically.
 - Click **🔄** to refresh manually.
+
+> **Timestamps are UTC** (suffixed `Z`), matching N1MM Logger+ and the QSO list, regardless of the computer's local timezone. Each line shows the level, the logger name (e.g. `QSOCapture.audio`) and the thread (e.g. `cont-RX1`).
+
+A rotating file log (`QSOCapture.log`, kept at `%LOCALAPPDATA%\QSOCapture`) survives restarts and crashes; the newest four files (5 MB each) are retained. The dashboard buffer keeps the last 2000 lines.
+
+When the TCI connection cannot be established, QSOCapture retries with a growing delay (3 s up to 60 s) instead of hammering the server, logging the first failure and then at most one reminder per minute – so a long outage no longer floods the log.
 
 ---
 

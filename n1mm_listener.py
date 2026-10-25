@@ -169,7 +169,8 @@ class N1MMListener:
         try:
             root = ET.fromstring(text)
         except ET.ParseError:
-            logger.debug("N1MM: failed to parse XML packet")
+            logger.debug("N1MM: failed to parse XML packet (%d bytes): %.160r",
+                         len(data), text)
             return
 
         logger.debug("N1MM raw packet:\n%s", text)

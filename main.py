@@ -10,76 +10,33 @@ import asyncio
 import copy
 import json
 import logging
-import logging.handlers
 import os
 import queue
 import shutil
 import subprocess
-import sys
 import tempfile
 import threading
 import time
 import zipfile
-from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
-from typing import List, Optional
+from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from starlette.background import BackgroundTask
 
 import db as qso_db
+import logging_setup
 from audio_manager import create_audio_source
 from config import BASE_DIR, CONFIG_SCHEMA, RECORDINGS_DIR, AppConfig, config_to_dict, load_config, save_config
+from logging_setup import LOG_BUFFER, get_recent_logs
 from n1mm_listener import N1MMContact, N1MMListener
 from version import APP_VERSION
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
+logging_setup.setup_logging()
+logging_setup.install_excepthooks()
 logger = logging.getLogger("QSOCapture.main")
-
-
-def _setup_file_logging() -> None:
-    """Add a rotating log file so diagnostics survive a restart/crash.
-
-    The desktop EXE runs windowed (stderr is redirected to devnull), so the
-    in-memory dashboard buffer alone is not enough to debug a contest issue.
-    """
-    try:
-        os.makedirs(BASE_DIR, exist_ok=True)
-        log_path = os.path.join(BASE_DIR, "QSOCapture.log")
-        for handler in logging.getLogger().handlers:
-            if isinstance(handler, logging.handlers.RotatingFileHandler):
-                return
-        handler = logging.handlers.RotatingFileHandler(
-            log_path, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8")
-        handler.setLevel(logging.INFO)
-        handler.setFormatter(logging.Formatter(
-            "%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
-        logging.getLogger().addHandler(handler)
-    except Exception:
-        pass
-
-
-def _install_excepthooks() -> None:
-    def _hook(exc_type, exc, tb):
-        logger.critical("Unhandled exception", exc_info=(exc_type, exc, tb))
-
-    def _thread_hook(args):
-        logger.critical("Unhandled exception in thread %s",
-                        getattr(args.thread, "name", "?"),
-                        exc_info=(args.exc_type, args.exc_value, args.exc_traceback))
-
-    sys.excepthook = _hook
-    if hasattr(threading, "excepthook"):
-        threading.excepthook = _thread_hook
-
-
-_setup_file_logging()
-_install_excepthooks()
 
 GITHUB_REPO = "sq3rx/QSOCapture"
 
@@ -203,53 +160,42 @@ DEBUG_LOGGING = False
 def set_debug_logging(on: bool) -> None:
     """Enable/disable DEBUG emission for QSOCapture loggers at runtime."""
     global DEBUG_LOGGING
-    DEBUG_LOGGING = bool(on)
-    level = logging.DEBUG if DEBUG_LOGGING else logging.INFO
-    logging.getLogger("QSOCapture").setLevel(level)
-    logger.info("Debug logging %s", "enabled" if DEBUG_LOGGING else "disabled")
+    DEBUG_LOGGING = logging_setup.set_debug(on)
 
 
 INDEX_HTML_OVERRIDE: Optional[str] = None
 
-LOG_BUFFER: "deque" = deque(maxlen=2000)
-
 SLICE_POOL = ThreadPoolExecutor(max_workers=8, thread_name_prefix="qso-slice")
 
 
-class _LogCaptureHandler(logging.Handler):
-    """Append formatted log records to LOG_BUFFER for the web UI."""
+def _on_slice_done(future) -> None:
+    """Surface exceptions raised by a background QSO-slice task.
 
-    def emit(self, record: logging.LogRecord) -> None:
-        try:
-            msg = self.format(record)
-            LOG_BUFFER.append(msg)
-        except Exception:
-            pass
-
-
-_log_handler = _LogCaptureHandler()
-_log_handler.setLevel(logging.DEBUG)
-_log_handler.setFormatter(
-    logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
-)
-logging.getLogger().addHandler(_log_handler)
-
-
-def get_recent_logs(n: int = 200) -> List[str]:
-    """Return the most recent n log lines (oldest first)."""
-    items = list(LOG_BUFFER)
-    return items[-n:]
+    Without this callback an exception escaping ``schedule_qso_slice`` would
+    sit silently inside the Future and the QSO would never be recorded.
+    """
+    try:
+        exc = future.exception()
+    except Exception:
+        return
+    if exc is not None:
+        logger.error("QSO slice task failed: %s", exc, exc_info=exc)
 
 
 EVENT_QUEUE: "queue.Queue" = queue.Queue(maxsize=500)
+_EVENT_DROPPED = 0
 
 
 def push_event(name: str, data: Optional[dict] = None) -> None:
     """Enqueue a dashboard event (best-effort, never blocks)."""
+    global _EVENT_DROPPED
     try:
         EVENT_QUEUE.put_nowait({"event": name, "data": data or {}})
     except queue.Full:
-        pass
+        _EVENT_DROPPED += 1
+        if _EVENT_DROPPED == 1 or _EVENT_DROPPED % 50 == 0:
+            logger.warning("Dashboard event queue full; dropped %d event(s) so far",
+                           _EVENT_DROPPED)
 
 
 def _apply_and_restart(restart_audio: bool = True, restart_n1mm: bool = True) -> None:
@@ -300,7 +246,35 @@ def on_contact(contact: N1MMContact) -> None:
     logger.debug("on_contact: call=%s contest=%s freq=%s recv_ts=%.1f pre=%.1f post=%.1f",
                  contact.call, contact.contest, contact.freq,
                  contact.receive_ts, cfg_local.pre_roll, cfg_local.post_roll)
-    SLICE_POOL.submit(schedule_qso_slice, contact, audio_source, cfg_local)
+    future = SLICE_POOL.submit(schedule_qso_slice, contact, audio_source, cfg_local)
+    future.add_done_callback(_on_slice_done)
+
+
+def _log_startup_banner() -> None:
+    """Log version, environment and effective settings at startup.
+
+    A single self-contained block makes it possible to diagnose a user's setup
+    from the log alone (paths, backend, sample rate, devices, ports).
+    """
+    try:
+        import platform
+        cfg_local = _read_cfg()
+        logger.info(
+            "QSOCapture %s starting | Python %s | %s | data_dir=%s | recordings=%s",
+            APP_VERSION, platform.python_version(), platform.platform(),
+            BASE_DIR, RECORDINGS_DIR)
+        logger.info(
+            "Audio: mode=%s format=%s rate=%s channels=%s so2r=%s device=%r device2=%r",
+            cfg_local.audio_mode, cfg_local.audio_format, cfg_local.sample_rate,
+            cfg_local.channels, cfg_local.so2r_mode, cfg_local.soundcard_device,
+            cfg_local.soundcard_device2)
+        logger.info(
+            "Web %s:%s | N1MM bind %s:%s | continuous=%s autostart=%s chunk=%smin",
+            cfg_local.web_host, cfg_local.web_port, cfg_local.n1mm_bind_ip,
+            cfg_local.n1mm_udp_port, cfg_local.continuous_recording,
+            cfg_local.continuous_autostart, cfg_local.continuous_chunk_minutes)
+    except Exception as exc:
+        logger.debug("startup banner failed: %s", exc)
 
 
 @asynccontextmanager
@@ -333,6 +307,7 @@ async def lifespan(app: FastAPI):
     hb_thread = threading.Thread(target=_debug_heartbeat_loop, daemon=True,
                                  name="debug-heartbeat")
     hb_thread.start()
+    _log_startup_banner()
     logger.info("QSOCapture started (mode=%s)", cfg.audio_mode)
     try:
         yield
@@ -712,12 +687,25 @@ def api_set_config(payload: dict) -> JSONResponse:
     save_config(new_cfg, "config.cfg")
     with _config_lock:
         cfg = new_cfg
+    _log_config_changes(old_cfg, new_cfg)
     restart_audio, restart_n1mm = _service_restart_flags(old_cfg, new_cfg)
     if restart_audio or restart_n1mm:
         _apply_and_restart(restart_audio, restart_n1mm)
     else:
         logger.info("Configuration saved (services unchanged)")
     return JSONResponse({"ok": True, "values": config_to_dict(new_cfg)})
+
+
+def _log_config_changes(old: AppConfig, new: AppConfig) -> None:
+    """Log which configuration fields changed (old -> new) for each save."""
+    changes = []
+    for _section, field, _label, _ftype, _choices, _help in CONFIG_SCHEMA:
+        old_val = getattr(old, field)
+        new_val = getattr(new, field)
+        if old_val != new_val:
+            changes.append(f"{field}: {old_val!r} -> {new_val!r}")
+    if changes:
+        logger.info("Configuration changed: %s", "; ".join(changes))
 
 
 def _service_restart_flags(old: AppConfig, new: AppConfig) -> tuple[bool, bool]:
@@ -1022,6 +1010,8 @@ def enforce_disk_limit() -> int:
             except OSError:
                 pass
         if total <= limit_gb or not files:
+            logger.debug("Disk limit check: continuous=%.2f GB / limit %.2f GB (%d file(s))",
+                         total, limit_gb, len(files))
             break
         files.sort()
         _ts, fp, fn = files[0]
@@ -1030,10 +1020,11 @@ def enforce_disk_limit() -> int:
             rel = "_continuous/" + fn
             try:
                 qso_db.delete_qso(rel)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("Could not remove DB row for deleted chunk %s: %s", rel, exc)
             removed += 1
         except OSError:
+            logger.warning("Could not delete continuous chunk %s; stopping enforcement", fp)
             break
     if removed:
         logger.info("Disk limit enforced: removed %d old continuous chunk(s)", removed)
@@ -1046,7 +1037,7 @@ def _disk_limit_loop() -> None:
         try:
             enforce_disk_limit()
         except Exception as e:
-            logger.debug("disk limit check error: %s", e)
+            logger.warning("Disk limit check error: %s", e)
         time.sleep(300)
 
 
@@ -1073,7 +1064,7 @@ def _debug_heartbeat_loop() -> None:
                     bool(status.get("continuous_paused")) if status else False,
                 )
             except Exception as e:
-                logger.debug("heartbeat error: %s", e)
+                logger.warning("Heartbeat error: %s", e)
         time.sleep(5)
 
 
@@ -1085,4 +1076,5 @@ if __name__ == "__main__":
         host=cfg.web_host,
         port=cfg.web_port,
         log_level="info",
+        log_config=None,
     )
