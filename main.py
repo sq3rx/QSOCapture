@@ -182,20 +182,29 @@ def _on_slice_done(future) -> None:
         logger.error("QSO slice task failed: %s", exc, exc_info=exc)
 
 
-EVENT_QUEUE: "queue.Queue" = queue.Queue(maxsize=500)
+_EVENT_SUBSCRIBERS: "set[queue.Queue]" = set()
+_EVENT_LOCK = threading.Lock()
 _EVENT_DROPPED = 0
 
 
 def push_event(name: str, data: Optional[dict] = None) -> None:
-    """Enqueue a dashboard event (best-effort, never blocks)."""
+    """Broadcast a dashboard event to every connected SSE client.
+
+    Each client has its own bounded queue, so one slow or stale connection can
+    never steal events from the others. Never blocks the caller.
+    """
     global _EVENT_DROPPED
-    try:
-        EVENT_QUEUE.put_nowait({"event": name, "data": data or {}})
-    except queue.Full:
-        _EVENT_DROPPED += 1
-        if _EVENT_DROPPED == 1 or _EVENT_DROPPED % 50 == 0:
-            logger.warning("Dashboard event queue full; dropped %d event(s) so far",
-                           _EVENT_DROPPED)
+    event = {"event": name, "data": data or {}}
+    with _EVENT_LOCK:
+        subscribers = list(_EVENT_SUBSCRIBERS)
+    for sub in subscribers:
+        try:
+            sub.put_nowait(event)
+        except queue.Full:
+            _EVENT_DROPPED += 1
+            if _EVENT_DROPPED == 1 or _EVENT_DROPPED % 50 == 0:
+                logger.warning("Dashboard event queue full; dropped %d event(s) so far",
+                               _EVENT_DROPPED)
 
 
 def _apply_and_restart(restart_audio: bool = True, restart_n1mm: bool = True) -> None:
@@ -610,18 +619,31 @@ async def api_events(request: Request):
     """Server-Sent Events stream of dashboard notifications."""
 
     async def event_stream():
-        yield ": connected\n\n"
+        sub: "queue.Queue" = queue.Queue(maxsize=100)
+        with _EVENT_LOCK:
+            _EVENT_SUBSCRIBERS.add(sub)
         try:
+            yield ": connected\n\n"
+            last_ping = time.monotonic()
             while True:
                 try:
-                    item = EVENT_QUEUE.get_nowait()
+                    item = sub.get_nowait()
                 except queue.Empty:
-                    await asyncio.sleep(0.5)
-                    continue
-                payload = json.dumps(item)
-                yield f"event: {item['event']}\ndata: {payload}\n\n"
+                    item = None
+                if item is not None:
+                    payload = json.dumps(item)
+                    yield f"event: {item['event']}\ndata: {payload}\n\n"
+                elif time.monotonic() - last_ping >= 15.0:
+                    # A named heartbeat (not a comment) so the dashboard can
+                    # detect a silently stalled connection.
+                    last_ping = time.monotonic()
+                    yield "event: heartbeat\ndata: {}\n\n"
+                await asyncio.sleep(0.25)
         except asyncio.CancelledError:
             return
+        finally:
+            with _EVENT_LOCK:
+                _EVENT_SUBSCRIBERS.discard(sub)
 
     return StreamingResponse(
         event_stream(),

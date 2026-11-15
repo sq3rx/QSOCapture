@@ -53,5 +53,29 @@ class DualCardHealTest(unittest.TestCase):
         self.assertEqual(cfg.so2r_mode, "stereo")
 
 
+class AudioFormatDefaultTest(unittest.TestCase):
+    def _load(self, audio_format=None):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "config.cfg")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("[audio]\n")
+                f.write("mode = soundcard\n")
+                if audio_format is not None:
+                    f.write("audio_format = %s\n" % audio_format)
+            return config_module.load_config(path)
+
+    def test_default_format_is_mp3(self):
+        self.assertEqual(config_module.AppConfig().audio_format, "mp3")
+
+    def test_missing_format_uses_mp3(self):
+        self.assertEqual(self._load().audio_format, "mp3")
+
+    def test_existing_wav_config_stays_wav(self):
+        self.assertEqual(self._load("wav").audio_format, "wav")
+
+    def test_invalid_format_falls_back_to_mp3(self):
+        self.assertEqual(self._load("flac").audio_format, "mp3")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -46,8 +46,8 @@ clean, color-coded web dashboard.
    **Unlimited** to never delete recordings automatically.
  - **Two audio sources** — ExpertSDR via the TCI WebSocket protocol, or any
    system soundcard input device.
- - **WAV / MP3 output** — recordings are saved as lossless WAV by default;
-   optionally switch to MP3 (via `lameenc`) for smaller files.
+ - **WAV / MP3 output** — recordings are saved as MP3 by default for smaller
+   files; switch to lossless WAV in Settings when you need it.
   - **SO2R ready** — in stereo (`channels = 2`) the left channel is recorded as
     **RX1** and the right channel as **RX2**, each into its own buffer and its
     own audio file. In mono (SO1R) only RX1 is used.

@@ -2573,24 +2573,42 @@
     // continuous_chunk_saved, continuous_resumed, continuous_paused) on the
     // /api/events stream. We refresh the dashboard on those instead of a
     // timer, so the list updates exactly when something changes (no flicker).
+    let lastEventAt = Date.now();
+    let lastReconnectAt = 0;
+    let es = null;
+
+    // Auto-refresh only while the user is on the first page, so a background
+    // refresh never collapses "Load more" results.
+    function isFirstPage() {
+      return qsoOffset <= PAGE_SIZE;
+    }
+
     function onDashboardEvent() {
+      lastEventAt = Date.now();
       const cfgOpen = $('cfgModal').className.includes('flex');
       const detailOpen = $('detailModal').className.includes('flex');
       if (cfgOpen || detailOpen) return;
       loadStatus();
       // Refresh the first page so new recordings appear without disturbing
       // pagination ("Load more" pages are never auto-refetched).
-      loadQsos(false);
+      if (isFirstPage()) loadQsos(false);
     }
 
-    if (typeof EventSource !== 'undefined') {
-      const es = new EventSource('/api/events');
+    function connectEvents() {
+      if (typeof EventSource === 'undefined') return;
+      if (es) {
+        try { es.close(); } catch (e) { /* already closed */ }
+        es = null;
+      }
+      es = new EventSource('/api/events');
       // When the SSE connection is (re-)established, refresh the list in case
-      // events were missed while the connection was down. The browser
-      // auto-reconnects EventSource, so this handler fires on initial connect
-      // and after any unexpected disconnect.
+      // events were missed while the connection was down.
       es.addEventListener('open', () => {
-        loadQsos(false);
+        lastEventAt = Date.now();
+        if (isFirstPage()) loadQsos(false);
+      });
+      es.addEventListener('heartbeat', () => {
+        lastEventAt = Date.now();
       });
       es.addEventListener('qso_saved', onDashboardEvent);
       es.addEventListener('continuous_chunk_saved', onDashboardEvent);
@@ -2602,11 +2620,49 @@
       });
       es.addEventListener('continuous_dropped', () => {
         // Refresh status immediately so the queue warning badge appears.
+        lastEventAt = Date.now();
         loadStatus();
       });
-      // The browser auto-reconnects EventSource on connection drop; nothing
-      // else is needed here.
     }
+
+    connectEvents();
+
+    // Watchdog: if no heartbeat/event arrives for 45 s, rebuild the stream.
+    // This recovers from a silently half-open connection that would otherwise
+    // keep the list frozen forever.
+    setInterval(() => {
+      if (typeof EventSource === 'undefined') return;
+      if (Date.now() - lastEventAt <= 45000) return;
+      if (Date.now() - lastReconnectAt <= 15000) return;
+      lastReconnectAt = Date.now();
+      connectEvents();
+    }, 5000);
+
+    // Fallback: even if SSE is silently dead, refresh while the tab is visible
+    // and no event/heartbeat has arrived recently.
+    setInterval(() => {
+      if (document.visibilityState !== 'visible') return;
+      if (Date.now() - lastEventAt <= 30000) return;
+      if (!isFirstPage()) return;
+      loadStatus();
+      loadQsos(false);
+    }, 30000);
+
+    // Coming back from a hidden/minimised/occluded window: refresh immediately
+    // and recreate the stream if it went stale while the page was throttled.
+    function refreshOnReturn() {
+      loadStatus();
+      if (isFirstPage()) loadQsos(false);
+      if (Date.now() - lastEventAt > 30000) {
+        lastReconnectAt = Date.now();
+        connectEvents();
+      }
+    }
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') refreshOnReturn();
+    });
+    window.addEventListener('focus', refreshOnReturn);
   </script>
 </body>
 </html>

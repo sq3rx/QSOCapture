@@ -401,6 +401,18 @@ def main() -> None:
             icon_path = cand
             break
 
+    # Keep the dashboard's JavaScript and EventSource stream alive while the
+    # window is minimised to the tray or covered by the logging program.
+    _chromium_flags = os.environ.get("QTWEBENGINE_CHROMIUM_FLAGS", "")
+    for _flag in (
+        "--disable-background-timer-throttling",
+        "--disable-backgrounding-occluded-windows",
+        "--disable-renderer-backgrounding",
+    ):
+        if _flag not in _chromium_flags:
+            _chromium_flags = f"{_chromium_flags} {_flag}".strip()
+    os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = _chromium_flags
+
     app = QApplication(sys.argv)
     app.setApplicationName("QSOCapture")
     app.setOrganizationName("SQ3RX")

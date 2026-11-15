@@ -371,12 +371,12 @@ When the TCI connection cannot be established, QSOCapture retries with a growing
 
 - Set **pre-roll** to 8–10 seconds and **post-roll** to 15-20 seconds for a safe margin before and after each contact.
 - Keep **Continuous recording** enabled so no QSO is ever missed, even if the N1MM broadcast is delayed.
-- Use **MP3** format to save disk space.
+- **MP3** is the default format and saves the most disk space.
 - Check the logs regularly to ensure everything is working correctly.
 
 ### Saving disk space
 
-- Use **MP3** instead of WAV – files are several times smaller.
+- **MP3** is the default – files are several times smaller than WAV. Switch to WAV only if you need lossless audio.
 - Set shorter continuous chunks (e.g. 15–30 minutes) – easier to browse and delete unneeded segments.
 - Regularly remove old contests or continuous recordings through the Settings panel.
 

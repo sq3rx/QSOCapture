@@ -6,6 +6,7 @@ in plain business language, without going into implementation details.
 ## Unreleased
 
 ### Bug fixes
+* **Dashboard no longer freezes after a long session:** the QSO and Continuous lists recover automatically if the live update connection stalls, and refresh immediately when the window is brought back to the foreground.
 * **TCI mode works in the installed build:** selecting the TCI audio source no longer fails with a "missing module" error — the WebSocket support TCI needs is now bundled.
 * **No more flickering options in Settings:** opening the configuration window with TCI selected no longer briefly shows options that do not apply. The correct fields are shown straight away.
 
@@ -21,6 +22,7 @@ in plain business language, without going into implementation details.
 * **N1MM port errors do not stop the application:** a busy UDP port is reported in the status area and the log while recording continues.
 
 ### Audio correctness
+* **MP3 is the default for new installations:** recordings use several times less disk space out of the box. Existing configurations keep their current format, and WAV remains available in Settings.
 * **TCI recordings use the real sample rate:** TCI is capped at 48 kHz; buffers, headers, durations and pre/post-roll all use the streamed rate, so a 96 kHz selection can no longer mis-time recordings.
 * **MP3 fallback is consistent:** if the encoder is unavailable the audio is saved as WAV and the database points to the WAV file, so playback links never break.
 * **Continuous recording stops cleanly,** and the continuous list shows the correct UTC stop time.

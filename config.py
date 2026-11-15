@@ -89,7 +89,7 @@ class AppConfig:
 
     # audio
     audio_mode: str = "soundcard"          # "tci" | "soundcard"
-    audio_format: str = "wav"              # "wav" | "mp3"
+    audio_format: str = "mp3"              # "wav" | "mp3"
     sample_rate: int = 48000
     channels: int = 2                      # 1 = mono (SO1R), 2 = stereo (SO2R)
     pre_roll: float = 8.0
@@ -224,8 +224,8 @@ def normalize_config(cfg: AppConfig) -> None:
         logger.warning("Unknown audio mode %r; falling back to soundcard", cfg.audio_mode)
         cfg.audio_mode = "soundcard"
     if cfg.audio_format not in ("wav", "mp3"):
-        logger.warning("Unknown audio format %r; falling back to wav", cfg.audio_format)
-        cfg.audio_format = "wav"
+        logger.warning("Unknown audio format %r; falling back to mp3", cfg.audio_format)
+        cfg.audio_format = "mp3"
     if cfg.so2r_mode not in ("stereo", "dual_card"):
         cfg.so2r_mode = "stereo"
 
