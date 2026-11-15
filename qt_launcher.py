@@ -28,19 +28,64 @@ if sys.stdout is None:
 if sys.stderr is None:
     sys.stderr = open(os.devnull, "w")
 
+import config as config_module
+import logging_setup
+import startup_support
+
+# Configure logging, exception hooks and the faulthandler crash dump BEFORE
+# importing Qt/uvicorn. A failure while loading the Qt WebEngine DLLs would
+# otherwise leave no trace at all on disk.
+_APP_DIR = config_module.BASE_DIR
+try:
+    os.makedirs(_APP_DIR, exist_ok=True)
+except OSError:
+    pass
+logging_setup.setup_logging()
+logging_setup.install_excepthooks()
+logging_setup.enable_faulthandler()
+
+# A marker left behind by the previous launch means that start never reached
+# the dashboard. Use conservative rendering settings and skip audio this time.
+SAFE_MODE = startup_support.safe_mode_requested(_APP_DIR)
+os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = startup_support.build_chromium_flags(
+    os.environ.get("QTWEBENGINE_CHROMIUM_FLAGS", ""), SAFE_MODE)
+if SAFE_MODE:
+    os.environ.setdefault("QTWEBENGINE_DISABLE_SANDBOX", "1")
+    os.environ[startup_support.DISABLE_AUDIO_ENV] = "1"
+startup_support.mark_launch_pending(_APP_DIR)
+
 import ctypes
 
 import uvicorn
-from PySide6.QtCore import QEvent, QLockFile, QObject, Qt, QUrl, Slot
+from PySide6.QtCore import QEvent, QLockFile, QObject, Qt, QTimer, QUrl, Slot, qVersion
 from PySide6.QtGui import QAction, QCloseEvent, QIcon
 from PySide6.QtWebChannel import QWebChannel
+from PySide6.QtWebEngineCore import QWebEngineProfile
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import QApplication, QMainWindow, QMenu, QMessageBox, QSystemTrayIcon
 
-import config as config_module
-import logging_setup
-
 logger = logging.getLogger("QSOCapture.qt_launcher")
+
+_STARTING_PAGE_HTML = """<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>QSOCapture</title>
+<style>
+  html, body { height: 100%; margin: 0; background: #0f172a; color: #cbd5e1;
+               font-family: "Segoe UI", system-ui, sans-serif; }
+  .wrap { height: 100%; display: flex; flex-direction: column;
+          align-items: center; justify-content: center; gap: 14px; }
+  .spinner { width: 34px; height: 34px; border-radius: 50%;
+             border: 3px solid #334155; border-top-color: #38bdf8;
+             animation: spin 0.9s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .title { font-size: 15px; letter-spacing: 0.08em; text-transform: uppercase; }
+  .hint { font-size: 12px; color: #64748b; }
+</style></head>
+<body><div class="wrap">
+  <div class="spinner"></div>
+  <div class="title">Starting QSOCapture</div>
+  <div class="hint">Waiting for the local dashboard server&hellip;</div>
+</div></body></html>
+"""
 
 
 class Bridge(QObject):
@@ -112,11 +157,13 @@ class Bridge(QObject):
 class MainWindow(QMainWindow):
     """Main application window with embedded QWebEngineView."""
 
-    def __init__(self, app_dir: str, base_url: str, icon_path: str):
+    def __init__(self, app_dir: str, base_url: str, icon_path: str, safe_mode: bool = False):
         super().__init__()
         self.app_dir = app_dir
         self.base_url = base_url
+        self.safe_mode = safe_mode
         self._closing = False
+        self._dashboard_loaded = False
 
         self.setWindowTitle("QSOCapture")
         self.setMinimumSize(900, 600)
@@ -127,8 +174,16 @@ class MainWindow(QMainWindow):
         if icon_path and os.path.isfile(icon_path):
             self.setWindowIcon(QIcon(icon_path))
 
+        # The WebEngine profile must be configured before the first page is
+        # created so the cache lives in our writable app folder instead of a
+        # shared location that a crashed instance may have left locked.
+        self._webengine_storage = os.path.join(app_dir, "webengine")
+        self._webengine_cache = os.path.join(self._webengine_storage, "cache")
+        self._configure_webengine_profile()
+
         self.web_view = QWebEngineView()
-        self.web_view.setUrl(QUrl(base_url))
+        self.web_view.loadFinished.connect(self._on_load_finished)
+        self.web_view.setHtml(_STARTING_PAGE_HTML)
         self.setCentralWidget(self.web_view)
 
         self.channel = QWebChannel()
@@ -153,6 +208,41 @@ class MainWindow(QMainWindow):
         self.tray_icon.activated.connect(self._on_tray_activated)
         self.tray_icon.show()
         self.tray_icon.setToolTip("QSOCapture")
+        if safe_mode:
+            self.tray_icon.showMessage(
+                "QSOCapture - safe mode",
+                "The previous start did not finish. Audio capture is off and "
+                "rendering uses software mode. Restart QSOCapture to return "
+                "to normal operation.",
+                QSystemTrayIcon.Warning, 10000,
+            )
+
+    def _configure_webengine_profile(self) -> None:
+        """Point the WebEngine profile at our own writable cache folder."""
+        profile = QWebEngineProfile.defaultProfile()
+        try:
+            profile.setPersistentStoragePath(self._webengine_storage)
+            profile.setCachePath(self._webengine_cache)
+            profile.setPersistentCookiesPolicy(
+                QWebEngineProfile.PersistentCookiesPolicy.NoPersistentCookies)
+        except Exception:
+            logger.warning("Could not configure the WebEngine profile paths",
+                           exc_info=True)
+        logger.info("WebEngine profile: storage=%s cache=%s user_agent=%s",
+                    self._webengine_storage, self._webengine_cache,
+                    profile.httpUserAgent())
+
+    def show_dashboard(self) -> None:
+        """Replace the startup page with the live dashboard URL."""
+        logger.info("Local server ready; loading dashboard at %s", self.base_url)
+        self.web_view.setUrl(QUrl(self.base_url))
+
+    def _on_load_finished(self, ok: bool) -> None:
+        url = self.web_view.url().toString()
+        logger.info("Page load finished: ok=%s url=%s", ok, url)
+        if ok and url.startswith(self.base_url):
+            self._dashboard_loaded = True
+            startup_support.clear_launch_marker(self.app_dir)
 
     def closeEvent(self, event: QCloseEvent) -> None:
         if self._closing:
@@ -295,21 +385,18 @@ def _ensure_assets(app_dir: str) -> None:
                 break
 
 
-def _wait_for_server(url: str, timeout: float = 10.0) -> bool:
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        try:
-            with urllib.request.urlopen(url, timeout=1.0) as resp:
-                if resp.status == 200:
-                    return True
-        except KeyboardInterrupt:
-            # A user abort during startup must not be reported as a crash; let
-            # the installed excepthook record it as a clean interruption.
-            logger.warning("Startup interrupted while waiting for the server")
-            raise
-        except Exception:
-            time.sleep(0.05)
-    return False
+def _server_ready(url: str, timeout: float = 1.0) -> bool:
+    """Return True if the local dashboard responds with HTTP 200."""
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as resp:
+            return resp.status == 200
+    except KeyboardInterrupt:
+        # A user abort during startup must not be reported as a crash; let
+        # the installed excepthook record it as a clean interruption.
+        logger.warning("Startup interrupted while waiting for the server")
+        raise
+    except Exception:
+        return False
 
 
 def _port_available(host: str, port: int) -> bool:
@@ -364,9 +451,10 @@ def main() -> None:
     os.makedirs(app_dir, exist_ok=True)
     os.chdir(app_dir)
 
-    # Configure logging first so even a failure to import the app is recorded.
-    logging_setup.setup_logging()
-    logging_setup.install_excepthooks()
+    logger.info(
+        "QSOCapture starting | python=%s | Qt=%s | safe_mode=%s | data_dir=%s",
+        sys.version.split()[0], qVersion(), SAFE_MODE, app_dir)
+    logger.info("Chromium flags: %s", os.environ.get("QTWEBENGINE_CHROMIUM_FLAGS", ""))
 
     try:
         import main as qso_main
@@ -383,6 +471,7 @@ def main() -> None:
         except Exception:
             pass
         print("FATAL: QSOCapture failed to start:", exc, file=sys.stderr)
+        startup_support.clear_launch_marker(app_dir)
         return
 
     _migrate_legacy_data(app_dir)
@@ -401,17 +490,8 @@ def main() -> None:
             icon_path = cand
             break
 
-    # Keep the dashboard's JavaScript and EventSource stream alive while the
-    # window is minimised to the tray or covered by the logging program.
-    _chromium_flags = os.environ.get("QTWEBENGINE_CHROMIUM_FLAGS", "")
-    for _flag in (
-        "--disable-background-timer-throttling",
-        "--disable-backgrounding-occluded-windows",
-        "--disable-renderer-backgrounding",
-    ):
-        if _flag not in _chromium_flags:
-            _chromium_flags = f"{_chromium_flags} {_flag}".strip()
-    os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = _chromium_flags
+    # Chromium flags (including the safe-mode fallback) were already applied
+    # before Qt was imported; see the module bootstrap above.
 
     app = QApplication(sys.argv)
     app.setApplicationName("QSOCapture")
@@ -423,6 +503,7 @@ def main() -> None:
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("QSOCapture")
         except Exception:
             pass
+    logger.info("QApplication created")
 
     # Only one instance may record and write the database at a time.
     lock = QLockFile(os.path.join(app_dir, "QSOCapture.lock"))
@@ -435,11 +516,21 @@ def main() -> None:
             "QSOCapture is already running.\n"
             "Use the existing window or tray icon.",
         )
+        startup_support.clear_launch_marker(app_dir)
         return
+    logger.info("Single-instance lock acquired")
 
     port = _pick_port("127.0.0.1", qso_main.cfg.web_port)
     qso_main.cfg.web_port = port
     base_url = f"http://127.0.0.1:{port}/"
+    logger.info("Using dashboard port %d", port)
+
+    # Show the window (with a local startup page) before the server and audio
+    # capture start. The GUI is thus up even if a soundcard driver misbehaves,
+    # and the log shows exactly which startup step failed.
+    window = MainWindow(app_dir, base_url, icon_path, safe_mode=SAFE_MODE)
+    window.show()
+    logger.info("Main window shown")
 
     config = uvicorn.Config(
         qso_main.app,
@@ -453,19 +544,29 @@ def main() -> None:
 
     server_thread = threading.Thread(target=server.run, daemon=True)
     server_thread.start()
+    logger.info("Local dashboard server thread started")
 
-    if not _wait_for_server(base_url, timeout=10.0):
-        server.should_exit = True
-        logger.error("Local dashboard server failed to start on port %d", port)
-        QMessageBox.critical(
-            None, "QSOCapture",
-            f"The local dashboard server failed to start on port {port}.\n"
-            "See QSOCapture.log in the application data folder for details.",
-        )
-        return
+    deadline = time.time() + 10.0
 
-    window = MainWindow(app_dir, base_url, icon_path)
-    window.show()
+    def _poll_server() -> None:
+        if _server_ready(base_url):
+            window.show_dashboard()
+            return
+        if time.time() >= deadline:
+            server.should_exit = True
+            logger.error("Local dashboard server failed to start on port %d", port)
+            QMessageBox.critical(
+                window, "QSOCapture",
+                f"The local dashboard server failed to start on port {port}.\n"
+                "See QSOCapture.log in the application data folder for details.",
+            )
+            app.quit()
+            return
+        QTimer.singleShot(100, _poll_server)
+
+    # Poll from the Qt event loop so the window stays responsive (and shows the
+    # startup screen) while the local server comes up.
+    QTimer.singleShot(0, _poll_server)
 
     exit_code = app.exec()
 
@@ -479,6 +580,7 @@ def main() -> None:
     except Exception:
         pass
 
+    startup_support.clear_launch_marker(app_dir)
     sys.exit(exit_code)
 
 

@@ -357,6 +357,15 @@ When the TCI connection cannot be established, QSOCapture retries with a growing
 - If recordings do not save in the installed version, make sure you are using the latest release (affects older Nuitka builds).
 - Check that the folder `%LOCALAPPDATA%\QSOCapture\recordings` exists and is writable.
 
+### The window does not appear / the program closes immediately
+
+- Every startup step is written to `%LOCALAPPDATA%\QSOCapture\QSOCapture.log`, including the Python, Qt and Chromium versions. If the file ends abruptly, the crash happened while a system component was loading.
+- A native crash also leaves a Python stack trace in `%LOCALAPPDATA%\QSOCapture\QSOCapture_crash.log`.
+- If the previous start did not finish, the next launch uses **safe mode**: software rendering, browser sandbox disabled and audio capture off. A tray notification says so; close and start QSOCapture again to return to normal operation.
+- Safe mode can be forced with `QSOCAPTURE_SAFE_MODE=1`; audio capture alone can be disabled with `QSOCAPTURE_DISABLE_AUDIO=1`.
+- Running `QSOCapture.exe` from a command prompt returning immediately is normal - it is a windowed application and does not print to the console.
+- When reporting the problem, include both log files, the Windows event details (if any) and the soundcard/interface model and any antivirus or security software in use.
+
 ### Broken / inconsistent continuous chunks
 
 - When the program closes, the current chunk is automatically finalised.

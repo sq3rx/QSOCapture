@@ -21,6 +21,12 @@ in plain business language, without going into implementation details.
 * **Audio device selection is stable:** devices are identified by index and name, so two identical soundcards in dual-card SO2R no longer collide; output-only devices are not offered.
 * **N1MM port errors do not stop the application:** a busy UDP port is reported in the status area and the log while recording continues.
 
+### Startup reliability and diagnostics
+* **The application can no longer disappear silently:** startup progress (Python, Qt and Chromium versions, window and server steps) is written to the log *before* the embedded browser initialises, and a native crash leaves a Python stack trace in `QSOCapture_crash.log` for support.
+* **The window appears before audio capture starts:** the main window opens first with a short "Starting QSOCapture" screen, then the local server and audio start - a misbehaving soundcard driver can no longer prevent the window from showing.
+* **Automatic safe mode after a failed start:** if the previous launch never reached the dashboard, QSOCapture starts with software rendering, the browser sandbox off and audio capture disabled, shows a tray notification, and returns to normal on the next successful restart.
+* **Dedicated browser cache folder:** the embedded browser stores its cache in `%LOCALAPPDATA%\QSOCapture\webengine`, so files left behind by a crashed session cannot block the next launch.
+
 ### Audio correctness
 * **MP3 is the default for new installations:** recordings use several times less disk space out of the box. Existing configurations keep their current format, and WAV remains available in Settings.
 * **TCI recordings use the real sample rate:** TCI is capped at 48 kHz; buffers, headers, durations and pre/post-roll all use the streamed rate, so a 96 kHz selection can no longer mis-time recordings.

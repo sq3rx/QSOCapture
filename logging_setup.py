@@ -18,6 +18,7 @@ it can be used from the launcher, the FastAPI app and tests alike.
 
 from __future__ import annotations
 
+import faulthandler
 import logging
 import logging.handlers
 import os
@@ -30,6 +31,7 @@ from typing import List, Optional
 from config import BASE_DIR
 
 LOG_FILENAME = "QSOCapture.log"
+CRASH_LOG_FILENAME = "QSOCapture_crash.log"
 LOG_FORMAT = "%(asctime)s.%(msecs)03dZ [%(levelname)s] %(name)s [%(threadName)s]: %(message)s"
 DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 MAX_BYTES = 5 * 1024 * 1024
@@ -43,6 +45,7 @@ LOG_BUFFER: "deque[str]" = deque(maxlen=2000)
 _CONFIGURED = False
 _file_handler: Optional[logging.handlers.RotatingFileHandler] = None
 _buffer_handler: Optional["BufferHandler"] = None
+_crash_file = None
 _debug_enabled = False
 
 
@@ -107,6 +110,30 @@ def setup_logging(level: int = logging.INFO) -> None:
         _file_handler = handler
     except Exception as exc:  # pragma: no cover - disk/permission failures
         root.warning("File logging unavailable: %s", exc)
+
+
+def enable_faulthandler(path: Optional[str] = None) -> Optional[str]:
+    """Dump the Python stack of every thread on a fatal crash (idempotent).
+
+    Native crashes (e.g. Qt WebEngine heap corruption) bypass ``sys.excepthook``
+    and ``logging`` entirely, so the launcher installs this before importing
+    Qt. The dump is appended to ``QSOCapture_crash.log`` and survives the
+    process, making an otherwise silent failure diagnosable.
+
+    Returns the crash log path, or ``None`` if the file could not be opened.
+    """
+    global _crash_file
+    if _crash_file is not None:
+        return _crash_file.name
+    try:
+        os.makedirs(BASE_DIR, exist_ok=True)
+        crash_path = path or os.path.join(BASE_DIR, CRASH_LOG_FILENAME)
+        handle = open(crash_path, "a", encoding="utf-8", buffering=1)
+        faulthandler.enable(file=handle, all_threads=True)
+        _crash_file = handle
+        return crash_path
+    except Exception:
+        return None
 
 
 def set_debug(enabled: bool) -> bool:

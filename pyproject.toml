@@ -7,6 +7,11 @@ exclude = [".venv", "qt_launcher.build", "qt_launcher.dist", "__pycache__", "ins
 select = ["E", "F", "W", "I"]
 ignore = ["E501"]
 
+[tool.ruff.lint.per-file-ignores]
+# The launcher must configure logging and the Qt WebEngine environment before
+# importing Qt, so several module-level imports intentionally follow code.
+"qt_launcher.py" = ["E402"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"

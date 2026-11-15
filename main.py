@@ -28,6 +28,7 @@ from starlette.background import BackgroundTask
 
 import db as qso_db
 import logging_setup
+import startup_support
 from audio_manager import create_audio_source
 from config import BASE_DIR, CONFIG_SCHEMA, RECORDINGS_DIR, AppConfig, config_to_dict, load_config, save_config
 from logging_setup import LOG_BUFFER, get_recent_logs
@@ -282,6 +283,9 @@ def _log_startup_banner() -> None:
             cfg_local.web_host, cfg_local.web_port, cfg_local.n1mm_bind_ip,
             cfg_local.n1mm_udp_port, cfg_local.continuous_recording,
             cfg_local.continuous_autostart, cfg_local.continuous_chunk_minutes)
+        if startup_support.audio_disabled():
+            logger.info("Audio capture disabled (safe mode / %s)",
+                        startup_support.DISABLE_AUDIO_ENV)
     except Exception as exc:
         logger.debug("startup banner failed: %s", exc)
 
@@ -298,12 +302,19 @@ async def lifespan(app: FastAPI):
     ).start()
 
     os.makedirs(RECORDINGS_DIR, exist_ok=True)
-    try:
-        audio_source = create_audio_source(cfg, label="RX1")
-        audio_source.start()
-    except Exception as exc:
-        logger.error("Audio source failed to start: %s", exc)
+    if startup_support.audio_disabled():
+        logger.warning(
+            "Audio capture disabled (safe mode / %s set); the dashboard will "
+            "show audio offline until the next normal restart",
+            startup_support.DISABLE_AUDIO_ENV)
         audio_source = None
+    else:
+        try:
+            audio_source = create_audio_source(cfg, label="RX1")
+            audio_source.start()
+        except Exception as exc:
+            logger.error("Audio source failed to start: %s", exc)
+            audio_source = None
     n1mm = N1MMListener(cfg, on_contact=on_contact)
     try:
         n1mm.start()
