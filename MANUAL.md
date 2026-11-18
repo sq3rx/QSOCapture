@@ -341,8 +341,9 @@ When the TCI connection cannot be established, QSOCapture retries with a growing
 
 ### No audio / empty buffer
 
-- **TCI mode:** verify ExpertSDR is running and TCI is enabled (default `127.0.0.1:50001`). Check the log – enable debug mode to see connection details.
+- **TCI mode:** verify ExpertSDR is running and TCI is enabled (default `127.0.0.1:50001`). Check the log - enable debug mode to see connection details.
 - **Soundcard mode:** make sure you selected the correct input device from the list. Verify that your OS routes receiver audio to that device.
+- **"Error querying device -1" or no devices in the list:** Windows exposes no default recording device. Open **Settings - System - Sound - More sound settings - Recording**, enable the input you use (for example **Line In** or **Microphone**), then restart QSOCapture. Onboard Realtek audio only appears if a recording device is enabled in Windows. Every detected input device is listed in `QSOCapture.log` at startup.
 - In both modes: confirm the buffer badges on the dashboard show increasing values (e.g. `RX1 30s`).
 
 ### N1MM contacts not appearing

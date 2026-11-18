@@ -1966,15 +1966,31 @@
       return textInput('cfg__n1mm_addr', v, '127.0.0.1:12060');
     }
     let audioDevices = [];
-    function soundcardWidget(val, id) {
-      id = id || 'cfg_soundcard_device';
-      let opts = `<option value="">— select device —</option>`;
+    function deviceOptions(val) {
+      let opts = '';
+      if (!audioDevices.length && !val) {
+        return `<option value="" disabled selected>— no input devices found —</option>`;
+      }
+      if (audioDevices.length) opts += `<option value="">— select device —</option>`;
       audioDevices.forEach(d => {
         const dv = d.value || d.name;
         const sel = (dv === val || (String(val).indexOf('|') < 0 && d.name === val)) ? 'selected' : '';
-        opts += `<option value="${esc(dv)}" ${sel}>${esc(d.name)}</option>`;
+        const label = d.default_input ? `${d.name} (default)` : d.name;
+        opts += `<option value="${esc(dv)}" ${sel}>${esc(label)}</option>`;
       });
-      return `<select id="${id}" class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-sm">${opts}</select>`;
+      if (!audioDevices.length && val) {
+        opts += `<option value="${esc(val)}" selected>${esc(val)} (not available)</option>`;
+      }
+      return opts;
+    }
+    function deviceHint() {
+      return audioDevices.length ? '' :
+        '<div class="text-xs text-amber-400 mt-1">No recording device found. ' +
+        'Enable Line In / Microphone in the Windows Sound settings.</div>';
+    }
+    function soundcardWidget(val, id) {
+      id = id || 'cfg_soundcard_device';
+      return `<select id="${id}" class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-sm">${deviceOptions(val)}</select>` + deviceHint();
     }
 
     function toggleWidget(val, id, label) {
@@ -1988,13 +2004,7 @@
     }
 
     function deviceSelectWidget(val, id) {
-      let opts = `<option value="">— select device —</option>`;
-      audioDevices.forEach(d => {
-        const dv = d.value || d.name;
-        const sel = (dv === val || (String(val).indexOf('|') < 0 && d.name === val)) ? 'selected' : '';
-        opts += `<option value="${esc(dv)}" ${sel}>${esc(d.name)}</option>`;
-      });
-      return `<select id="${id}" class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-sm">${opts}</select>`;
+      return `<select id="${id}" class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-sm">${deviceOptions(val)}</select>`;
     }
 
     async function openConfig() {

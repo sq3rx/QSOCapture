@@ -31,7 +31,7 @@ import logging_setup
 import startup_support
 from audio_manager import create_audio_source
 from config import BASE_DIR, CONFIG_SCHEMA, RECORDINGS_DIR, AppConfig, config_to_dict, load_config, save_config
-from logging_setup import LOG_BUFFER, get_recent_logs
+from logging_setup import LOG_BUFFER, describe_exception, get_recent_logs
 from n1mm_listener import N1MMContact, N1MMListener
 from version import APP_VERSION
 
@@ -534,6 +534,14 @@ def api_audio_devices() -> JSONResponse:
     devices = []
     try:
         import sounddevice as sd
+
+        default_in = -1
+        try:
+            pair = sd.default.device
+            default_in = int(pair[0]) if pair is not None else -1
+        except Exception:
+            default_in = -1
+
         for i, d in enumerate(sd.query_devices()):
             if d.get("max_input_channels", 0) <= 0:
                 continue
@@ -544,9 +552,12 @@ def api_audio_devices() -> JSONResponse:
                 "value": f"{i}|{name}",
                 "hostapi": d.get("hostapi", -1),
                 "max_input_channels": d.get("max_input_channels", 0),
+                "default_input": i == default_in,
             })
+        if not devices:
+            logger.warning("Windows exposes no audio input devices")
     except Exception as e:
-        logger.debug("audio device enumeration failed: %s", e)
+        logger.warning("Audio device enumeration failed: %s", describe_exception(e))
     return JSONResponse({"devices": devices})
 
 

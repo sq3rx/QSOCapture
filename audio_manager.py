@@ -776,40 +776,117 @@ class SoundcardAudioSource(AudioSource):
                                                max(cfg.pre_roll + cfg.post_roll + 5.0, 30.0))
             self.rx_buffers = [('RX1', self.rx1_buf), ('RX2', self.rx2_buf)]
 
+    def _input_devices(self, sd) -> list:
+        """Return ``[(index, device_info), ...]`` for input-capable devices."""
+        devices = sd.query_devices()
+        return [(i, d) for i, d in enumerate(devices)
+                if d.get("max_input_channels", 0) > 0]
+
+    def _log_input_devices(self, sd) -> None:
+        """Log the available input devices so support can see what Windows exposes."""
+        try:
+            inputs = self._input_devices(sd)
+        except Exception as e:
+            logger.error("[%s] cannot enumerate sound devices: %s",
+                         self.label, describe_exception(e), exc_info=True)
+            return
+        if not inputs:
+            logger.warning("[%s] Windows exposes no audio input devices", self.label)
+            return
+        summary = "; ".join(f"{i}={d.get('name', '?')}" for i, d in inputs[:15])
+        if len(inputs) > 15:
+            summary += f"; ... ({len(inputs) - 15} more)"
+        logger.info("[%s] audio input devices (%d): %s",
+                    self.label, len(inputs), summary)
+
+    def _pick_default_input(self, sd, inputs: list) -> int:
+        """Return the Windows default input device, or the first available input."""
+        default_in = -1
+        try:
+            default = sd.default.device
+            default_in = int(default[0]) if default is not None else -1
+        except Exception:
+            default_in = -1
+        if default_in >= 0:
+            for i, d in inputs:
+                if i == default_in:
+                    logger.info("[%s] using default recording device index=%d name=%r",
+                                self.label, i, d.get("name", ""))
+                    return i
+        if inputs:
+            i, d = inputs[0]
+            logger.warning(
+                "[%s] no default recording device in Windows; using the first "
+                "input device index=%d name=%r. Select the correct device in "
+                "Settings > Soundcard.", self.label, i, d.get("name", ""))
+            return i
+        self._fail_no_input()
+        raise RuntimeError("no audio input devices")  # pragma: no cover
+
+    def _fail_no_input(self) -> None:
+        message = (
+            "No audio input device was found. Enable a recording device "
+            "(for example Line In or Microphone) in the Windows Sound settings, "
+            "then restart QSOCapture."
+        )
+        self._last_error = message
+        logger.error("[%s] %s", self.label, message)
+        raise RuntimeError(message)
+
     def _resolve_device(self, name_attr: str = "soundcard_device"):
         """Resolve a stored device to an input index.
 
         Stored values are either legacy names (``"USB Audio"``) or the newer
         ``"<index>|<name>"`` form. Index-first lookup disambiguates two
         identical cards, which is essential for dual-card SO2R.
+
+        An empty setting means "use the Windows default", but PortAudio reports
+        the default input as ``-1`` on machines where Windows has no default
+        recording device - the first available input is used instead of failing.
         """
         dev_value = getattr(self.cfg, name_attr, "")
         index, dev_name = decode_device(dev_value)
-        if not dev_value:
-            return None
         try:
             import sounddevice as sd
-            devices = sd.query_devices()
-            if index is not None and 0 <= index < len(devices):
-                candidate = devices[index]
-                if candidate.get("max_input_channels", 0) > 0:
-                    logger.info("[%s] using soundcard %s index=%d name=%r",
-                                self.label, name_attr, index,
-                                candidate.get("name", ""))
-                    return index
-            for i, d in enumerate(devices):
-                if d.get("max_input_channels", 0) <= 0:
-                    continue
-                if d.get("name") == dev_name:
-                    logger.info("[%s] using soundcard %s index=%d name=%r",
-                                self.label, name_attr, i, dev_name)
-                    return i
-            logger.warning("Soundcard device '%s' not found, using default",
-                           dev_name or dev_value)
+        except ImportError:
+            self._last_error = "sounddevice is not installed"
+            logger.error("[%s] sounddevice not installed - cannot use soundcard mode",
+                         self.label)
+            raise RuntimeError(self._last_error)
+
+        try:
+            inputs = self._input_devices(sd)
         except Exception as e:
             self._last_error = describe_exception(e)
-            logger.error("sounddevice query failed: %s", e, exc_info=True)
-        return None
+            logger.error("[%s] cannot enumerate sound devices: %s",
+                         self.label, e, exc_info=True)
+            raise
+
+        if not dev_value:
+            return self._pick_default_input(sd, inputs)
+
+        if index is not None:
+            for i, d in inputs:
+                if i == index:
+                    logger.info("[%s] using soundcard %s index=%d name=%r",
+                                self.label, name_attr, i, d.get("name", ""))
+                    return i
+        for i, d in inputs:
+            if d.get("name") == dev_name:
+                logger.info("[%s] using soundcard %s index=%d name=%r",
+                            self.label, name_attr, i, dev_name)
+                return i
+
+        if inputs:
+            i, d = inputs[0]
+            logger.warning(
+                "Soundcard device '%s' was not found; using the first input "
+                "device index=%d name=%r instead. Select the correct device in "
+                "Settings > Soundcard.", dev_name or dev_value, i, d.get("name", ""))
+            return i
+        self._fail_no_input()
+        raise RuntimeError("no audio input devices")  # pragma: no cover
+
 
     def _capture_loop(self) -> None:
         try:
@@ -819,6 +896,7 @@ class SoundcardAudioSource(AudioSource):
             self._running = False
             return
 
+        self._log_input_devices(sd)
         sr = self.sample_rate
 
         if self.cfg.channels >= 2 and self.cfg.so2r_mode == "dual_card":

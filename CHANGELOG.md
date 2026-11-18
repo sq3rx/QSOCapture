@@ -6,6 +6,9 @@ in plain business language, without going into implementation details.
 ## Unreleased
 
 ### Bug fixes
+* **Recording starts when Windows has no default input selected:** if Windows has no default recording device, QSOCapture now uses the first available input and lists every detected input device in the log, instead of stopping with an obscure "Error querying device -1". When no recording device is enabled at all, the application says so and points to the Windows sound settings.
+* **Soundcard settings explain a missing device:** the device list marks the Windows default input, and shows a clear warning when no input devices are found instead of an empty dropdown.
+* **No more silent startup failures:** an occasional launch that flashed a window and closed without any message now records every startup step and a crash trace, and the next launch automatically protects itself.
 * **Dashboard no longer freezes after a long session:** the QSO and Continuous lists recover automatically if the live update connection stalls, and refresh immediately when the window is brought back to the foreground.
 * **TCI mode works in the installed build:** selecting the TCI audio source no longer fails with a "missing module" error — the WebSocket support TCI needs is now bundled.
 * **No more flickering options in Settings:** opening the configuration window with TCI selected no longer briefly shows options that do not apply. The correct fields are shown straight away.
@@ -26,6 +29,7 @@ in plain business language, without going into implementation details.
 * **The window appears before audio capture starts:** the main window opens first with a short "Starting QSOCapture" screen, then the local server and audio start - a misbehaving soundcard driver can no longer prevent the window from showing.
 * **Automatic safe mode after a failed start:** if the previous launch never reached the dashboard, QSOCapture starts with software rendering, the browser sandbox off and audio capture disabled, shows a tray notification, and returns to normal on the next successful restart.
 * **Dedicated browser cache folder:** the embedded browser stores its cache in `%LOCALAPPDATA%\QSOCapture\webengine`, so files left behind by a crashed session cannot block the next launch.
+* **Safe mode can be forced when troubleshooting:** set `QSOCAPTURE_SAFE_MODE=1` for software rendering, sandbox off and no audio capture, or `QSOCAPTURE_DISABLE_AUDIO=1` to disable only audio.
 
 ### Audio correctness
 * **MP3 is the default for new installations:** recordings use several times less disk space out of the box. Existing configurations keep their current format, and WAV remains available in Settings.
