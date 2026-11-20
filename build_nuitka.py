@@ -65,7 +65,7 @@ def main():
         cmd.append(f"--include-data-files={f}={f}")
 
     hidden_modules = [
-        "main", "config", "db", "audio_manager", "n1mm_listener",
+        "main", "config", "db", "audio_manager", "n1mm_listener", "audio_probe",
         "uvicorn.logging", "uvicorn.loops", "uvicorn.loops.auto",
         "uvicorn.protocols", "uvicorn.protocols.http", "uvicorn.protocols.http.auto",
         "uvicorn.protocols.websockets", "uvicorn.protocols.websockets.auto",
@@ -78,7 +78,9 @@ def main():
     # lazy_import, so Nuitka's static analysis misses the websockets.asyncio
     # subpackage and the TCI client fails with "No module named
     # 'websockets.asyncio'" in the packaged build. Include the whole package.
-    hidden_packages = ["websockets"]
+    # soundcard is only imported on the WASAPI audio path and its cffi-based
+    # Windows bindings are resolved at runtime, so include it explicitly too.
+    hidden_packages = ["websockets", "soundcard"]
     for pkg in hidden_packages:
         cmd.append(f"--include-package={pkg}")
 

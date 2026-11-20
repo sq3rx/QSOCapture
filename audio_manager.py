@@ -981,6 +981,169 @@ class SoundcardAudioSource(AudioSource):
                 self._running = False
 
 
+WASAPI_BACKEND = "wasapi"
+PORTAUDIO_BACKEND = "portaudio"
+
+
+class WasapiAudioSource(AudioSource):
+    """Capture audio through Windows WASAPI directly, without PortAudio.
+
+    PortAudio corrupts the heap while initialising on some driver stacks
+    (confirmed with FlexRadio DAX devices), which makes ``sounddevice`` unusable
+    on those machines. This backend talks to Windows audio through the
+    ``soundcard`` package instead, so recording works where PortAudio cannot
+    even start.
+
+    Device values use the same ``"<index>|<name>"`` format as the other
+    backends; the index refers to the order used in :meth:`list_devices`.
+    """
+
+    BLOCKSIZE = 2048
+
+    def __init__(self, cfg, label: str = "RX1"):
+        super().__init__(cfg, label)
+        self._mic = None
+        if cfg.channels >= 2:
+            cap = max(cfg.pre_roll + cfg.post_roll + 5.0, 30.0)
+            self.rx1_buf = CircularAudioBuffer(self.sample_rate, 1, cap)
+            self.rx2_buf = CircularAudioBuffer(self.sample_rate, 1, cap)
+            self.rx_buffers = [('RX1', self.rx1_buf), ('RX2', self.rx2_buf)]
+
+    @staticmethod
+    def list_devices() -> list:
+        """Return the WASAPI input devices in ``"<index>|<name>"`` form."""
+        import soundcard as sc
+
+        mics = sc.all_microphones(include_loopback=True)
+        try:
+            default_name = sc.default_microphone().name
+        except Exception:
+            default_name = ""
+        devices = []
+        for i, mic in enumerate(mics):
+            name = mic.name or f"Device {i}"
+            devices.append({
+                "index": i,
+                "name": name,
+                "value": f"{i}|{name}",
+                "default_input": name == default_name,
+                "loopback": bool(getattr(mic, "isloopback", False)),
+                "channels": getattr(mic, "channels", 0),
+                "hostapi": "WASAPI",
+            })
+        return devices
+
+    def _fail_no_input(self) -> None:
+        message = (
+            "No Windows recording device was found. Enable a recording device "
+            "in the Windows Sound settings, then restart QSOCapture."
+        )
+        self._last_error = message
+        logger.error("[%s] %s", self.label, message)
+        raise RuntimeError(message)
+
+    def _resolve_device(self, name_attr: str = "soundcard_device"):
+        """Return ``(microphone, index, name)`` for the configured device."""
+        import soundcard as sc
+
+        devices = self.list_devices()
+        mics = sc.all_microphones(include_loopback=True)
+        dev_value = getattr(self.cfg, name_attr, "")
+        index, dev_name = decode_device(dev_value)
+
+        if dev_value:
+            for entry in devices:
+                if entry["name"] == dev_name:
+                    mic = mics[entry["index"]]
+                    logger.info("[%s] using WASAPI device %s index=%d name=%r",
+                                self.label, name_attr, entry["index"], dev_name)
+                    return mic, entry["index"], dev_name
+            if index is not None and 0 <= index < len(devices):
+                entry = devices[index]
+                logger.warning(
+                    "[%s] device '%s' not found by name; using WASAPI index=%d "
+                    "name=%r", self.label, dev_name or dev_value, index, entry["name"])
+                return mics[index], index, entry["name"]
+            logger.warning("[%s] device '%s' not found; using the Windows "
+                           "default input", self.label, dev_name or dev_value)
+
+        default_entry = next((d for d in devices if d["default_input"]), None)
+        if default_entry is None:
+            default_entry = next((d for d in devices if not d["loopback"]), None)
+        if default_entry is None and devices:
+            default_entry = devices[0]
+        if default_entry is None:
+            self._fail_no_input()
+        entry = default_entry
+        logger.info("[%s] using WASAPI default input index=%d name=%r",
+                    self.label, entry["index"], entry["name"])
+        return mics[entry["index"]], entry["index"], entry["name"]
+
+    def _capture_loop(self) -> None:
+        try:
+            import soundcard  # noqa: F401 - availability check
+        except ImportError:
+            logger.error("[%s] soundcard not installed - cannot use the WASAPI "
+                         "backend", self.label)
+            self._running = False
+            return
+
+        try:
+            mic, index, name = self._resolve_device("soundcard_device")
+        except Exception as exc:
+            self._last_error = describe_exception(exc)
+            logger.error("[%s] WASAPI device selection failed: %s",
+                         self.label, exc, exc_info=True)
+            self._running = False
+            return
+
+        self._mic = mic
+        channels = max(1, int(self.cfg.channels))
+        mic_channels = getattr(mic, "channels", None)
+        if mic_channels:
+            channels = min(channels, int(mic_channels))
+        if channels < int(self.cfg.channels):
+            logger.warning(
+                "[%s] '%s' offers %s channel(s); recording %d instead of %d",
+                self.label, name, mic_channels, channels, self.cfg.channels)
+
+        sr = self.sample_rate
+        logger.info("[%s] WASAPI capture starting: device=%r index=%d %d Hz %d ch",
+                    self.label, name, index, sr, channels)
+        try:
+            with mic.recorder(samplerate=sr, channels=channels,
+                              blocksize=self.BLOCKSIZE) as recorder:
+                while self._running:
+                    data = recorder.record(numframes=self.BLOCKSIZE)
+                    if data is None or len(data) == 0:
+                        continue
+                    pcm = (np.asarray(data, dtype=np.float32) * 32767.0)
+                    pcm = np.clip(pcm, -32768, 32767).astype(np.int16)
+                    if pcm.ndim == 1:
+                        pcm = pcm.reshape(-1, 1)
+                    self._route_frames(pcm, channels)
+        except Exception as e:
+            self._last_error = describe_exception(e)
+            logger.error("[%s] WASAPI capture error: %s", self.label, e, exc_info=True)
+        finally:
+            self._mic = None
+            self._running = False
+
+    def _route_frames(self, pcm, channels: int) -> None:
+        """Write captured frames to the RX buffers and the continuous queue."""
+        self._frames_received += pcm.shape[0]
+        if self.cfg.channels >= 2 and pcm.shape[1] >= 2:
+            self.rx1_buf.write(pcm[:, 0:1])
+            self.rx2_buf.write(pcm[:, 1:2])
+            if self.cfg.continuous_recording and self._running:
+                self._enqueue_cont('RX1', pcm[:, 0:1])
+                self._enqueue_cont('RX2', pcm[:, 1:2])
+        else:
+            self.buffer.write(pcm[:, 0:1] if pcm.shape[1] > 1 else pcm)
+            if self.cfg.continuous_recording and self._running:
+                self._enqueue_cont('RX1', pcm[:, 0:1] if pcm.shape[1] > 1 else pcm)
+
+
 class TCIAudioSource(AudioSource):
     """Capture audio from ExpertSDR via the TCI protocol (WebSocket)."""
 
@@ -1235,9 +1398,17 @@ class TCIAudioSource(AudioSource):
         return bool(getattr(self, "_connected", False))
 
 
-def create_audio_source(cfg, label: str = "RX1") -> AudioSource:
+def create_audio_source(cfg, label: str = "RX1", backend: Optional[str] = None) -> AudioSource:
+    """Create the capture source for *cfg*.
+
+    ``backend`` selects the Windows capture interface: ``"portaudio"`` (the
+    default, via ``sounddevice``) or ``"wasapi"`` (direct Windows audio, used
+    when PortAudio cannot initialise on the installed driver stack).
+    """
     if cfg.audio_mode == "tci":
         return TCIAudioSource(cfg, label)
     if cfg.audio_mode != "soundcard":
         logger.warning("Unknown audio_mode '%s'; falling back to soundcard", cfg.audio_mode)
+    if backend == WASAPI_BACKEND:
+        return WasapiAudioSource(cfg, label)
     return SoundcardAudioSource(cfg, label)

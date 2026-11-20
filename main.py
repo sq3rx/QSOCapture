@@ -298,11 +298,12 @@ def _start_audio_source(cfg_local: AppConfig):
     PortAudio is only needed for soundcard mode, and on some systems it
     corrupts the heap while initialising (FlexRadio DAX has been observed to
     do this). Because such a crash is native and cannot be caught, the probe
-    runs in a child process first: if it fails, no PortAudio code is loaded in
-    this process at all and the dashboard reports the reason instead of the
-    application dying.
+    runs in a child process first. If PortAudio cannot start there, the probe
+    falls back to Windows WASAPI and recording uses that backend instead, so
+    no PortAudio code is ever loaded in this process.
     """
     global audio_probe_error
+    backend = None
     if cfg_local.audio_mode == "soundcard":
         probe = audio_probe.ensure_probe()
         if probe is None:
@@ -315,14 +316,17 @@ def _start_audio_source(cfg_local: AppConfig):
             audio_probe_error = probe.get("error") or "the audio device check failed"
             logger.error(
                 "Audio capture not started: %s. This is a problem with the "
-                "audio driver/PortAudio, not with the configured device: the "
-                "audio library crashes before any device can be listed.",
+                "audio driver, not with the configured device: the audio "
+                "library crashes before any device can be listed.",
                 audio_probe_error)
             return None
         audio_probe_error = ""
+        backend = probe.get("backend")
+        logger.info("Starting audio capture using the %s backend",
+                    backend or audio_probe.PORTAUDIO_BACKEND)
 
     try:
-        source = create_audio_source(cfg_local, label="RX1")
+        source = create_audio_source(cfg_local, label="RX1", backend=backend)
         source.start()
         return source
     except Exception as exc:

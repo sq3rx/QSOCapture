@@ -90,18 +90,56 @@ def test_probe_without_json_output(monkeypatch):
 
 
 def test_probe_command_points_at_this_program():
-    cmd = audio_probe.probe_command()
-    assert audio_probe.PROBE_FLAG in cmd or any(
-        part.endswith("audio_probe.py") for part in cmd)
+    cmd = audio_probe.probe_command(audio_probe.WASAPI_BACKEND)
+    assert audio_probe.PROBE_FLAG in cmd
+    assert audio_probe.WASAPI_BACKEND in cmd
+    assert any(part.endswith("audio_probe.py") for part in cmd) or len(cmd) > 1
 
 
 def test_main_writes_cache(monkeypatch, capsys):
     monkeypatch.setattr(audio_probe, "run_probe",
-                        lambda test_stream=False: {"ok": True, "devices": []})
+                        lambda backend, test_stream=False: {"ok": True, "devices": [],
+                                                            "backend": backend})
 
-    code = audio_probe.main([audio_probe.PROBE_FLAG, audio_probe.TEST_STREAM_FLAG])
+    code = audio_probe.main([audio_probe.PROBE_FLAG, audio_probe.TEST_STREAM_FLAG,
+                             audio_probe.BACKEND_FLAG, audio_probe.WASAPI_BACKEND])
     out = capsys.readouterr().out
 
     assert code == 0
-    assert json.loads(out.strip().splitlines()[-1])["ok"] is True
-    assert audio_probe.read_cache()["ok"] is True
+    payload = json.loads(out.strip().splitlines()[-1])
+    assert payload["ok"] is True
+    assert payload["backend"] == audio_probe.WASAPI_BACKEND
+    assert audio_probe.read_cache()["backend"] == audio_probe.WASAPI_BACKEND
+
+
+def test_portaudio_failure_falls_back_to_wasapi(monkeypatch):
+    calls = []
+
+    def _fake_single(backend, timeout):
+        calls.append(backend)
+        if backend == audio_probe.PORTAUDIO_BACKEND:
+            return {"ok": False, "backend": backend, "error": "crashed"}
+        return {"ok": True, "backend": backend, "devices": [
+            {"index": 0, "name": "DAX RX 1", "default_input": True}]}
+
+    monkeypatch.setattr(audio_probe, "_run_single_probe", _fake_single)
+
+    result = audio_probe.run_probe_subprocess(timeout=5)
+
+    assert calls == [audio_probe.PORTAUDIO_BACKEND, audio_probe.WASAPI_BACKEND]
+    assert result["ok"] is True
+    assert result["backend"] == audio_probe.WASAPI_BACKEND
+    assert result["fallback_from"] == "crashed"
+    assert audio_probe.read_cache()["backend"] == audio_probe.WASAPI_BACKEND
+
+
+def test_both_backends_failing_is_reported(monkeypatch):
+    def _fake_single(backend, timeout):
+        return {"ok": False, "backend": backend, "error": f"{backend} failed"}
+
+    monkeypatch.setattr(audio_probe, "_run_single_probe", _fake_single)
+
+    result = audio_probe.run_probe_subprocess(timeout=5)
+
+    assert result["ok"] is False
+    assert result["wasapi_error"] == "wasapi failed"

@@ -6,6 +6,7 @@ in plain business language, without going into implementation details.
 ## Unreleased
 
 ### Bug fixes
+* **Recording works even when the normal audio library cannot start:** on systems where the audio library crashes while scanning devices (confirmed with FlexRadio DAX), QSOCapture falls back to recording through Windows audio directly, so the application and the recording keep working.
 * **Recording no longer takes the whole application down:** audio devices are now inspected in a separate, short-lived process. Some audio drivers (FlexRadio DAX has been confirmed) crash inside the audio library while it enumerates devices - that crash can only kill the helper, so QSOCapture keeps running and explains the problem in the dashboard instead of disappearing.
 * **Audio diagnostics in the log:** each start records the available audio interfaces and input devices, plus a short capture test, so an audio problem can be diagnosed without guesswork.
 * **Recording starts when Windows has no default input selected:** if Windows has no default recording device, QSOCapture now uses the first available input and lists every detected input device in the log, instead of stopping with an obscure "Error querying device -1". When no recording device is enabled at all, the application says so and points to the Windows sound settings.

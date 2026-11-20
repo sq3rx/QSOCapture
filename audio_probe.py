@@ -29,7 +29,11 @@ logger = logging.getLogger("QSOCapture.audio_probe")
 
 PROBE_FLAG = "--audio-probe"
 TEST_STREAM_FLAG = "--test-stream"
+BACKEND_FLAG = "--backend"
+PORTAUDIO_BACKEND = "portaudio"
+WASAPI_BACKEND = "wasapi"
 CACHE_FILENAME = "audio_devices.json"
+FORCE_BACKEND_ENV = "QSOCAPTURE_AUDIO_BACKEND"
 PROBE_TIMEOUT = 45.0
 STREAM_TEST_SECONDS = 0.5
 
@@ -91,11 +95,19 @@ def _stream_test(sd, entries: list) -> dict:
                 "error": f"{type(exc).__name__}: {exc}"}
 
 
-def run_probe(test_stream: bool = False) -> dict:
-    """Collect host APIs and input devices. Runs inside the child process."""
+def run_probe(backend: str = PORTAUDIO_BACKEND, test_stream: bool = False) -> dict:
+    """Collect the available input devices for *backend* (runs in the child)."""
+    if backend == WASAPI_BACKEND:
+        return _probe_wasapi(test_stream)
+    return _probe_portaudio(test_stream)
+
+
+def _probe_portaudio(test_stream: bool = False) -> dict:
+    """Collect host APIs and input devices through PortAudio/sounddevice."""
     started = time.time()
-    result: dict = {"ok": False, "probed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ",
-                                                            time.gmtime())}
+    result: dict = {"ok": False, "backend": PORTAUDIO_BACKEND,
+                    "probed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ",
+                                               time.gmtime())}
     try:
         import sounddevice as sd
 
@@ -125,10 +137,62 @@ def run_probe(test_stream: bool = False) -> dict:
     return result
 
 
+def _probe_wasapi(test_stream: bool = False) -> dict:
+    """Collect input devices directly from Windows (no PortAudio involved)."""
+    started = time.time()
+    result: dict = {"ok": False, "backend": WASAPI_BACKEND,
+                    "probed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ",
+                                               time.gmtime())}
+    try:
+        import soundcard as sc
+
+        from audio_manager import WasapiAudioSource
+
+        devices = WasapiAudioSource.list_devices()
+        result.update({
+            "ok": True,
+            "python": sys.version.split()[0],
+            "hostapis": [{"index": 0, "name": "Windows WASAPI",
+                          "devices": len(devices)}],
+            "default_input": next((d["index"] for d in devices
+                                   if d.get("default_input")), -1),
+            "devices": devices,
+        })
+        if test_stream:
+            result["stream_test"] = _wasapi_stream_test(sc, devices)
+    except Exception as exc:
+        result["error"] = f"{type(exc).__name__}: {exc}"
+    result["duration_s"] = round(time.time() - started, 2)
+    return result
+
+
+def _wasapi_stream_test(sc, entries: list) -> dict:
+    candidates = [d for d in entries if d.get("default_input")] or entries
+    if not candidates:
+        return {"ok": False, "error": "no input device to test"}
+    device = candidates[0]
+    try:
+        mics = sc.all_microphones(include_loopback=True)
+        mic = mics[device["index"]]
+        channels = max(1, min(2, int(getattr(mic, "channels", 2) or 2)))
+        with mic.recorder(samplerate=48000, channels=channels) as recorder:
+            recorder.record(numframes=int(48000 * STREAM_TEST_SECONDS))
+        return {"ok": True, "device": device["name"], "channels": channels,
+                "samplerate": 48000}
+    except Exception as exc:
+        return {"ok": False, "device": device.get("name", ""),
+                "error": f"{type(exc).__name__}: {exc}"}
+
+
 def main(argv: Optional[list] = None) -> int:
     """Entry point for the child process (``QSOCapture.exe --audio-probe``)."""
     argv = list(sys.argv[1:] if argv is None else argv)
-    result = run_probe(test_stream=TEST_STREAM_FLAG in argv)
+    backend = PORTAUDIO_BACKEND
+    if BACKEND_FLAG in argv:
+        position = argv.index(BACKEND_FLAG)
+        if position + 1 < len(argv):
+            backend = argv[position + 1]
+    result = run_probe(backend=backend, test_stream=TEST_STREAM_FLAG in argv)
     try:
         with open(cache_path(), "w", encoding="utf-8") as fh:
             json.dump(result, fh, indent=2)
@@ -144,14 +208,15 @@ def main(argv: Optional[list] = None) -> int:
 # parent process
 # --------------------------------------------------------------------------
 
-def probe_command() -> list:
+def probe_command(backend: str = PORTAUDIO_BACKEND) -> list:
     """Command line that re-runs this program in probe mode."""
+    args = [PROBE_FLAG, TEST_STREAM_FLAG, BACKEND_FLAG, backend]
     frozen = bool(getattr(sys, "frozen", False)
                   or "__compiled__" in globals()
                   or hasattr(sys, "_MEIPASS"))
     if frozen:
-        return [sys.executable, PROBE_FLAG, TEST_STREAM_FLAG]
-    return [sys.executable, os.path.abspath(__file__), PROBE_FLAG, TEST_STREAM_FLAG]
+        return [sys.executable, *args]
+    return [sys.executable, os.path.abspath(__file__), *args]
 
 
 def _no_window_kwargs() -> dict:
@@ -178,35 +243,59 @@ def _crash_result(returncode: int, stderr: str) -> dict:
 
 
 def run_probe_subprocess(timeout: float = PROBE_TIMEOUT) -> dict:
-    """Run the probe in a child process and return (and cache) its result."""
-    cmd = probe_command()
+    """Probe PortAudio first and fall back to WASAPI if it crashes or fails."""
     logger.info("Probing audio devices in a separate process%s",
                 f" (timeout {timeout:.0f}s)" if timeout else "")
+    forced = (os.environ.get(FORCE_BACKEND_ENV) or "").strip().lower()
+    if forced in (PORTAUDIO_BACKEND, WASAPI_BACKEND):
+        logger.info("Audio backend forced by %s=%s", FORCE_BACKEND_ENV, forced)
+        result = _run_single_probe(forced, timeout)
+    else:
+        result = _run_single_probe(PORTAUDIO_BACKEND, timeout)
+        if not result.get("ok"):
+            logger.warning(
+                "The PortAudio backend is not usable (%s); trying the direct "
+                "Windows (WASAPI) backend", result.get("error", "unknown error"))
+            alternative = _run_single_probe(WASAPI_BACKEND, timeout)
+            if alternative.get("ok"):
+                alternative["fallback_from"] = result.get("error", "")
+                result = alternative
+                logger.info("Using the direct Windows (WASAPI) audio backend")
+            else:
+                result["wasapi_error"] = alternative.get("error", "")
+    result.setdefault("backend", PORTAUDIO_BACKEND)
+    _write_cache(result)
+    _log_result(result)
+    return result
+
+
+def _run_single_probe(backend: str, timeout: float) -> dict:
+    cmd = probe_command(backend)
     try:
         proc = subprocess.run(cmd, capture_output=True, timeout=timeout,
                               text=True, **_no_window_kwargs())
     except subprocess.TimeoutExpired:
-        result = {"ok": False,
-                  "error": f"the audio probe timed out after {timeout:.0f}s",
-                  "probed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+        return {"ok": False, "backend": backend,
+                "error": f"the audio probe timed out after {timeout:.0f}s",
+                "probed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
     except Exception as exc:
-        result = {"ok": False,
-                  "error": f"could not start the audio probe: {exc}",
-                  "probed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
-    else:
-        if proc.returncode != 0:
-            result = _crash_result(proc.returncode, proc.stderr)
-        else:
-            result = _parse_stdout(proc.stdout, proc.stderr)
-            if not result.get("ok") and "no result" in result.get("error", ""):
-                # A windowed EXE may have no usable stdout pipe; the child
-                # writes the same JSON to the cache before printing.
-                cached = read_cache()
-                if cached and cached.get("ok"):
-                    result = cached
+        return {"ok": False, "backend": backend,
+                "error": f"could not start the audio probe: {exc}",
+                "probed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
 
-    _write_cache(result)
-    _log_result(result)
+    if proc.returncode != 0:
+        result = _crash_result(proc.returncode, proc.stderr)
+        result["backend"] = backend
+        return result
+
+    result = _parse_stdout(proc.stdout, proc.stderr)
+    if not result.get("ok") and "no result" in result.get("error", ""):
+        # A windowed EXE may have no usable stdout pipe; the child writes the
+        # same JSON to the cache before printing.
+        cached = read_cache()
+        if cached and cached.get("ok") and cached.get("backend") == backend:
+            result = cached
+    result.setdefault("backend", backend)
     return result
 
 
@@ -237,12 +326,20 @@ def _write_cache(result: dict) -> None:
 
 
 def _log_result(result: dict) -> None:
+    backend = result.get("backend", PORTAUDIO_BACKEND)
     if not result.get("ok"):
-        logger.error("Audio probe failed: %s", result.get("error", "unknown error"))
+        logger.error("Audio probe failed for both backends: %s",
+                     result.get("error", "unknown error"))
+        if result.get("wasapi_error"):
+            logger.error("WASAPI backend: %s", result["wasapi_error"])
         stderr = (result.get("stderr") or "").strip()
         if stderr:
             logger.error("Audio probe output: %s", stderr[-800:])
         return
+    logger.info("Audio backend: %s", backend)
+    if result.get("fallback_from"):
+        logger.warning("PortAudio is unusable on this system (%s); recording "
+                       "through Windows WASAPI instead", result["fallback_from"])
     apis = ", ".join(f"{h['name']}({h['devices']})"
                      for h in result.get("hostapis", [])) or "none"
     logger.info("Audio probe: host APIs: %s", apis)

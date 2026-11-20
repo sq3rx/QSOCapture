@@ -345,6 +345,7 @@ When the TCI connection cannot be established, QSOCapture retries with a growing
 - **Soundcard mode:** make sure you selected the correct input device from the list. Verify that your OS routes receiver audio to that device.
 - **"Error querying device -1" or no devices in the list:** Windows exposes no default recording device. Open **Settings - System - Sound - More sound settings - Recording**, enable the input you use (for example **Line In** or **Microphone**), then restart QSOCapture. Onboard Realtek audio only appears if a recording device is enabled in Windows. Every detected input device is listed in `QSOCapture.log` at startup.
 - **The application used to disappear while enumerating audio devices:** some drivers (confirmed with FlexRadio DAX) crash the audio library during device enumeration. Device detection now runs in a separate helper process, so the window and dashboard stay open and the reason is shown in the dashboard and in `QSOCapture.log`.
+- **Recording with FlexRadio DAX:** if the normal audio library cannot start at all, QSOCapture switches to capturing through Windows audio directly (WASAPI). The log shows which audio backend is in use, and the device list in Settings shows the same devices that are used for recording.
 - In both modes: confirm the buffer badges on the dashboard show increasing values (e.g. `RX1 30s`).
 
 ### N1MM contacts not appearing

@@ -29,7 +29,7 @@ def test_crashing_probe_is_reported_without_killing_the_parent(tmp_path, monkeyp
 
     monkeypatch.setattr(audio_probe, "BASE_DIR", str(tmp_path))
     monkeypatch.setattr(audio_probe, "probe_command",
-                        lambda: [sys.executable, str(script)])
+                        lambda backend: [sys.executable, str(script)])
 
     result = audio_probe.run_probe_subprocess(timeout=30)
 
