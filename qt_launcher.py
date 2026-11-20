@@ -28,6 +28,7 @@ if sys.stdout is None:
 if sys.stderr is None:
     sys.stderr = open(os.devnull, "w")
 
+import audio_probe
 import config as config_module
 import logging_setup
 import startup_support
@@ -43,6 +44,12 @@ except OSError:
 logging_setup.setup_logging()
 logging_setup.install_excepthooks()
 logging_setup.enable_faulthandler()
+
+# Audio device probing runs in its own process (see audio_probe). This child
+# mode must exit before Qt is imported so a probing crash cannot take the GUI
+# down with it.
+if audio_probe.PROBE_FLAG in sys.argv:
+    sys.exit(audio_probe.main())
 
 # A marker left behind by the previous launch means that start never reached
 # the dashboard. Use conservative rendering settings and skip audio this time.
@@ -531,6 +538,12 @@ def main() -> None:
     window = MainWindow(app_dir, base_url, icon_path, safe_mode=SAFE_MODE)
     window.show()
     logger.info("Main window shown")
+
+    # Probe the audio hardware out-of-process while the window is already on
+    # screen. PortAudio can corrupt the heap while initialising (seen with
+    # FlexRadio DAX devices), and that crash cannot be caught in-process.
+    if qso_main.cfg.audio_mode == "soundcard":
+        audio_probe.start_probe()
 
     config = uvicorn.Config(
         qso_main.app,

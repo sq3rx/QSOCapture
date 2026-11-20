@@ -1966,6 +1966,7 @@
       return textInput('cfg__n1mm_addr', v, '127.0.0.1:12060');
     }
     let audioDevices = [];
+    let audioDevicesError = '';
     function deviceOptions(val) {
       let opts = '';
       if (!audioDevices.length && !val) {
@@ -1984,6 +1985,9 @@
       return opts;
     }
     function deviceHint() {
+      if (audioDevicesError) {
+        return `<div class="text-xs text-rose-400 mt-1">Audio engine error: ${esc(audioDevicesError)}</div>`;
+      }
       return audioDevices.length ? '' :
         '<div class="text-xs text-amber-400 mt-1">No recording device found. ' +
         'Enable Line In / Microphone in the Windows Sound settings.</div>';
@@ -2015,6 +2019,7 @@
           fetch('/api/paths').then(r => r.json()).catch(() => ({}))
         ]);
         audioDevices = dr.devices || [];
+        audioDevicesError = dr.error || '';
         const v = cr.values;
         const helpMap = {};
         (cr.schema || []).forEach(it => { helpMap[it.field] = it.help; });

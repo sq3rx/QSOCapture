@@ -26,12 +26,13 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from starlette.background import BackgroundTask
 
+import audio_probe
 import db as qso_db
 import logging_setup
 import startup_support
 from audio_manager import create_audio_source
 from config import BASE_DIR, CONFIG_SCHEMA, RECORDINGS_DIR, AppConfig, config_to_dict, load_config, save_config
-from logging_setup import LOG_BUFFER, describe_exception, get_recent_logs
+from logging_setup import LOG_BUFFER, get_recent_logs
 from n1mm_listener import N1MMContact, N1MMListener
 from version import APP_VERSION
 
@@ -142,6 +143,7 @@ def get_latest_version():
 cfg: AppConfig = load_config()
 audio_source = None
 n1mm = None
+audio_probe_error = ""
 _config_lock = threading.Lock()
 
 
@@ -290,9 +292,47 @@ def _log_startup_banner() -> None:
         logger.debug("startup banner failed: %s", exc)
 
 
+def _start_audio_source(cfg_local: AppConfig):
+    """Create and start the audio source, gated by the out-of-process probe.
+
+    PortAudio is only needed for soundcard mode, and on some systems it
+    corrupts the heap while initialising (FlexRadio DAX has been observed to
+    do this). Because such a crash is native and cannot be caught, the probe
+    runs in a child process first: if it fails, no PortAudio code is loaded in
+    this process at all and the dashboard reports the reason instead of the
+    application dying.
+    """
+    global audio_probe_error
+    if cfg_local.audio_mode == "soundcard":
+        probe = audio_probe.ensure_probe()
+        if probe is None:
+            audio_probe_error = (
+                "the audio device check did not finish in time; audio capture "
+                "was not started")
+            logger.error("%s", audio_probe_error)
+            return None
+        if not probe.get("ok"):
+            audio_probe_error = probe.get("error") or "the audio device check failed"
+            logger.error(
+                "Audio capture not started: %s. This is a problem with the "
+                "audio driver/PortAudio, not with the configured device: the "
+                "audio library crashes before any device can be listed.",
+                audio_probe_error)
+            return None
+        audio_probe_error = ""
+
+    try:
+        source = create_audio_source(cfg_local, label="RX1")
+        source.start()
+        return source
+    except Exception as exc:
+        logger.error("Audio source failed to start: %s", exc)
+        return None
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global audio_source, n1mm
+    global audio_source, n1mm, audio_probe_error
     qso_db.init_db()
     threading.Thread(
         target=qso_db.migrate_existing,
@@ -309,12 +349,7 @@ async def lifespan(app: FastAPI):
             startup_support.DISABLE_AUDIO_ENV)
         audio_source = None
     else:
-        try:
-            audio_source = create_audio_source(cfg, label="RX1")
-            audio_source.start()
-        except Exception as exc:
-            logger.error("Audio source failed to start: %s", exc)
-            audio_source = None
+        audio_source = _start_audio_source(cfg)
     n1mm = N1MMListener(cfg, on_contact=on_contact)
     try:
         n1mm.start()
@@ -531,34 +566,24 @@ def api_export(contest: Optional[str] = Query(None)) -> FileResponse:
 
 @app.get("/api/audio_devices")
 def api_audio_devices() -> JSONResponse:
-    devices = []
-    try:
-        import sounddevice as sd
-
-        default_in = -1
-        try:
-            pair = sd.default.device
-            default_in = int(pair[0]) if pair is not None else -1
-        except Exception:
-            default_in = -1
-
-        for i, d in enumerate(sd.query_devices()):
-            if d.get("max_input_channels", 0) <= 0:
-                continue
-            name = d.get("name", f"Device {i}")
-            devices.append({
-                "index": i,
-                "name": name,
-                "value": f"{i}|{name}",
-                "hostapi": d.get("hostapi", -1),
-                "max_input_channels": d.get("max_input_channels", 0),
-                "default_input": i == default_in,
-            })
-        if not devices:
-            logger.warning("Windows exposes no audio input devices")
-    except Exception as e:
-        logger.warning("Audio device enumeration failed: %s", describe_exception(e))
-    return JSONResponse({"devices": devices})
+    """Return the probed input devices without touching PortAudio in-process."""
+    probe = audio_probe.read_cache()
+    if probe is None:
+        return JSONResponse({
+            "devices": [],
+            "error": "Audio devices have not been checked yet. Restart QSOCapture.",
+        })
+    if not probe.get("ok"):
+        return JSONResponse({
+            "devices": [],
+            "error": probe.get("error") or "the audio device check failed",
+        })
+    return JSONResponse({
+        "devices": probe.get("devices", []),
+        "hostapis": probe.get("hostapis", []),
+        "stream_test": probe.get("stream_test"),
+        "error": "",
+    })
 
 
 @app.get("/api/paths")
@@ -608,7 +633,7 @@ def api_status() -> JSONResponse:
             "continuous_paused": bool(audio_status.get("continuous_paused", False)),
             "cont_queue_fill_pct": audio_status.get("cont_queue_fill_pct", 0.0),
             "cont_queue_dropped": audio_status.get("cont_queue_dropped", 0),
-            "error": audio_status.get("error", ""),
+            "error": audio_status.get("error", "") or audio_probe_error,
         },
         "n1mm": {
             "running": n1mm_running,
