@@ -1984,17 +1984,9 @@
       }
       return opts;
     }
-    function deviceHint() {
-      if (audioDevicesError) {
-        return `<div class="text-xs text-rose-400 mt-1">Audio engine error: ${esc(audioDevicesError)}</div>`;
-      }
-      return audioDevices.length ? '' :
-        '<div class="text-xs text-amber-400 mt-1">No recording device found. ' +
-        'Enable Line In / Microphone in the Windows Sound settings.</div>';
-    }
     function soundcardWidget(val, id) {
       id = id || 'cfg_soundcard_device';
-      return `<select id="${id}" class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-sm">${deviceOptions(val)}</select>` + deviceHint();
+      return `<select id="${id}" class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-sm">${deviceOptions(val)}</select>`;
     }
 
     function toggleWidget(val, id, label) {
@@ -2051,12 +2043,72 @@
         form.innerHTML += group('Audio', audio);
 
         let sc = fieldBlock('Soundcard device (RX1)', soundcardWidget(v.soundcard_device, 'cfg_soundcard_device'), helpMap.soundcard_device)
-          + fieldBlock('Soundcard device 2 (RX2)', deviceSelectWidget(v.soundcard_device2, 'cfg_soundcard_device2'), helpMap.soundcard_device2, 'cfg-w-device2');
-        form.innerHTML += group('Soundcard', sc);
+          + fieldBlock('Soundcard device 2 (RX2)', deviceSelectWidget(v.soundcard_device2, 'cfg_soundcard_device2'), helpMap.soundcard_device2, 'cfg-w-device2')
+          + `<div id="cfgDeviceHint" class="text-xs px-1 mb-2"></div>`;
+        form.innerHTML += `<div id="cfgSoundcardSection">${group('Soundcard', sc)}</div>`;
 
         // Show/hide SO2R mode toggle and RX2 device field based on audio mode,
         // channels & dual card. Fields are addressed by their wrapper id so this
         // does not depend on group/field ordering.
+        function renderDeviceHint() {
+          const el = $('cfgDeviceHint');
+          const modeEl = $('cfg__mode');
+          if (!el || !modeEl) return;
+          if (modeEl.value !== 'soundcard') {
+            el.className = 'text-xs text-slate-500 px-1 mb-2';
+            el.textContent = 'Not used while Audio mode is TCI. ' +
+              'Switch Audio mode to "soundcard" to choose an input device.';
+            return;
+          }
+          if (audioDevicesError) {
+            el.className = 'text-xs text-rose-400 px-1 mb-2';
+            el.textContent = 'Audio engine error: ' + audioDevicesError;
+            return;
+          }
+          if (!audioDevices.length) {
+            el.className = 'text-xs text-amber-400 px-1 mb-2';
+            el.textContent = 'No recording device found. Enable Line In / ' +
+              'Microphone in the Windows Sound settings.';
+            return;
+          }
+          el.className = 'hidden';
+          el.textContent = '';
+        }
+
+        async function ensureAudioDevicesLoaded() {
+          if (audioDevices.length) return;
+          try {
+            const dr = await fetch('/api/audio_devices').then(r => r.json());
+            if (dr.applicable === false) {
+              audioDevices = [];
+              audioDevicesError = '';
+              return;
+            }
+            audioDevices = dr.devices || [];
+            audioDevicesError = dr.error || '';
+          } catch (e) {
+            audioDevicesError = 'Could not read the audio device list.';
+            return;
+          }
+          ['cfg_soundcard_device', 'cfg_soundcard_device2'].forEach(id => {
+            const sel = $(id);
+            if (!sel) return;
+            const current = sel.value;
+            sel.innerHTML = deviceOptions(current);
+          });
+        }
+
+        function updateSoundcardSectionState() {
+          const section = $('cfgSoundcardSection');
+          const modeEl = $('cfg__mode');
+          if (!section || !modeEl) return;
+          const active = modeEl.value === 'soundcard';
+          section.classList.toggle('opacity-40', !active);
+          section.classList.toggle('pointer-events-none', !active);
+          renderDeviceHint();
+          if (active) ensureAudioDevicesLoaded();
+        }
+
         function updateDualCardVisibility() {
           const toggle = $('cfg_so2r_mode');
           const channels = $('cfg_channels');
@@ -2069,6 +2121,7 @@
           if (so2rField) so2rField.style.display = isSO2R ? '' : 'none';
           const rx2Field = $('cfg-w-device2');
           if (rx2Field) rx2Field.style.display = isDualCard ? '' : 'none';
+          updateSoundcardSectionState();
         }
         // Apply the mode-dependent field visibility and initial widget state
         // synchronously, before the modal is shown, so fields never flash in

@@ -144,6 +144,7 @@ cfg: AppConfig = load_config()
 audio_source = None
 n1mm = None
 audio_probe_error = ""
+audio_backend = ""
 _config_lock = threading.Lock()
 
 
@@ -226,13 +227,10 @@ def _apply_and_restart(restart_audio: bool = True, restart_n1mm: bool = True) ->
             logger.warning("Audio stop failed during restart: %s", exc)
     if restart_audio:
         os.makedirs(RECORDINGS_DIR, exist_ok=True)
-        try:
-            audio_source = create_audio_source(cfg_local, label="RX1")
-            audio_source.start()
-        except Exception as exc:
-            logger.error("Audio source failed to start: %s", exc)
-            if audio_source is not None:
-                audio_source._last_error = str(exc)
+        # Use the same guarded path as startup: switching from TCI to
+        # soundcard must not load a crashing audio library in this process,
+        # and must pick up the WASAPI fallback when PortAudio is unusable.
+        audio_source = _start_audio_source(cfg_local, wait=10.0)
     if restart_n1mm:
         n1mm = N1MMListener(cfg_local, on_contact=on_contact)
         try:
@@ -292,7 +290,7 @@ def _log_startup_banner() -> None:
         logger.debug("startup banner failed: %s", exc)
 
 
-def _start_audio_source(cfg_local: AppConfig):
+def _start_audio_source(cfg_local: AppConfig, wait: Optional[float] = None):
     """Create and start the audio source, gated by the out-of-process probe.
 
     PortAudio is only needed for soundcard mode, and on some systems it
@@ -301,16 +299,21 @@ def _start_audio_source(cfg_local: AppConfig):
     runs in a child process first. If PortAudio cannot start there, the probe
     falls back to Windows WASAPI and recording uses that backend instead, so
     no PortAudio code is ever loaded in this process.
+
+    ``wait`` bounds how long to wait for the probe (settings changes must not
+    block a request for long); ``None`` waits for the full probe timeout.
     """
-    global audio_probe_error
+    global audio_probe_error, audio_backend
     backend = None
     if cfg_local.audio_mode == "soundcard":
-        probe = audio_probe.ensure_probe()
+        probe = (audio_probe.ensure_probe() if wait is None
+                 else audio_probe.ensure_probe(wait))
         if probe is None:
             audio_probe_error = (
                 "the audio device check did not finish in time; audio capture "
                 "was not started")
             logger.error("%s", audio_probe_error)
+            audio_backend = ""
             return None
         if not probe.get("ok"):
             audio_probe_error = probe.get("error") or "the audio device check failed"
@@ -319,6 +322,7 @@ def _start_audio_source(cfg_local: AppConfig):
                 "audio driver, not with the configured device: the audio "
                 "library crashes before any device can be listed.",
                 audio_probe_error)
+            audio_backend = ""
             return None
         audio_probe_error = ""
         backend = probe.get("backend")
@@ -328,15 +332,18 @@ def _start_audio_source(cfg_local: AppConfig):
     try:
         source = create_audio_source(cfg_local, label="RX1", backend=backend)
         source.start()
+        audio_backend = backend or (
+            "tci" if cfg_local.audio_mode == "tci" else audio_probe.PORTAUDIO_BACKEND)
         return source
     except Exception as exc:
         logger.error("Audio source failed to start: %s", exc)
+        audio_backend = ""
         return None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global audio_source, n1mm, audio_probe_error
+    global audio_source, n1mm, audio_probe_error, audio_backend
     qso_db.init_db()
     threading.Thread(
         target=qso_db.migrate_existing,
@@ -571,21 +578,39 @@ def api_export(contest: Optional[str] = Query(None)) -> FileResponse:
 @app.get("/api/audio_devices")
 def api_audio_devices() -> JSONResponse:
     """Return the probed input devices without touching PortAudio in-process."""
+    cfg_local = _read_cfg()
+    if cfg_local.audio_mode != "soundcard":
+        # The device list is irrelevant for TCI, and saying "restart" here used
+        # to send users looking for the wrong fix.
+        return JSONResponse({
+            "devices": [],
+            "error": "",
+            "applicable": False,
+            "hint": ("Audio devices are only used in Soundcard mode. Set "
+                     "Audio mode to 'soundcard' and save - the device list "
+                     "appears immediately, no restart needed."),
+        })
+
     probe = audio_probe.read_cache()
     if probe is None:
         return JSONResponse({
             "devices": [],
-            "error": "Audio devices have not been checked yet. Restart QSOCapture.",
+            "applicable": True,
+            "error": ("Audio devices have not been checked yet. Restart "
+                      "QSOCapture to run the audio check."),
         })
     if not probe.get("ok"):
         return JSONResponse({
             "devices": [],
+            "applicable": True,
             "error": probe.get("error") or "the audio device check failed",
         })
     return JSONResponse({
         "devices": probe.get("devices", []),
         "hostapis": probe.get("hostapis", []),
         "stream_test": probe.get("stream_test"),
+        "backend": probe.get("backend", ""),
+        "applicable": True,
         "error": "",
     })
 
@@ -630,6 +655,7 @@ def api_status() -> JSONResponse:
         "channels": cfg_local.channels,
         "continuous": cfg_local.continuous_recording,
         "audio": {
+            "backend": audio_backend,
             "connected": tci_connected,
             "frames_received": audio_status.get("frames_received", 0),
             "buffer_filled_sec": round(audio_status.get("buffer_filled_sec", 0.0), 1),

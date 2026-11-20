@@ -542,8 +542,9 @@ def main() -> None:
     # Probe the audio hardware out-of-process while the window is already on
     # screen. PortAudio can corrupt the heap while initialising (seen with
     # FlexRadio DAX devices), and that crash cannot be caught in-process.
-    if qso_main.cfg.audio_mode == "soundcard":
-        audio_probe.start_probe()
+    # It runs in every mode so switching from TCI to soundcard in Settings can
+    # offer the device list immediately, without restarting the application.
+    audio_probe.start_probe()
 
     config = uvicorn.Config(
         qso_main.app,
