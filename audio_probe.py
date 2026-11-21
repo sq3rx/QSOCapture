@@ -160,6 +160,11 @@ def _probe_wasapi(test_stream: bool = False) -> dict:
         })
         if test_stream:
             result["stream_test"] = _wasapi_stream_test(sc, devices)
+    except FileNotFoundError as exc:
+        result["error"] = (
+            f"the Windows audio backend is incomplete in this build "
+            f"(missing {exc.filename or 'a data file'}); install the latest "
+            f"QSOCapture version")
     except Exception as exc:
         result["error"] = f"{type(exc).__name__}: {exc}"
     result["duration_s"] = round(time.time() - started, 2)

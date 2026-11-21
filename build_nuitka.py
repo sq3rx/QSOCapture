@@ -14,6 +14,23 @@ import os
 import subprocess
 import sys
 
+# Data files that must survive packaging. ``soundcard`` reads its cffi
+# declaration headers from the package directory at import time; without them
+# the WASAPI audio backend cannot start in the installed build.
+REQUIRED_PACKAGE_DATA = (
+    "mediafoundation.py.h",
+)
+
+
+def verify_package_data(dist_dir: str, required=REQUIRED_PACKAGE_DATA) -> list:
+    """Return the entries of *required* that are missing from *dist_dir*."""
+    if not os.path.isdir(dist_dir):
+        return list(required)
+    present = set()
+    for _root, _dirs, files in os.walk(dist_dir):
+        present.update(files)
+    return [name for name in required if name not in present]
+
 
 def main():
     parser = argparse.ArgumentParser(description="Build QSOCapture with Nuitka")
@@ -84,6 +101,13 @@ def main():
     for pkg in hidden_packages:
         cmd.append(f"--include-package={pkg}")
 
+    # soundcard reads its cffi declaration headers (``mediafoundation.py.h``)
+    # from the package directory at import time. Without the package data the
+    # packaged EXE fails with "FileNotFoundError: ...\\soundcard\\
+    # mediafoundation.py.h" and the WASAPI audio fallback cannot start.
+    for pkg in ("soundcard",):
+        cmd.append(f"--include-package-data={pkg}")
+
     if args.onefile:
         exe_name = f"QSOCapture-portable{version_suffix}"
     else:
@@ -98,6 +122,17 @@ def main():
     if result.returncode != 0:
         print(f"ERROR: Nuitka build failed with exit code {result.returncode}")
         sys.exit(1)
+
+    # Catch missing runtime data files here instead of shipping an installer
+    # that fails on the user's machine (this is how mediafoundation.py.h was
+    # missing from a release).
+    missing = verify_package_data("qt_launcher.dist", REQUIRED_PACKAGE_DATA)
+    if missing:
+        print("ERROR: the build is missing required package data files:")
+        for name in missing:
+            print(f"  - {name}")
+        sys.exit(1)
+
     print("Build completed successfully!")
 
 

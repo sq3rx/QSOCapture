@@ -6,6 +6,7 @@ in plain business language, without going into implementation details.
 ## Unreleased
 
 ### Bug fixes
+* **The Windows audio fallback works in the installed build:** the installer was missing a data file that the direct-Windows capture path needs, so it failed with "FileNotFoundError ... mediafoundation.py.h". The file is now bundled, and the build stops if it is ever left out again.
 * **Settings explain TCI vs. soundcard clearly:** with TCI selected, the soundcard device list now says it is only used in Soundcard mode and that switching the audio mode (no restart) is all that is needed. The soundcard section is dimmed, and the device list appears as soon as you switch to Soundcard in the form.
 * **Switching the audio mode in Settings is safe:** changing from TCI to Soundcard now restarts capture through the same protected path as a normal start, so a misbehaving audio driver cannot crash the application while saving settings.
 * **Recording works even when the normal audio library cannot start:** on systems where the audio library crashes while scanning devices (confirmed with FlexRadio DAX), QSOCapture falls back to recording through Windows audio directly, so the application and the recording keep working.

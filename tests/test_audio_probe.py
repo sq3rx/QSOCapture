@@ -2,6 +2,7 @@
 
 import json
 import subprocess
+import sys
 
 import pytest
 
@@ -143,3 +144,23 @@ def test_both_backends_failing_is_reported(monkeypatch):
 
     assert result["ok"] is False
     assert result["wasapi_error"] == "wasapi failed"
+
+
+def test_missing_wasapi_data_file_is_reported_clearly(monkeypatch):
+    """A packaged build without soundcard data must say so, not dump a traceback."""
+    pytest.importorskip("soundcard")
+    import cffi
+
+    def _raise(*args, **kwargs):
+        raise FileNotFoundError(2, "No such file", "mediafoundation.py.h")
+
+    # Force a fresh ``import soundcard`` so the cdef call happens again.
+    for name in ("soundcard", "soundcard.mediafoundation"):
+        monkeypatch.delitem(sys.modules, name, raising=False)
+    monkeypatch.setattr(cffi.FFI, "cdef", _raise)
+
+    result = audio_probe._probe_wasapi(test_stream=False)
+
+    assert result["ok"] is False
+    assert "incomplete in this build" in result["error"]
+    assert "latest" in result["error"]
